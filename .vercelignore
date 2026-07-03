@@ -3,7 +3,6 @@ USERS
 .env
 .env.*
 node_modules
-public
 dist
 build
 *.log

@@ -9,7 +9,6 @@ USERS/
 
 # Dependencies and generated output
 node_modules/
-public/
 dist/
 build/
 .vercel/

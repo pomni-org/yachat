@@ -1,15 +1,13 @@
 import os
-from pathlib import Path
 from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 
 
 app = FastAPI(title="YaChat API", version="0.1.0")
-PUBLIC_ROOT = (Path(__file__).resolve().parent.parent / "public").resolve()
 
 PUBLIC_USER_FIELDS = (
     "id",
@@ -144,39 +142,3 @@ def unsupported_api(path: str):
             "error": "This Vercel build exposes only the safe public users API. The messenger runtime uses local browser storage for other actions."
         },
     )
-
-
-def safe_public_file(path: str) -> Path | None:
-    clean_path = path.strip("/") or "index.html"
-    if clean_path in {"privacy", "policy"}:
-        clean_path = "privacy.html"
-    elif clean_path in {"terms", "agreement"}:
-        clean_path = "terms.html"
-    elif clean_path == "help":
-        clean_path = "help.html"
-
-    target = (PUBLIC_ROOT / clean_path).resolve()
-    if not str(target).startswith(str(PUBLIC_ROOT)) or not target.is_file():
-        return None
-    return target
-
-
-@app.get("/")
-def root_page():
-    target = safe_public_file("index.html")
-    if target:
-        return FileResponse(target)
-    raise HTTPException(status_code=404, detail="Static build output is missing.")
-
-
-@app.get("/{path:path}")
-def static_fallback(path: str):
-    target = safe_public_file(path)
-    if target:
-        return FileResponse(target)
-
-    index = safe_public_file("index.html")
-    if index:
-        return FileResponse(index)
-
-    raise HTTPException(status_code=404, detail="Static build output is missing.")

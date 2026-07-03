@@ -1,0 +1,363 @@
+﻿<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ЯЧат</title>
+    <link rel="icon" type="image/svg+xml" href="./assets/yachat-SVG-color.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell" aria-label="ячат">
+      <section class="auth-card" data-auth-card aria-live="polite">
+        <header class="card-tools">
+          <button class="tool-button language-tool" type="button" data-action="open-language-choice" aria-label="Язык">
+            <span class="css-icon gg-globe"></span>
+            <strong data-language-current>RU</strong>
+          </button>
+          <div class="right-tools">
+            <button class="tool-button" type="button" data-action="toggle-theme" aria-label="Переключить тему">
+              <span class="css-icon gg-theme"></span>
+            </button>
+            <button class="tool-button" type="button" data-action="open-help" aria-label="Помощь">
+              <span class="css-icon gg-question"></span>
+            </button>
+          </div>
+          <div class="language-choice" data-language-choice hidden>
+            <button class="language-choice-row is-selected" type="button" data-language="ru">
+              <span>RU</span>
+              <strong data-language-name="ru">Русский</strong>
+            </button>
+            <button class="language-choice-row" type="button" data-language="en">
+              <span>EN</span>
+              <strong data-language-name="en">English</strong>
+            </button>
+          </div>
+        </header>
+
+        <div class="brand-center" aria-label="ячат">
+          <div class="brand-bubble" aria-hidden="true"></div>
+          <div class="brand-name">ячат</div>
+        </div>
+
+        <section class="screen is-active" data-screen="phone">
+          <div class="screen-copy">
+            <h1>С каким номером телефона хотите войти?</h1>
+            <p>На него придёт СМС с кодом</p>
+          </div>
+
+          <form class="auth-form" data-form="phone">
+            <label class="phone-field" aria-label="Номер телефона">
+              <button class="country-code" type="button" data-action="open-country">
+                <span data-country-label>RU</span>
+                <strong data-country-code>+7</strong>
+                <span class="css-icon gg-chevron-down"></span>
+              </button>
+              <input
+                name="phone"
+                type="tel"
+                inputmode="tel"
+                autocomplete="tel"
+                placeholder="123 456 78 90"
+                required
+              />
+            </label>
+            <div class="country-choice" data-country-choice hidden>
+              <input type="search" autocomplete="off" placeholder="Поиск страны" data-country-search />
+              <div class="country-choice-list" data-country-list></div>
+            </div>
+
+            <p class="field-note">Для входа нужен номер из России или страны из списка — нажмите на код страны, чтобы выбрать</p>
+            <div class="form-message" data-message="phone"></div>
+
+            <button class="main-button" type="submit" disabled>Войти</button>
+          </form>
+
+          <div class="legal-note">
+            <span data-legal-prefix>Нажимая «Войти», вы принимаете</span>
+            <button type="button" data-action="open-policy" data-info-page="policy">политику конфиденциальности</button>
+            <span data-legal-and>и</span>
+            <button type="button" data-action="open-terms" data-info-page="terms">пользовательское соглашение</button>
+          </div>
+
+          <button class="link-button" type="button" data-action="open-qr">Войти по QR-коду</button>
+        </section>
+
+        <section class="screen" data-screen="code">
+          <div class="screen-copy">
+            <h1>Введите код из СМС</h1>
+            <p><span data-code-sent-prefix>Мы отправили код на</span> <span data-phone-preview>номер</span></p>
+          </div>
+
+          <form class="auth-form" data-form="code">
+            <div class="code-grid" aria-label="Код проверки">
+              <input maxlength="1" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" />
+              <input maxlength="1" inputmode="numeric" pattern="[0-9]*" />
+              <input maxlength="1" inputmode="numeric" pattern="[0-9]*" />
+              <input maxlength="1" inputmode="numeric" pattern="[0-9]*" />
+              <input maxlength="1" inputmode="numeric" pattern="[0-9]*" />
+              <input maxlength="1" inputmode="numeric" pattern="[0-9]*" />
+            </div>
+
+            <div class="form-message" data-message="code"></div>
+            <button class="main-button" type="submit" disabled>Продолжить</button>
+          </form>
+
+          <div class="screen-actions">
+            <button class="link-button muted" type="button" data-action="back-phone">Изменить номер</button>
+            <button class="link-button" type="button" data-action="resend-code">Отправить ещё раз</button>
+          </div>
+        </section>
+
+        <section class="screen" data-screen="profile">
+          <div class="screen-copy">
+            <h1>Создайте профиль</h1>
+            <p>Имя и ник будут видны в ЯЧате</p>
+          </div>
+
+          <form class="auth-form" data-form="profile">
+            <div class="avatar-picker">
+              <button class="avatar-preview" type="button" data-action="choose-avatar" aria-label="Выбрать аватар">
+                <img data-avatar-image alt="" hidden />
+                <span data-avatar-initial>Я</span>
+              </button>
+              <div class="avatar-copy">
+                <strong data-avatar-title>Аватар</strong>
+                <button class="link-button inline" type="button" data-action="choose-avatar" data-avatar-action>Выбрать из галереи</button>
+              </div>
+              <input class="visually-hidden" name="avatar" type="file" accept="image/*" data-avatar-input />
+            </div>
+
+            <label class="text-field">
+              <span>Имя</span>
+              <input name="displayName" type="text" autocomplete="name" placeholder="Рей" required />
+            </label>
+
+            <label class="text-field">
+              <span>Ник</span>
+              <input name="username" type="text" autocomplete="username" placeholder="необязательно" />
+            </label>
+
+            <label class="text-field textarea-field">
+              <span>Описание</span>
+              <textarea name="bio" maxlength="140" placeholder="Пара слов о себе"></textarea>
+            </label>
+
+            <div class="form-message" data-message="profile"></div>
+            <button class="main-button" type="submit" disabled>Создать аккаунт</button>
+          </form>
+        </section>
+
+        <section class="screen qr-screen" data-screen="qr">
+          <button class="back-button" type="button" data-action="back-phone">
+            <span class="css-icon gg-chevron-left"></span>
+            Назад
+          </button>
+
+          <div class="screen-copy">
+            <h1>Вход по QR-коду</h1>
+            <p data-qr-status>Создаём код входа для нового устройства</p>
+          </div>
+
+          <div class="qr-box" aria-label="QR-код для входа" data-qr-box>
+            <div class="qr-grid" data-qr-code></div>
+            <div class="qr-logo">Я</div>
+          </div>
+
+          <button class="link-button" type="button" data-action="refresh-qr">Обновить QR-код</button>
+        </section>
+
+        <section class="screen done-screen" data-screen="done">
+          <div class="done-mark">
+            <img data-done-avatar alt="" hidden />
+            <span data-done-initial>Я</span>
+          </div>
+          <div class="screen-copy">
+            <h1>Аккаунт создан</h1>
+            <p data-success-text>Аккаунт ЯЧата готов</p>
+          </div>
+          <button class="main-button" type="button" data-action="view-account">Посмотреть данные</button>
+        </section>
+
+        <section class="screen page-screen" data-screen="language">
+          <button class="back-button" type="button" data-action="back-home">
+            <span class="css-icon gg-chevron-left"></span>
+            Назад
+          </button>
+
+          <div class="doc-title">
+            <span class="doc-icon"><span class="css-icon gg-globe"></span></span>
+            <div>
+              <p>Настройки</p>
+              <h1>Язык приложения</h1>
+            </div>
+          </div>
+
+          <div class="option-list">
+            <button class="option-row is-selected" type="button" data-language="ru"><span data-language-name="ru">Русский</span></button>
+            <button class="option-row" type="button" data-language="en"><span data-language-name="en">English</span></button>
+          </div>
+        </section>
+
+        <section class="screen page-screen" data-screen="country">
+          <button class="back-button" type="button" data-action="back-home">
+            <span class="css-icon gg-chevron-left"></span>
+            Назад
+          </button>
+
+          <div class="doc-title">
+            <span class="doc-icon"><span class="css-icon gg-globe"></span></span>
+            <div>
+              <p>Номер</p>
+              <h1>Страна телефона</h1>
+            </div>
+          </div>
+
+          <div class="option-list">
+            <button class="option-row is-selected" type="button" data-action="select-country" data-country="RU" data-country-code="+7">RU +7 Россия</button>
+            <button class="option-row" type="button" data-action="select-country" data-country="BY" data-country-code="+375">BY +375 Беларусь</button>
+            <button class="option-row" type="button" data-action="select-country" data-country="KZ" data-country-code="+7">KZ +7 Казахстан</button>
+          </div>
+        </section>
+      </section>
+
+      <section class="messenger-shell" data-messenger hidden>
+        <aside class="messenger-rail" aria-label="Навигация">
+          <button class="rail-button is-active" type="button" data-rail="all" aria-label="Все чаты">
+            <span class="rail-badge" data-total-unread hidden>0</span>
+            <span class="css-icon gg-chat"></span>
+            <strong>Все</strong>
+          </button>
+          <button class="rail-button" type="button" data-rail="contacts" aria-label="Контакты">
+            <span class="css-icon gg-contacts"></span>
+            <strong>Контакты</strong>
+          </button>
+          <button class="rail-button" type="button" data-rail="calls" aria-label="Звонки">
+            <span class="css-icon gg-call"></span>
+            <strong>Звонки</strong>
+          </button>
+          <button class="rail-button rail-bottom" type="button" data-rail="settings" aria-label="Настройки">
+            <span class="css-icon gg-settings"></span>
+            <strong>Настройки</strong>
+          </button>
+        </aside>
+
+        <aside class="chat-pane" aria-label="Чаты">
+          <header class="chat-pane-head">
+            <h1>Чаты</h1>
+            <button class="round-action" type="button" data-action="new-chat" aria-label="Новый чат">
+              <span class="css-icon gg-plus"></span>
+            </button>
+          </header>
+
+          <label class="search-field">
+            <span class="css-icon gg-search"></span>
+            <input type="search" placeholder="Поиск" data-chat-search />
+          </label>
+
+          <div class="chat-list" data-chat-list></div>
+        </aside>
+
+        <section class="dialog-pane" aria-label="Диалог">
+          <header class="dialog-head">
+            <button class="dialog-back" type="button" data-action="dialog-back" aria-label="Назад">
+              <span class="css-icon gg-chevron-left"></span>
+            </button>
+            <button class="dialog-profile-button" type="button" data-action="chat-card" aria-label="Профиль чата">
+              <div class="dialog-avatar" data-dialog-avatar>Я</div>
+              <div class="dialog-title">
+                <h2 data-dialog-title>ЯЧат</h2>
+                <p data-dialog-subtitle>Бот</p>
+              </div>
+            </button>
+            <button class="dialog-search" type="button" aria-label="Найти в чате">
+              <span class="css-icon gg-search"></span>
+            </button>
+          </header>
+
+          <div class="dialog-wall">
+            <div class="dialog-intro" data-dialog-intro>
+              <div class="dialog-intro-avatar" data-dialog-intro-avatar>Я</div>
+              <strong data-dialog-intro-title>Хотите продолжить чат?</strong>
+              <span data-dialog-intro-text>Напишите сообщение</span>
+            </div>
+            <div class="message-list" data-message-list></div>
+          </div>
+
+          <form class="composer" data-form="message">
+            <div class="composer-context" data-composer-context hidden></div>
+            <button class="composer-tool" type="button" data-action="attach-file" aria-label="Вложения">
+              <span class="css-icon gg-paperclip"></span>
+            </button>
+            <input class="visually-hidden" type="file" multiple data-attachment-input />
+            <input name="message" autocomplete="off" placeholder="Сообщение" data-message-input />
+            <button class="composer-tool" type="button" data-action="open-stickers" aria-label="Стикеры">
+              <span class="css-icon gg-sticker"></span>
+            </button>
+            <button class="send-button" type="submit" aria-label="Отправить" disabled>
+              <span class="css-icon gg-send"></span>
+            </button>
+            <div class="attachment-tray" data-attachment-tray hidden></div>
+          </form>
+        </section>
+
+        <aside class="side-panel" data-side-panel hidden>
+          <header class="side-panel-head">
+            <div>
+              <p data-panel-kicker hidden></p>
+              <h2 data-panel-title>Настройки</h2>
+            </div>
+            <button class="icon-button" type="button" data-action="close-panel" aria-label="Закрыть">
+              <span class="css-icon gg-x"></span>
+            </button>
+          </header>
+          <div class="side-panel-body" data-panel-body></div>
+        </aside>
+
+        <div class="modal-layer" data-create-chat-modal hidden>
+          <form class="modal-card" data-form="create-chat">
+            <header>
+              <h2>Новый чат</h2>
+              <button class="icon-button" type="button" data-action="close-create-chat" aria-label="Закрыть">
+                <span class="css-icon gg-x"></span>
+              </button>
+            </header>
+            <div class="segmented-control">
+              <button class="is-selected" type="button" data-chat-kind="private">Личный</button>
+              <button type="button" data-chat-kind="group">Группа</button>
+            </div>
+            <label class="modal-field" data-create-group-field>
+              <span data-create-title-label>Название группы</span>
+              <input name="title" type="text" maxlength="60" placeholder="Например, Команда" />
+            </label>
+            <div class="create-chat-avatar" data-create-group-field>
+              <button class="create-chat-avatar-preview" type="button" data-action="choose-create-chat-avatar" aria-label="Выбрать аватар группы">
+                <img alt="" data-create-chat-avatar-image hidden />
+                <span data-create-chat-avatar-initial>Я</span>
+              </button>
+              <div>
+                <strong data-create-avatar-title>Аватар группы</strong>
+                <button class="link-button inline" type="button" data-action="choose-create-chat-avatar" data-create-avatar-action>Выбрать аватар</button>
+              </div>
+              <input class="visually-hidden" name="avatar" type="file" accept="image/*" data-create-chat-avatar-input />
+            </div>
+            <label class="modal-field" data-create-group-field>
+              <span data-create-description-label>Описание группы</span>
+              <textarea name="description" maxlength="180" rows="3" placeholder="Необязательно"></textarea>
+            </label>
+            <label class="modal-field">
+              <span data-create-people-label>Человек</span>
+              <input name="peopleSearch" type="search" autocomplete="off" placeholder="Номер телефона или ник" data-create-people-search />
+            </label>
+            <div class="user-choice-list" data-create-user-results></div>
+            <div class="selected-users" data-create-selected-users></div>
+            <div class="form-message" data-message="create-chat"></div>
+            <button class="main-button" type="submit">Создать</button>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
