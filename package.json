@@ -1,0 +1,14 @@
+{
+  "name": "yachat",
+  "version": "0.1.0",
+  "description": "ЯЧат desktop messenger login and registration",
+  "main": "src/main.cjs",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build-vercel.cjs",
+    "build:vercel": "node scripts/build-vercel.cjs",
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-electron.ps1",
+    "launch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/launch-yachat.ps1",
+    "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js"
+  }
+}
