@@ -3082,6 +3082,23 @@ body.messenger-mode .app-shell {
   line-height: var(--page-title-line);
 }
 
+.confirm-modal-card {
+  width: min(430px, calc(100vw - 48px));
+}
+
+.confirm-modal-card > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.confirm-modal-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3708,6 +3725,10 @@ body.messenger-mode .app-shell {
   .modal-card {
     width: 100%;
     border-radius: 18px;
+  }
+
+  .confirm-modal-actions {
+    grid-template-columns: 1fr;
   }
 }
 

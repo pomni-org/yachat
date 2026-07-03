@@ -59,6 +59,10 @@ const state = {
   newChatKind: "private",
   createChatUsers: [],
   createChatSelectedIds: [],
+  contactMatches: [],
+  contactLookupMessage: "",
+  contactLookupLoading: false,
+  deleteProfileActionButton: null,
   pendingCreateChatAvatarDataUrl: "",
   pendingChatAvatarDataUrl: null,
   pendingAttachments: [],
@@ -127,6 +131,10 @@ const panelKicker = document.querySelector("[data-panel-kicker]");
 const panelBody = document.querySelector("[data-panel-body]");
 const createChatModal = document.querySelector("[data-create-chat-modal]");
 const createChatForm = document.querySelector('[data-form="create-chat"]');
+const deleteProfileModal = document.querySelector("[data-delete-profile-modal]");
+const deleteProfileForm = document.querySelector('[data-form="delete-profile"]');
+const deleteProfileInput = document.querySelector("[data-delete-profile-input]");
+const deleteProfileSubmit = document.querySelector("[data-delete-profile-submit]");
 const qrCodeTarget = document.querySelector("[data-qr-code]");
 const qrStatus = document.querySelector("[data-qr-status]");
 
@@ -437,6 +445,18 @@ const translations = {
     errGroupName: "Введите название группы.",
     create: "Создать",
     contactsEmpty: "Контакты появятся после добавления людей. Системные чаты уже закреплены.",
+    contactsImportTitle: "Найти людей из контактов",
+    contactsImportHint: "Разрешите доступ к контактам или вставьте номера вручную. ЯЧат покажет только тех, кто уже зарегистрирован.",
+    requestContacts: "Запросить контакты",
+    checkContacts: "Проверить номера",
+    contactsInputPlaceholder: "+7 900 000 00 00\n+7 901 000 00 00",
+    contactsFoundTitle: "Найдены в ЯЧате",
+    contactsFoundCount: "Найдено: {count}",
+    contactsNoMatches: "Совпадений пока нет. Добавьте номера и нажмите проверку.",
+    contactsUnavailable: "Chrome на этом устройстве не дал доступ к адресной книге. Вставьте номера вручную.",
+    contactsPermissionDenied: "Доступ к контактам не выдан. Можно вставить номера вручную.",
+    contactsInputEmpty: "Добавьте хотя бы один номер.",
+    openChat: "Открыть чат",
     callsEmpty: "Звонки пока без истории. Интерфейс готов под будущий голосовой модуль.",
     profileAndSettings: "Настройки",
     sessions: "Сессии",
@@ -453,8 +473,13 @@ const translations = {
     logoutConfirm: "Выйти из аккаунта ЯЧата?",
     dangerZone: "Опасная зона",
     deleteProfile: "Удалить профиль",
-    deleteProfileHint: "Удаление уберёт локальный профиль и связанные с ним чаты на этом устройстве.",
-    deleteProfileConfirm: "Чтобы удалить профиль, напишите: Удалить мой профиль",
+    deleteProfileHint: "Удаление уберёт профиль, аватар, контакты, чаты, сообщения и вложения с этого сервера.",
+    deleteProfileConfirmTitle: "Подтверждение удаления",
+    deleteProfileConfirmText: "Это действие нельзя отменить. Сервер удалит профиль, аватар, контакты, чаты, сообщения и вложения.",
+    deleteProfileConfirm: "Введите фразу: Удалить мой профиль",
+    deleteProfileConfirmPlaceholder: "Удалить мой профиль",
+    deleteProfileCancel: "Отмена",
+    deleteProfileConfirmAction: "Удалить навсегда",
     deleteProfileMismatch: "Фраза не совпала. Профиль не удалён.",
     deleteProfileDone: "Профиль удалён.",
     errDeleteProfile: "Не удалось удалить профиль.",
@@ -622,6 +647,18 @@ const translations = {
     errGroupName: "Enter a group name.",
     create: "Create",
     contactsEmpty: "Contacts will appear after people are added. System chats are already pinned.",
+    contactsImportTitle: "Find people from contacts",
+    contactsImportHint: "Allow contact access or paste phone numbers manually. ЯЧат will show only people who already have an account.",
+    requestContacts: "Request contacts",
+    checkContacts: "Check numbers",
+    contactsInputPlaceholder: "+1 555 000 0000\n+1 555 000 0001",
+    contactsFoundTitle: "Found in ЯЧат",
+    contactsFoundCount: "Found: {count}",
+    contactsNoMatches: "No matches yet. Add numbers and run the check.",
+    contactsUnavailable: "Chrome on this device did not provide address book access. Paste numbers manually.",
+    contactsPermissionDenied: "Contact access was not granted. You can paste numbers manually.",
+    contactsInputEmpty: "Add at least one phone number.",
+    openChat: "Open chat",
     callsEmpty: "No call history yet. The screen is ready for the future voice module.",
     profileAndSettings: "Profile and settings",
     sessions: "Sessions",
@@ -638,8 +675,13 @@ const translations = {
     logoutConfirm: "Log out of the ЯЧат account?",
     dangerZone: "Danger zone",
     deleteProfile: "Delete profile",
-    deleteProfileHint: "Deletion removes the local profile and its related chats on this device.",
-    deleteProfileConfirm: "To delete the profile, type: Delete my profile",
+    deleteProfileHint: "Deletion removes the profile, avatar, contacts, chats, messages, and attachments from this server.",
+    deleteProfileConfirmTitle: "Confirm deletion",
+    deleteProfileConfirmText: "This action cannot be undone. The server will delete the profile, avatar, contacts, chats, messages, and attachments.",
+    deleteProfileConfirm: "Type this phrase: Delete my profile",
+    deleteProfileConfirmPlaceholder: "Delete my profile",
+    deleteProfileCancel: "Cancel",
+    deleteProfileConfirmAction: "Delete forever",
     deleteProfileMismatch: "The phrase did not match. The profile was not deleted.",
     deleteProfileDone: "Profile deleted.",
     errDeleteProfile: "Could not delete the profile.",
@@ -1723,30 +1765,64 @@ function isDeleteProfileConfirmation(value) {
   return DELETE_PROFILE_CONFIRMATIONS.has(normalizeDeleteProfileConfirmation(value));
 }
 
-async function deleteProfileAccount(actionButton) {
-  const phrase = window.prompt(t("deleteProfileConfirm"), "");
-  if (phrase === null) {
+function closeDeleteProfileConfirm() {
+  if (deleteProfileModal) {
+    deleteProfileModal.hidden = true;
+  }
+
+  state.deleteProfileActionButton = null;
+
+  if (deleteProfileForm) {
+    deleteProfileForm.reset();
+  }
+
+  setMessage("delete-profile", "");
+}
+
+function openDeleteProfileConfirm(actionButton) {
+  if (!deleteProfileModal || !deleteProfileForm) {
     return;
   }
 
+  state.deleteProfileActionButton = actionButton || null;
+  deleteProfileForm.reset();
+  setMessage("delete-profile", "");
+  deleteProfileModal.hidden = false;
+  requestAnimationFrame(() => deleteProfileInput?.focus());
+}
+
+async function submitDeleteProfileConfirm() {
+  const phrase = deleteProfileInput?.value || "";
+
   if (!isDeleteProfileConfirmation(phrase)) {
-    alert(t("deleteProfileMismatch"));
+    setMessage("delete-profile", t("deleteProfileMismatch"));
     return;
   }
+
+  const actionButton = state.deleteProfileActionButton;
 
   if (actionButton) {
     actionButton.disabled = true;
   }
 
+  if (deleteProfileSubmit) {
+    deleteProfileSubmit.disabled = true;
+  }
+
   try {
     await yachatApi.account.deleteProfile?.();
+    closeDeleteProfileConfirm();
     resetAccountSessionUi();
-    alert(t("deleteProfileDone"));
+    setMessage("phone", t("deleteProfileDone"));
   } catch (error) {
-    alert(translatedServerMessage(error.message, "errDeleteProfile"));
+    setMessage("delete-profile", translatedServerMessage(error.message, "errDeleteProfile"));
   } finally {
     if (actionButton) {
       actionButton.disabled = false;
+    }
+
+    if (deleteProfileSubmit) {
+      deleteProfileSubmit.disabled = false;
     }
   }
 }
@@ -1805,9 +1881,48 @@ function normalizeUser(user) {
     displayName,
     previewName: displayName,
     contact: cleanDisplayText(user.contact, ""),
+    matchedContact: cleanDisplayText(user.matchedContact, ""),
     avatarDataUrl: user.avatarDataUrl || "",
     avatarAccent: user.avatarAccent || "#471AFF"
   };
+}
+
+function contactMatchKeys(value) {
+  const digits = digitsOnly(value);
+  const keys = new Set();
+
+  if (!digits) {
+    return keys;
+  }
+
+  keys.add(digits);
+
+  if (digits.length === 11 && digits.startsWith("8")) {
+    keys.add(`7${digits.slice(1)}`);
+  }
+
+  if (digits.length === 11 && digits.startsWith("7")) {
+    keys.add(digits.slice(1));
+  }
+
+  if (digits.length === 10) {
+    keys.add(`7${digits}`);
+  }
+
+  return keys;
+}
+
+function extractContactPhones(value) {
+  const matches = String(value || "").match(/\+?\d[\d\s().-]{5,}\d/g) || [];
+  return [...new Set(matches.map((phone) => phone.trim()).filter(Boolean))];
+}
+
+function contactPickerAvailable() {
+  return Boolean(navigator.contacts?.select);
+}
+
+function contactLookupText(user) {
+  return cleanDisplayText(user.contact || user.matchedContact, "");
 }
 
 function userSearchText(user) {
@@ -1816,6 +1931,7 @@ function userSearchText(user) {
     user.previewName,
     user.username,
     user.contact,
+    user.matchedContact,
     String(user.contact || "").replace(/\D/g, "")
   ].join(" ").toLowerCase();
 }
@@ -2875,6 +2991,12 @@ function applyTranslations() {
   setText('[data-chat-kind="private"]', "privateChat");
   setText('[data-chat-kind="group"]', "groupChat");
   setText('[data-form="create-chat"] .main-button', "create");
+  setText("[data-delete-profile-title]", "deleteProfileConfirmTitle");
+  setText("[data-delete-profile-text]", "deleteProfileConfirmText");
+  setText("[data-delete-profile-confirm]", "deleteProfileConfirm");
+  setAttr("[data-delete-profile-input]", "placeholder", "deleteProfileConfirmPlaceholder");
+  setText('[data-action="close-delete-profile"]:not(.icon-button)', "deleteProfileCancel");
+  setText("[data-delete-profile-submit]", "deleteProfileConfirmAction");
   renderCreateChatForm();
   hydrateIcons();
   if (state.activePanel) {
@@ -3234,6 +3356,74 @@ function createLocalYachatApi() {
       .filter(Boolean))];
   }
 
+  function localMessageBelongsToAccount(message, account) {
+    const accountId = String(account?.id || "");
+    const contact = String(account?.contact || "").trim();
+    const text = String(message?.text || "");
+
+    if (accountId && [message?.authorId, message?.userId, message?.senderId].some((value) => String(value || "") === accountId)) {
+      return true;
+    }
+
+    if (contact && text.includes(contact)) {
+      return true;
+    }
+
+    const contactDigits = contact.replace(/\D/g, "");
+    const textDigits = text.replace(/\D/g, "");
+    return contactDigits.length >= 6 && textDigits.includes(contactDigits);
+  }
+
+  function removeLocalAccountMessengerData(data, account) {
+    const accountId = String(account?.id || "");
+    const removedChatIds = new Set();
+    let removedMessages = 0;
+
+    data.chats = (Array.isArray(data.chats) ? data.chats : []).filter((chat) => {
+      const participantIds = localParticipantIds(chat);
+      const shouldRemoveChat = participantIds.includes(accountId) || String(chat.ownerId || "") === accountId;
+
+      if (shouldRemoveChat) {
+        removedMessages += Array.isArray(data.messages?.[chat.id]) ? data.messages[chat.id].length : 0;
+        removedChatIds.add(chat.id);
+        return false;
+      }
+
+      if (chat.participantProfiles && Object.prototype.hasOwnProperty.call(chat.participantProfiles, accountId)) {
+        delete chat.participantProfiles[accountId];
+      }
+
+      if (Array.isArray(chat.participantIds)) {
+        chat.participantIds = participantIds.filter((id) => id !== accountId);
+      }
+
+      return true;
+    });
+
+    removedChatIds.forEach((chatId) => {
+      delete data.messages[chatId];
+    });
+
+    Object.entries(data.messages || {}).forEach(([chatId, messages]) => {
+      if (!Array.isArray(messages)) {
+        return;
+      }
+
+      const wipeSavedMessages = chatId === "yachat-favorites";
+      const nextMessages = messages.filter((message) => !(wipeSavedMessages || localMessageBelongsToAccount(message, account)));
+
+      if (nextMessages.length !== messages.length) {
+        removedMessages += messages.length - nextMessages.length;
+        data.messages[chatId] = nextMessages;
+      }
+    });
+
+    return {
+      removedChats: removedChatIds.size,
+      removedMessages
+    };
+  }
+
   function countUnreadMessages(chat, messages) {
     if (!chat?.manualUnread || !Array.isArray(messages) || messages.length === 0) {
       return 0;
@@ -3398,26 +3588,12 @@ function createLocalYachatApi() {
 
         if (account?.id) {
           const data = readMessenger();
-          const removedChatIds = new Set();
-
-          data.chats = data.chats.filter((chat) => {
-            if (!localParticipantIds(chat).includes(account.id)) {
-              return true;
-            }
-
-            removedChatIds.add(chat.id);
-            return false;
-          });
-
-          removedChatIds.forEach((chatId) => {
-            delete data.messages[chatId];
-          });
-
+          const cleanup = removeLocalAccountMessengerData(data, account);
           writeMessenger(data);
-          return { ok: true, deleted: true, removedChats: removedChatIds.size };
+          return { ok: true, deleted: true, removedAttachments: 0, ...cleanup };
         }
 
-        return { ok: true, deleted: false, removedChats: 0 };
+        return { ok: true, deleted: false, removedChats: 0, removedMessages: 0, removedAttachments: 0 };
       }
     },
     server: {
@@ -4784,7 +4960,7 @@ panelBody?.addEventListener("click", async (event) => {
   }
 
   if (action === "delete-profile") {
-    deleteProfileAccount(actionButton);
+    openDeleteProfileConfirm(actionButton);
     return;
   }
 
@@ -4924,6 +5100,21 @@ document.querySelector('[data-action="close-create-chat"]')?.addEventListener("c
 createChatModal?.addEventListener("click", (event) => {
   if (event.target === createChatModal) {
     closeCreateChat();
+  }
+});
+
+deleteProfileForm?.addEventListener("submit", (event) => {
+  event.preventDefault();
+  submitDeleteProfileConfirm();
+});
+
+document.querySelectorAll('[data-action="close-delete-profile"]').forEach((button) => {
+  button.addEventListener("click", closeDeleteProfileConfirm);
+});
+
+deleteProfileModal?.addEventListener("click", (event) => {
+  if (event.target === deleteProfileModal) {
+    closeDeleteProfileConfirm();
   }
 });
 

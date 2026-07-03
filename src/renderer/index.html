@@ -355,6 +355,29 @@
             <button class="main-button" type="submit">Создать</button>
           </form>
         </div>
+
+        <div class="modal-layer confirm-modal-layer" data-delete-profile-modal hidden>
+          <form class="modal-card confirm-modal-card" data-form="delete-profile">
+            <header>
+              <h2 data-delete-profile-title>Подтверждение удаления</h2>
+              <button class="icon-button" type="button" data-action="close-delete-profile" aria-label="Закрыть">
+                <span class="css-icon gg-x"></span>
+              </button>
+            </header>
+            <p data-delete-profile-text>
+              Профиль, аватар, контакты, чаты, сообщения и вложения будут удалены с этого сервера.
+            </p>
+            <label class="modal-field">
+              <span data-delete-profile-confirm>Введите фразу: Удалить мой профиль</span>
+              <input name="confirmation" type="text" autocomplete="off" data-delete-profile-input />
+            </label>
+            <div class="form-message" data-message="delete-profile"></div>
+            <div class="confirm-modal-actions">
+              <button class="panel-primary is-secondary" type="button" data-action="close-delete-profile">Отмена</button>
+              <button class="panel-primary is-danger" type="submit" data-delete-profile-submit>Удалить навсегда</button>
+            </div>
+          </form>
+        </div>
       </section>
     </main>
 

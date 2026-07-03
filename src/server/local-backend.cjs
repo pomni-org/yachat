@@ -550,28 +550,158 @@ function createLocalBackend(app, appTitle) {
     return { ok: true };
   }
 
-  async function removeAccountChats(accountId) {
-    const state = await ensureMessengerState();
-    const removedChatIds = new Set();
+  function attachmentFileName(attachment) {
+    const url = String(attachment?.url || "");
+    const prefix = "/api/attachment/";
 
-    state.chats = state.chats.filter((chat) => {
-      if (!chatParticipantIds(chat).includes(accountId)) {
-        return true;
+    if (!url.startsWith(prefix)) {
+      return "";
+    }
+
+    try {
+      const name = path.basename(decodeURIComponent(url.slice(prefix.length).split(/[?#]/)[0] || ""));
+      return name && name !== "." ? name : "";
+    } catch {
+      return "";
+    }
+  }
+
+  function collectAttachmentFiles(messages, target) {
+    for (const message of Array.isArray(messages) ? messages : []) {
+      for (const attachment of Array.isArray(message?.attachments) ? message.attachments : []) {
+        const name = attachmentFileName(attachment);
+        if (name) {
+          target.add(name);
+        }
+      }
+    }
+  }
+
+  async function removeAttachmentFiles(fileNames) {
+    let removed = 0;
+
+    for (const name of fileNames) {
+      const filePath = path.join(attachmentsRoot, name);
+
+      if (!isInsideDirectory(attachmentsRoot, filePath)) {
+        continue;
       }
 
-      removedChatIds.add(chat.id);
-      return false;
+      try {
+        await fs.rm(filePath, { force: true });
+        removed += 1;
+      } catch {
+        // The message record is gone; a missing attachment file should not block account deletion.
+      }
+    }
+
+    return removed;
+  }
+
+  function messageBelongsToAccount(message, manifest) {
+    const accountId = String(manifest?.id || "");
+    const contact = String(manifest?.contact || "").trim();
+    const text = String(message?.text || "");
+
+    if (accountId && [message?.authorId, message?.userId, message?.senderId].some((value) => String(value || "") === accountId)) {
+      return true;
+    }
+
+    if (contact && text.includes(contact)) {
+      return true;
+    }
+
+    const contactDigits = contact.replace(/\D/g, "");
+    const textDigits = text.replace(/\D/g, "");
+    return contactDigits.length >= 6 && textDigits.includes(contactDigits);
+  }
+
+  async function removeAccountDataFromMessenger(manifest) {
+    const state = await ensureMessengerState();
+    const accountId = String(manifest?.id || "");
+    const removedChatIds = new Set();
+    const attachmentFiles = new Set();
+    let removedMessages = 0;
+    let changed = false;
+
+    state.chats = state.chats.filter((chat) => {
+      const participantIds = chatParticipantIds(chat);
+      const shouldRemoveChat = participantIds.includes(accountId) || String(chat.ownerId || "") === accountId;
+
+      if (shouldRemoveChat) {
+        collectAttachmentFiles(state.messages?.[chat.id], attachmentFiles);
+        removedMessages += Array.isArray(state.messages?.[chat.id]) ? state.messages[chat.id].length : 0;
+        removedChatIds.add(chat.id);
+        changed = true;
+        return false;
+      }
+
+      if (chat.participantProfiles && Object.prototype.hasOwnProperty.call(chat.participantProfiles, accountId)) {
+        delete chat.participantProfiles[accountId];
+        changed = true;
+      }
+
+      if (Array.isArray(chat.participantIds)) {
+        const nextIds = participantIds.filter((id) => id !== accountId);
+        if (nextIds.length !== chat.participantIds.length) {
+          chat.participantIds = nextIds;
+          changed = true;
+        }
+      }
+
+      if (Array.isArray(chat.participants)) {
+        const nextParticipants = chat.participants.filter((participant) => {
+          const id = String(typeof participant === "object" ? participant?.id : participant || "").trim();
+          return id !== accountId;
+        });
+
+        if (nextParticipants.length !== chat.participants.length) {
+          chat.participants = nextParticipants;
+          changed = true;
+        }
+      }
+
+      return true;
     });
 
     for (const chatId of removedChatIds) {
       delete state.messages[chatId];
     }
 
-    if (removedChatIds.size > 0) {
+    for (const [chatId, messages] of Object.entries(state.messages || {})) {
+      if (!Array.isArray(messages)) {
+        continue;
+      }
+
+      const wipeSavedMessages = chatId === "yachat-favorites";
+      const nextMessages = messages.filter((message) => {
+        const shouldRemoveMessage = wipeSavedMessages || messageBelongsToAccount(message, manifest);
+
+        if (shouldRemoveMessage) {
+          collectAttachmentFiles([message], attachmentFiles);
+        }
+
+        return !shouldRemoveMessage;
+      });
+
+      if (nextMessages.length !== messages.length) {
+        removedMessages += messages.length - nextMessages.length;
+        state.messages[chatId] = nextMessages;
+        changed = true;
+      }
+    }
+
+    if (changed) {
       await saveMessengerState(state);
     }
 
-    return removedChatIds.size;
+    const removedAttachments = await removeAttachmentFiles(attachmentFiles);
+
+    return {
+      removedChats: removedChatIds.size,
+      removedMessages,
+      removedAttachments
+    };
   }
 
   async function deleteProfile() {
@@ -583,7 +713,7 @@ function createLocalBackend(app, appTitle) {
 
     if (!manifest) {
       await updateSettings({ lastUserId: null, signedOut: true });
-      return { ok: true, deleted: false, removedChats: 0 };
+      return { ok: true, deleted: false, removedChats: 0, removedMessages: 0, removedAttachments: 0 };
     }
 
     const userDir = path.join(usersRoot, manifest.folder);
@@ -593,10 +723,10 @@ function createLocalBackend(app, appTitle) {
 
     await fs.rm(userDir, { recursive: true, force: true });
     await rebuildAccountIndex();
-    const removedChats = await removeAccountChats(manifest.id);
+    const cleanup = await removeAccountDataFromMessenger(manifest);
     await updateSettings({ lastUserId: null, signedOut: true });
 
-    return { ok: true, deleted: true, removedChats };
+    return { ok: true, deleted: true, ...cleanup };
   }
 
   function createMessage(chatId, text, author = "system", extra = {}) {
