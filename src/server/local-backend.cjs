@@ -380,6 +380,11 @@ function createLocalBackend(app, appTitle) {
     return ids.length === 0 || Boolean(account?.id && ids.includes(account.id));
   }
 
+  function isInsideDirectory(parentDir, childPath) {
+    const relative = path.relative(path.resolve(parentDir), path.resolve(childPath));
+    return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
+  }
+
   async function rebuildAccountIndex() {
     const users = await readAllManifests();
     const accounts = {};
@@ -543,6 +548,55 @@ function createLocalBackend(app, appTitle) {
   async function logout() {
     await updateSettings({ lastUserId: null, signedOut: true });
     return { ok: true };
+  }
+
+  async function removeAccountChats(accountId) {
+    const state = await ensureMessengerState();
+    const removedChatIds = new Set();
+
+    state.chats = state.chats.filter((chat) => {
+      if (!chatParticipantIds(chat).includes(accountId)) {
+        return true;
+      }
+
+      removedChatIds.add(chat.id);
+      return false;
+    });
+
+    for (const chatId of removedChatIds) {
+      delete state.messages[chatId];
+    }
+
+    if (removedChatIds.size > 0) {
+      await saveMessengerState(state);
+    }
+
+    return removedChatIds.size;
+  }
+
+  async function deleteProfile() {
+    await init();
+
+    const settings = await getSettings();
+    const users = await readAllManifests();
+    const manifest = users.find((user) => user.id === settings.lastUserId) || (settings.signedOut ? null : users[0]);
+
+    if (!manifest) {
+      await updateSettings({ lastUserId: null, signedOut: true });
+      return { ok: true, deleted: false, removedChats: 0 };
+    }
+
+    const userDir = path.join(usersRoot, manifest.folder);
+    if (!isInsideDirectory(usersRoot, userDir)) {
+      throw new Error("Profile path is outside the users directory.");
+    }
+
+    await fs.rm(userDir, { recursive: true, force: true });
+    await rebuildAccountIndex();
+    const removedChats = await removeAccountChats(manifest.id);
+    await updateSettings({ lastUserId: null, signedOut: true });
+
+    return { ok: true, deleted: true, removedChats };
   }
 
   function createMessage(chatId, text, author = "system", extra = {}) {
@@ -1368,6 +1422,7 @@ function createLocalBackend(app, appTitle) {
     findAccountByContact,
     createUser,
     logout,
+    deleteProfile,
     listChats,
     getMessages,
     createChat,

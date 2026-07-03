@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("yachat", {
     createChallenge: (payload) => ipcRenderer.invoke("challenge:create", payload),
     verifyChallenge: (payload) => ipcRenderer.invoke("challenge:verify", payload),
     create: (payload) => ipcRenderer.invoke("account:create", payload),
+    deleteProfile: () => ipcRenderer.invoke("account:delete-profile"),
     logout: () => ipcRenderer.invoke("account:logout")
   },
   server: {

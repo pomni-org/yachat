@@ -439,6 +439,11 @@ async function handleHttpRequest(request, response) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/account/delete") {
+        sendJson(response, 200, await localBackend.deleteProfile());
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/message") {
         sendJson(response, 200, await localBackend.sendMessage(await readRequestJson(request)));
         return;
@@ -715,6 +720,10 @@ ipcMain.handle("challenge:verify", async (_event, payload) => {
 
 ipcMain.handle("account:create", async (_event, payload) => {
   return createAccount(payload);
+});
+
+ipcMain.handle("account:delete-profile", async () => {
+  return localBackend.deleteProfile();
 });
 
 ipcMain.handle("account:logout", async () => {

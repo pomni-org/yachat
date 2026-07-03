@@ -451,6 +451,13 @@ const translations = {
     confirmLogin: "Подтвердить вход",
     logout: "Выйти из аккаунта",
     logoutConfirm: "Выйти из аккаунта ЯЧата?",
+    dangerZone: "Опасная зона",
+    deleteProfile: "Удалить профиль",
+    deleteProfileHint: "Удаление уберёт локальный профиль и связанные с ним чаты на этом устройстве.",
+    deleteProfileConfirm: "Чтобы удалить профиль, напишите: Удалить мой профиль",
+    deleteProfileMismatch: "Фраза не совпала. Профиль не удалён.",
+    deleteProfileDone: "Профиль удалён.",
+    errDeleteProfile: "Не удалось удалить профиль.",
     chatInfo: "Профиль чата",
     chatTitle: "Название",
     chatDescription: "Описание",
@@ -629,6 +636,13 @@ const translations = {
     confirmLogin: "Confirm sign-in",
     logout: "Log out",
     logoutConfirm: "Log out of the ЯЧат account?",
+    dangerZone: "Danger zone",
+    deleteProfile: "Delete profile",
+    deleteProfileHint: "Deletion removes the local profile and its related chats on this device.",
+    deleteProfileConfirm: "To delete the profile, type: Delete my profile",
+    deleteProfileMismatch: "The phrase did not match. The profile was not deleted.",
+    deleteProfileDone: "Profile deleted.",
+    errDeleteProfile: "Could not delete the profile.",
     chatInfo: "Chat profile",
     chatTitle: "Title",
     chatDescription: "Description",
@@ -697,6 +711,17 @@ const serverMessageKeys = new Map([
   ["Username: 3-24 characters, Latin letters, digits, or underscore.", "errUsername"],
   ["Description must be no longer than 140 characters.", "errBio"],
   ["Could not open the image.", "errAvatar"]
+]);
+
+const DELETE_PROFILE_CONFIRMATIONS = new Set([
+  "удалить мой профиль",
+  "удалить профиль",
+  "удали мой профиль",
+  "delete my profile",
+  "delete profile",
+  "delete my account",
+  "remove my profile",
+  "remove my account"
 ]);
 
 function t(key, params = {}) {
@@ -1645,17 +1670,7 @@ function showMessenger(account) {
   loadMessenger().catch(() => {});
 }
 
-async function logoutAccount() {
-  if (!window.confirm(t("logoutConfirm"))) {
-    return;
-  }
-
-  try {
-    await yachatApi.account.logout?.();
-  } catch {
-    // UI logout still happens even if the local endpoint is already closed.
-  }
-
+function resetAccountSessionUi() {
   stopQrPolling();
   stopQrScanner();
   closePanel();
@@ -1679,6 +1694,61 @@ async function logoutAccount() {
   }
 
   setScreen("phone", { focusPhone: true });
+}
+
+async function logoutAccount() {
+  if (!window.confirm(t("logoutConfirm"))) {
+    return;
+  }
+
+  try {
+    await yachatApi.account.logout?.();
+  } catch {
+    // UI logout still happens even if the local endpoint is already closed.
+  }
+
+  resetAccountSessionUi();
+}
+
+function normalizeDeleteProfileConfirmation(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replaceAll("ё", "е")
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function isDeleteProfileConfirmation(value) {
+  return DELETE_PROFILE_CONFIRMATIONS.has(normalizeDeleteProfileConfirmation(value));
+}
+
+async function deleteProfileAccount(actionButton) {
+  const phrase = window.prompt(t("deleteProfileConfirm"), "");
+  if (phrase === null) {
+    return;
+  }
+
+  if (!isDeleteProfileConfirmation(phrase)) {
+    alert(t("deleteProfileMismatch"));
+    return;
+  }
+
+  if (actionButton) {
+    actionButton.disabled = true;
+  }
+
+  try {
+    await yachatApi.account.deleteProfile?.();
+    resetAccountSessionUi();
+    alert(t("deleteProfileDone"));
+  } catch (error) {
+    alert(translatedServerMessage(error.message, "errDeleteProfile"));
+  } finally {
+    if (actionButton) {
+      actionButton.disabled = false;
+    }
+  }
 }
 
 function escapeHtml(value) {
@@ -2350,6 +2420,11 @@ function renderPanel() {
       <button class="panel-primary is-secondary" type="button" data-panel-action="scan-session">${iconSvg("scan-line", "button-icon")}<span>${t("openCamera")}</span></button>
       <button class="panel-primary is-danger" type="button" data-panel-action="logout">${iconSvg("log-out", "button-icon")}<span>${t("logout")}</span></button>
     </section>
+    <section class="panel-section">
+      <h3>${t("dangerZone")}</h3>
+      <p>${t("deleteProfileHint")}</p>
+      <button class="panel-primary is-danger" type="button" data-panel-action="delete-profile">${iconSvg("trash", "button-icon")}<span>${t("deleteProfile")}</span></button>
+    </section>
   `;
 }
 
@@ -2899,6 +2974,16 @@ function createHttpYachatApi(fallbackApi = null) {
         () => post("/api/account", payload),
         () => fallbackApi?.account?.create?.(payload)
       ),
+      deleteProfile: async () => {
+        localStorage.removeItem(deviceAuthKey);
+        return withFallback(async () => {
+          if (isLoopbackHost) {
+            return post("/api/account/delete", {});
+          }
+
+          throw new Error("Local account endpoint is unavailable.");
+        }, () => fallbackApi?.account?.deleteProfile?.() || { ok: true });
+      },
       logout: async () => {
         localStorage.removeItem(deviceAuthKey);
         return withFallback(async () => {
@@ -3305,6 +3390,34 @@ function createLocalYachatApi() {
       logout: async () => {
         localStorage.removeItem(accountKey);
         return { ok: true };
+      },
+      deleteProfile: async () => {
+        const account = readAccount()?.account || null;
+        localStorage.removeItem(accountKey);
+        challenge = null;
+
+        if (account?.id) {
+          const data = readMessenger();
+          const removedChatIds = new Set();
+
+          data.chats = data.chats.filter((chat) => {
+            if (!localParticipantIds(chat).includes(account.id)) {
+              return true;
+            }
+
+            removedChatIds.add(chat.id);
+            return false;
+          });
+
+          removedChatIds.forEach((chatId) => {
+            delete data.messages[chatId];
+          });
+
+          writeMessenger(data);
+          return { ok: true, deleted: true, removedChats: removedChatIds.size };
+        }
+
+        return { ok: true, deleted: false, removedChats: 0 };
       }
     },
     server: {
@@ -4667,6 +4780,11 @@ panelBody?.addEventListener("click", async (event) => {
 
   if (action === "logout") {
     logoutAccount();
+    return;
+  }
+
+  if (action === "delete-profile") {
+    deleteProfileAccount(actionButton);
     return;
   }
 
