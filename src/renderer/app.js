@@ -79,6 +79,8 @@ const state = {
   forwardMessage: null,
   selectingMessages: false,
   selectedMessageIds: new Set(),
+  messengerPollTimer: null,
+  notificationsReady: false,
   qrSession: null,
   qrPollTimer: null,
   qrScannerStream: null,
@@ -1769,6 +1771,56 @@ async function loadMessenger(selectedChatId = state.activeChatId) {
   renderMessages();
 }
 
+function chatIdFromUrl() {
+  try {
+    return new URLSearchParams(window.location.search).get("chat") || "";
+  } catch {
+    return "";
+  }
+}
+
+function stopMessengerPolling() {
+  window.clearTimeout(state.messengerPollTimer);
+  state.messengerPollTimer = null;
+}
+
+async function refreshMessengerFromServer() {
+  if (!state.account || !yachatApi.messenger || state.pendingSearchChat) {
+    return;
+  }
+
+  const selectedChatId = state.activeChatId;
+  const chats = await yachatApi.messenger.chats();
+  state.chats = chats;
+  state.activeChatId = chats.some((chat) => chat.id === selectedChatId)
+    ? selectedChatId
+    : chats[0]?.id || state.activeChatId;
+  state.messages = state.activeChatId
+    ? await yachatApi.messenger.messages(state.activeChatId)
+    : [];
+  renderChatList();
+  renderActiveChat();
+  renderMessages();
+}
+
+function startMessengerPolling() {
+  stopMessengerPolling();
+
+  const tick = async () => {
+    try {
+      await refreshMessengerFromServer();
+    } catch {
+      // Keep the UI alive during transient serverless cold starts or network loss.
+    } finally {
+      if (state.account) {
+        state.messengerPollTimer = window.setTimeout(tick, 4000);
+      }
+    }
+  };
+
+  state.messengerPollTimer = window.setTimeout(tick, 4000);
+}
+
 async function selectChat(chatId) {
   closeMessageMenu();
   closeForwardPicker();
@@ -1803,12 +1855,15 @@ function showMessenger(account) {
     messengerShell.hidden = false;
   }
 
-  loadMessenger().catch(() => {});
+  loadMessenger(chatIdFromUrl() || state.activeChatId).catch(() => {});
+  startMessengerPolling();
+  enablePushNotifications().catch(() => {});
 }
 
 function resetAccountSessionUi() {
   stopQrPolling();
   stopQrScanner();
+  stopMessengerPolling();
   closePanel();
   closeCreateChat();
   state.account = null;
@@ -1820,6 +1875,7 @@ function resetAccountSessionUi() {
   state.chatSearchUsers = [];
   state.chatSearchLoading = false;
   state.chatSearchError = "";
+  state.notificationsReady = false;
   state.pendingAttachments = [];
   setMobileDialogOpen(false);
   renderAttachmentTray();
@@ -3333,6 +3389,53 @@ async function startQrLogin() {
   }
 }
 
+function urlBase64ToUint8Array(value) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  const output = new Uint8Array(raw.length);
+
+  for (let index = 0; index < raw.length; index += 1) {
+    output[index] = raw.charCodeAt(index);
+  }
+
+  return output;
+}
+
+async function enablePushNotifications() {
+  if (state.notificationsReady || !yachatApi.notifications || !state.account) {
+    return;
+  }
+
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window) || !window.isSecureContext) {
+    return;
+  }
+
+  const config = await yachatApi.notifications.publicKey();
+  if (!config?.enabled || !config.publicKey) {
+    return;
+  }
+
+  let permission = Notification.permission;
+  if (permission === "default") {
+    permission = await Notification.requestPermission();
+  }
+
+  if (permission !== "granted") {
+    return;
+  }
+
+  const registration = await navigator.serviceWorker.register("/sw.js");
+  const existing = await registration.pushManager.getSubscription();
+  const subscription = existing || await registration.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: urlBase64ToUint8Array(config.publicKey)
+  });
+
+  await yachatApi.notifications.subscribe(subscription.toJSON());
+  state.notificationsReady = true;
+}
+
 function applyTranslations() {
   document.documentElement.lang = state.language === "en" ? "en" : "ru";
   document.title = t("appTitle");
@@ -3454,20 +3557,40 @@ function createHttpYachatApi(fallbackApi = null) {
   }
 
   const deviceAuthKey = "yachat-http-device-authorized";
+  const authTokenKey = "yachat-http-auth-token";
   const isLoopbackHost = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
 
+  function authToken() {
+    return localStorage.getItem(authTokenKey) || "";
+  }
+
+  function saveSession(payload) {
+    const token = payload?.sessionToken || payload?.account?.sessionToken || "";
+    if (token) {
+      localStorage.setItem(authTokenKey, token);
+    }
+    return payload;
+  }
+
+  function clearSession() {
+    localStorage.removeItem(authTokenKey);
+    localStorage.removeItem(deviceAuthKey);
+  }
+
   async function request(pathname, options = {}) {
+    const token = authToken();
     const response = await fetch(pathname, {
       ...options,
       headers: {
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers || {})
       }
     });
     const payload = await response.json().catch(() => null);
 
     if (!response.ok) {
-      throw new Error(payload?.error || "Request failed.");
+      throw new Error(payload?.detail || payload?.error || "Request failed.");
     }
 
     return payload;
@@ -3501,11 +3624,7 @@ function createHttpYachatApi(fallbackApi = null) {
             return null;
           }
 
-          if (isLoopbackHost || localStorage.getItem(deviceAuthKey) === "true") {
-            return account;
-          }
-
-          return null;
+          return account;
         }, () => fallbackApi?.account?.get?.() || null);
       },
       createChallenge: (payload) => withFallback(
@@ -3513,31 +3632,36 @@ function createHttpYachatApi(fallbackApi = null) {
         () => fallbackApi?.account?.createChallenge?.(payload)
       ),
       verifyChallenge: (payload) => withFallback(
-        () => post("/api/verify", payload),
+        () => post("/api/verify", payload).then(saveSession),
         () => fallbackApi?.account?.verifyChallenge?.(payload)
       ),
       create: (payload) => withFallback(
-        () => post("/api/account", payload),
+        () => post("/api/account", payload).then(saveSession),
         () => fallbackApi?.account?.create?.(payload)
       ),
       deleteProfile: async () => {
-        localStorage.removeItem(deviceAuthKey);
         return withFallback(async () => {
-          if (isLoopbackHost) {
-            return post("/api/account/delete", {});
-          }
-
-          throw new Error("Local account endpoint is unavailable.");
-        }, () => fallbackApi?.account?.deleteProfile?.() || { ok: true });
+          const result = await post("/api/account/delete", {});
+          clearSession();
+          return result;
+        }, () => {
+          clearSession();
+          return fallbackApi?.account?.deleteProfile?.() || { ok: true };
+        });
       },
       logout: async () => {
-        localStorage.removeItem(deviceAuthKey);
+        const hadToken = Boolean(authToken());
         return withFallback(async () => {
-          if (isLoopbackHost) {
-            return post("/api/logout", {});
+          let result = { ok: true };
+          if (hadToken) {
+            result = await post("/api/logout", {});
           }
-          return { ok: true };
-        }, () => fallbackApi?.account?.logout?.() || { ok: true });
+          clearSession();
+          return result;
+        }, () => {
+          clearSession();
+          return fallbackApi?.account?.logout?.() || { ok: true };
+        });
       }
     },
     server: {
@@ -3570,6 +3694,16 @@ function createHttpYachatApi(fallbackApi = null) {
       lookup: (payload) => withFallback(
         () => post("/api/contacts/lookup", payload),
         () => fallbackApi?.contacts?.lookup?.(payload) || matchContactsFromUsers(payload?.contacts || [])
+      )
+    },
+    notifications: {
+      publicKey: () => withFallback(
+        () => request("/api/push/public-key"),
+        () => ({ enabled: false, publicKey: "" })
+      ),
+      subscribe: (payload) => withFallback(
+        () => post("/api/push/subscribe", payload),
+        () => ({ ok: false })
       )
     },
     messenger: {
@@ -4984,7 +5118,10 @@ async function verifyChallenge(submitButton) {
   setCodeState("idle");
 
   try {
-    const result = await yachatApi.account.verifyChallenge({ code });
+    const result = await yachatApi.account.verifyChallenge({
+      code,
+      contact: state.challenge?.contact || ""
+    });
     if (!result.ok) {
       setCodeState("error");
       setMessage("code", translatedServerMessage(result.reason, "errCodeFailed"));
@@ -5000,6 +5137,12 @@ async function verifyChallenge(submitButton) {
       showMessenger(result.account);
       return;
     }
+    state.challenge = {
+      ...state.challenge,
+      registrationToken: result.registrationToken || "",
+      method: result.method || state.challenge?.method || "phone",
+      contact: result.contact || state.challenge?.contact || ""
+    };
     setScreen("profile");
   } catch (error) {
     setCodeState("error");
@@ -5017,7 +5160,10 @@ async function createAccount(submitButton) {
     displayName,
     username: createProfileUsername(displayName, formData.get("username")),
     bio: String(formData.get("bio") || "").trim(),
-    avatarDataUrl: state.avatarDataUrl
+    avatarDataUrl: state.avatarDataUrl,
+    registrationToken: state.challenge?.registrationToken || "",
+    contact: state.challenge?.contact || "",
+    method: state.challenge?.method || "phone"
   };
 
   setLoading(submitButton, true);
@@ -5027,6 +5173,7 @@ async function createAccount(submitButton) {
     const account = await yachatApi.account.create(payload);
     state.account = normalizeAccount(account);
     state.accountTextMode = "created";
+    state.challenge = null;
     showMessenger(account);
   } catch (error) {
     setMessage("profile", translatedServerMessage(error.message, "errAccountCreate"));

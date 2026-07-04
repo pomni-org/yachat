@@ -11,6 +11,7 @@ const files = [
   "styles.css",
   "page.css",
   "page-data.js",
+  "sw.js",
   "privacy.html",
   "terms.html",
   "help.html"
