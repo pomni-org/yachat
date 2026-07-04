@@ -10,11 +10,23 @@ from typing import Any
 
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg.rows import dict_row
 
 
 app = FastAPI(title="YaChat API", version="0.2.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv("YACHAT_CORS_ORIGINS", "*").split(",")
+        if origin.strip()
+    ]
+    or ["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 PUBLIC_USER_FIELDS = (
     "id",
@@ -31,13 +43,25 @@ PUBLIC_USER_FIELDS = (
 DATABASE_ENV_NAMES = (
     "YACHAT_USERS_DB_URL",
     "DATABASE_URL",
+    "DATABASE_URL_UNPOOLED",
     "POSTGRES_URL",
+    "POSTGRES_URL_POOLER",
     "POSTGRES_PRISMA_URL",
     "POSTGRES_URL_NON_POOLING",
+    "POSTGRES_URL_NO_SSL",
     "NEON_DATABASE_URL",
+    "NEON_DATABASE_URL_UNPOOLED",
     "SUPABASE_DB_URL",
 )
 REMOVED_TEST_MESSAGE_TEXTS = ("Приыет?",)
+DEFAULT_SETTINGS = {
+    "language": "ru",
+    "theme": "dark",
+    "themeSource": "system",
+    "country": "RU",
+    "countryCode": "+7",
+}
+QR_SESSION_TTL_MINUTES = 5
 
 _schema_ready = False
 
@@ -82,28 +106,53 @@ def auth_secret() -> str:
 def connect_db():
     url = database_url()
     if not url:
-        raise HTTPException(status_code=503, detail="Users database is unavailable.")
+        raise HTTPException(
+            status_code=503,
+            detail="Users database is not configured. Set YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.",
+        )
     return psycopg.connect(url, autocommit=True)
 
 
 def require_database() -> None:
     if not database_url():
-        raise HTTPException(status_code=503, detail="Server database is not configured.")
+        raise HTTPException(
+            status_code=503,
+            detail="Users database is not configured. Set YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.",
+        )
 
 
-def cleanup_removed_test_messages(cursor) -> None:
+def relation_kind(cursor, relation_name: str) -> str:
     cursor.execute(
-        "delete from yachat_messages where trim(coalesce(text, '')) = any(%s)",
-        (list(REMOVED_TEST_MESSAGE_TEXTS),),
+        """
+        select c.relkind
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = current_schema()
+          and c.relname = %s
+        limit 1
+        """,
+        (relation_name,),
     )
+    row = cursor.fetchone()
+    return str(row[0] if row and not isinstance(row, dict) else row.get("relkind", "") if row else "")
 
 
-def ensure_schema() -> None:
-    global _schema_ready
-    if _schema_ready or not database_url():
-        return
+def table_exists(cursor, relation_name: str) -> bool:
+    return relation_kind(cursor, relation_name) in {"r", "p"}
 
-    statements = [
+
+def ensure_public_users_table(cursor) -> None:
+    kind = relation_kind(cursor, "public_users")
+    migrate_legacy_users = kind in {"v", "m"} and table_exists(cursor, "yachat_users")
+
+    if kind == "v":
+        cursor.execute("drop view if exists public_users")
+    elif kind == "m":
+        cursor.execute("drop materialized view if exists public_users")
+    elif kind and kind not in {"r", "p"}:
+        raise psycopg.ProgrammingError("public_users exists but is not a writable table")
+
+    cursor.execute(
         """
         create table if not exists public_users (
             id text primary key,
@@ -121,7 +170,50 @@ def ensure_schema() -> None:
             public_key_type text default 'x25519',
             is_public boolean default true
         )
-        """,
+        """
+    )
+
+    if migrate_legacy_users:
+        cursor.execute(
+            """
+            insert into public_users(
+                id, contact, contact_key, method, username, preview_name, display_name,
+                bio, avatar_url, avatar_accent, created_at, updated_at, public_key_type, is_public
+            )
+            select
+                id,
+                coalesce(contact, ''),
+                nullif(regexp_replace(lower(coalesce(contact, '')), '[^0-9+a-z@._-]+', '', 'g'), ''),
+                'phone',
+                username,
+                coalesce(display_name, username),
+                coalesce(display_name, username),
+                coalesce(bio, ''),
+                coalesce(avatar_url, ''),
+                coalesce(avatar_accent, '#471AFF'),
+                coalesce(created_at, now()),
+                coalesce(created_at, now()),
+                coalesce(public_key_type, 'x25519'),
+                coalesce(is_public, true)
+            from yachat_users
+            on conflict (id) do nothing
+            """
+        )
+
+
+def cleanup_removed_test_messages(cursor) -> None:
+    cursor.execute(
+        "delete from yachat_messages where trim(coalesce(text, '')) = any(%s)",
+        (list(REMOVED_TEST_MESSAGE_TEXTS),),
+    )
+
+
+def ensure_schema() -> None:
+    global _schema_ready
+    if _schema_ready or not database_url():
+        return
+
+    statements = [
         "alter table public_users add column if not exists contact text",
         "alter table public_users add column if not exists contact_key text",
         "alter table public_users add column if not exists method text default 'phone'",
@@ -135,6 +227,12 @@ def ensure_schema() -> None:
         "alter table public_users add column if not exists updated_at timestamptz default now()",
         "alter table public_users add column if not exists public_key_type text default 'x25519'",
         "alter table public_users add column if not exists is_public boolean default true",
+        """
+        update public_users
+        set contact_key = nullif(regexp_replace(lower(coalesce(contact, '')), '[^0-9+a-z@._-]+', '', 'g'), '')
+        where coalesce(contact_key, '') = '' and coalesce(contact, '') <> ''
+        """,
+        "update public_users set updated_at = coalesce(updated_at, created_at, now()) where updated_at is null",
         "create unique index if not exists public_users_contact_key_idx on public_users(contact_key) where contact_key is not null and contact_key <> ''",
         "create unique index if not exists public_users_username_idx on public_users(lower(username)) where username is not null and username <> ''",
         """
@@ -217,11 +315,35 @@ def ensure_schema() -> None:
         )
         """,
         "create index if not exists yachat_push_subscriptions_user_idx on yachat_push_subscriptions(user_id)",
+        """
+        create table if not exists yachat_user_settings (
+            user_id text primary key references public_users(id) on delete cascade,
+            language text default 'ru',
+            theme text default 'dark',
+            theme_source text default 'system',
+            country text default 'RU',
+            country_code text default '+7',
+            updated_at timestamptz default now()
+        )
+        """,
+        """
+        create table if not exists yachat_qr_sessions (
+            id text primary key,
+            token_hash text not null,
+            status text default 'pending',
+            account_id text references public_users(id) on delete cascade,
+            created_at timestamptz default now(),
+            expires_at timestamptz not null,
+            approved_at timestamptz
+        )
+        """,
+        "create index if not exists yachat_qr_sessions_status_idx on yachat_qr_sessions(status, expires_at)",
     ]
 
     try:
         with connect_db() as connection:
             with connection.cursor() as cursor:
+                ensure_public_users_table(cursor)
                 for statement in statements:
                     cursor.execute(statement)
                 cleanup_removed_test_messages(cursor)
@@ -384,19 +506,23 @@ def require_user(request: Request) -> dict[str, Any]:
     return user
 
 
-def create_session(user_id: str) -> str:
+def insert_session(cursor, user_id: str) -> str:
     token = generate_token()
     expires_at = utc_now() + timedelta(days=90)
+    cursor.execute(
+        """
+        insert into yachat_sessions(token_hash, user_id, expires_at)
+        values (%s, %s, %s)
+        """,
+        (hash_secret(token), user_id, expires_at),
+    )
+    return token
+
+
+def create_session(user_id: str) -> str:
     with connect_db() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                insert into yachat_sessions(token_hash, user_id, expires_at)
-                values (%s, %s, %s)
-                """,
-                (hash_secret(token), user_id, expires_at),
-            )
-    return token
+            return insert_session(cursor, user_id)
 
 
 def find_user_by_contact(key: str) -> dict[str, Any] | None:
@@ -534,6 +660,76 @@ def user_profile(row: dict[str, Any]) -> dict[str, Any]:
         "avatarDataUrl": str(row_value(row, "avatar_url")),
         "avatarAccent": str(row_value(row, "avatar_accent")) or "#471AFF",
     }
+
+
+def normalize_settings(payload: dict[str, Any] | None, base: dict[str, Any] | None = None) -> dict[str, Any]:
+    source = {**DEFAULT_SETTINGS, **(base or {})}
+    payload = payload if isinstance(payload, dict) else {}
+
+    language = str(payload.get("language") or source.get("language") or "ru")
+    theme = str(payload.get("theme") or source.get("theme") or "dark")
+    theme_source = str(payload.get("themeSource") or payload.get("theme_source") or source.get("themeSource") or "system")
+    country = clean_text(payload.get("country") or source.get("country") or "RU", 8) or "RU"
+    country_code = clean_text(payload.get("countryCode") or payload.get("country_code") or source.get("countryCode") or "+7", 8) or "+7"
+
+    return {
+        "language": "en" if language == "en" else "ru",
+        "theme": theme if theme in {"dark", "light"} else "dark",
+        "themeSource": theme_source if theme_source in {"manual", "system"} else "system",
+        "country": country,
+        "countryCode": country_code,
+    }
+
+
+def settings_from_row(row: dict[str, Any] | None) -> dict[str, Any]:
+    if not row:
+        return dict(DEFAULT_SETTINGS)
+    return normalize_settings(
+        {
+            "language": row_value(row, "language"),
+            "theme": row_value(row, "theme"),
+            "themeSource": row_value(row, "theme_source"),
+            "country": row_value(row, "country"),
+            "countryCode": row_value(row, "country_code"),
+        }
+    )
+
+
+def get_user_settings(user_id: str) -> dict[str, Any]:
+    ensure_schema()
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("select * from yachat_user_settings where user_id = %s limit 1", (user_id,))
+            row = cursor.fetchone()
+            return settings_from_row(dict(row) if row else None)
+
+
+def save_user_settings(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    settings = normalize_settings(payload, get_user_settings(user_id))
+    with connect_db() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                insert into yachat_user_settings(user_id, language, theme, theme_source, country, country_code, updated_at)
+                values (%s, %s, %s, %s, %s, %s, now())
+                on conflict (user_id) do update
+                set language = excluded.language,
+                    theme = excluded.theme,
+                    theme_source = excluded.theme_source,
+                    country = excluded.country,
+                    country_code = excluded.country_code,
+                    updated_at = now()
+                """,
+                (
+                    user_id,
+                    settings["language"],
+                    settings["theme"],
+                    settings["themeSource"],
+                    settings["country"],
+                    settings["countryCode"],
+                ),
+            )
+    return settings
 
 
 def system_chats(now_value: datetime | None = None) -> list[dict[str, Any]]:
@@ -780,6 +976,36 @@ def ensure_saved_chat(cursor, user_id: str) -> str:
     return chat_id
 
 
+def can_manage_chat(chat: dict[str, Any], user_id: str) -> bool:
+    if not chat or bool(row_value(chat, "locked")) or str(row_value(chat, "kind")) != "group":
+        return False
+    owner_id = str(row_value(chat, "owner_id"))
+    return not owner_id or owner_id == user_id
+
+
+def invite_url(code: str) -> str:
+    return f"yachat://join/{code}"
+
+
+def parse_qr_payload(value: Any) -> dict[str, str] | None:
+    source = str(value or "").strip()
+    if not source:
+        return None
+
+    try:
+        parsed = json.loads(source)
+        if parsed.get("a") == "yc" and parsed.get("t") == "l" and parsed.get("i") and parsed.get("k"):
+            return {"id": str(parsed["i"]), "token": str(parsed["k"])}
+    except (TypeError, ValueError, AttributeError):
+        pass
+
+    match = re.match(r"^yachat://login/([^/]+)/([^/]+)$", source)
+    if match:
+        return {"id": match.group(1), "token": match.group(2)}
+
+    return None
+
+
 def send_push_to_user(user_id: str, title: str, body: str, url: str) -> None:
     public_key = os.getenv("YACHAT_VAPID_PUBLIC_KEY", "").strip()
     private_key = os.getenv("YACHAT_VAPID_PRIVATE_KEY", "").strip()
@@ -920,7 +1146,7 @@ async def verify_challenge(request: Request):
 
             existing = find_user_by_contact(key)
             if existing:
-                token = create_session(str(existing["id"]))
+                token = insert_session(cursor, str(existing["id"]))
                 cursor.execute("update yachat_auth_challenges set verified_at = now() where id = %s", (challenge["id"],))
                 return {
                     "ok": True,
@@ -982,7 +1208,7 @@ async def create_account(request: Request):
 
             existing = find_user_by_contact(str(challenge["contact_key"]))
             if existing:
-                token = create_session(str(existing["id"]))
+                token = insert_session(cursor, str(existing["id"]))
                 return public_account(existing, token)
 
             base_username = username
@@ -1018,7 +1244,7 @@ async def create_account(request: Request):
                 ),
             )
             user = dict(cursor.fetchone())
-            token = create_session(user_id)
+            token = insert_session(cursor, user_id)
             return public_account(user, token)
 
 
@@ -1039,18 +1265,32 @@ def delete_profile(request: Request):
     with connect_db() as connection:
         with connection.cursor() as cursor:
             cursor.execute("delete from public_users where id = %s", (user["id"],))
+            cursor.execute(
+                """
+                delete from yachat_chats c
+                where not exists (
+                    select 1 from yachat_chat_members cm where cm.chat_id = c.id
+                )
+                """
+            )
     return {"ok": True, "deleted": True}
 
 
 @app.get("/api/settings")
-def get_settings():
-    return {"language": "ru", "theme": "dark", "themeSource": "system"}
+def get_settings(request: Request):
+    user = current_user(request)
+    if not user:
+        return dict(DEFAULT_SETTINGS)
+    return get_user_settings(str(user["id"]))
 
 
 @app.post("/api/settings")
 async def update_settings(request: Request):
-    await request.json()
-    return {"ok": True}
+    payload = await request.json()
+    user = current_user(request)
+    if not user:
+        return normalize_settings(payload)
+    return save_user_settings(str(user["id"]), payload)
 
 
 @app.get("/api/users")
@@ -1095,6 +1335,8 @@ async def create_chat(request: Request):
         raise HTTPException(status_code=400, detail="Choose one person.")
     if kind == "group" and not selected_ids:
         raise HTTPException(status_code=400, detail="Add at least one person.")
+    if kind == "group" and not clean_text(payload.get("title"), 60):
+        raise HTTPException(status_code=400, detail="Enter a group name.")
 
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
@@ -1102,6 +1344,8 @@ async def create_chat(request: Request):
             found_ids = {str(row["id"]) for row in cursor.fetchall()}
             selected_ids = [user_id for user_id in selected_ids if user_id in found_ids]
             if kind == "private" and len(selected_ids) != 1:
+                raise HTTPException(status_code=404, detail="User not found.")
+            if kind == "group" and not selected_ids:
                 raise HTTPException(status_code=404, detail="User not found.")
 
             if kind == "private":
@@ -1142,6 +1386,122 @@ async def create_chat(request: Request):
                 "chats": list_user_chats(str(user["id"])),
                 "messages": get_chat_messages(chat_id, str(user["id"])),
             }
+
+
+@app.post("/api/chat/update")
+async def update_chat(request: Request):
+    user = require_user(request)
+    payload = await request.json()
+    chat_id = str(payload.get("chatId") or "")
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            chat = require_chat_member(cursor, chat_id, str(user["id"]))
+            if not can_manage_chat(chat, str(user["id"])):
+                raise HTTPException(status_code=403, detail="Only the group owner can edit this chat.")
+
+            updates: list[str] = []
+            params: list[Any] = []
+
+            if "title" in payload:
+                title = clean_text(payload.get("title"), 60)
+                if not title:
+                    raise HTTPException(status_code=400, detail="Enter a group name.")
+                updates.append("title = %s")
+                params.append(title)
+
+            if "description" in payload:
+                updates.append("description = %s")
+                params.append(clean_text(payload.get("description"), 180))
+
+            if "avatarDataUrl" in payload:
+                updates.append("avatar_url = %s")
+                params.append(clean_text(payload.get("avatarDataUrl"), 900000))
+
+            if updates:
+                params.append(chat_id)
+                cursor.execute(
+                    f"""
+                    update yachat_chats
+                    set {", ".join(updates)}, updated_at = now()
+                    where id = %s
+                    returning *
+                    """,
+                    params,
+                )
+                chat = dict(cursor.fetchone())
+
+            return {
+                "chat": chat_summary(cursor, chat, str(user["id"])),
+                "chats": list_user_chats(str(user["id"])),
+                "messages": get_chat_messages(chat_id, str(user["id"])),
+            }
+
+
+@app.post("/api/chat/invite")
+async def create_chat_invite(request: Request):
+    user = require_user(request)
+    payload = await request.json()
+    chat_id = str(payload.get("chatId") or "")
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            chat = require_chat_member(cursor, chat_id, str(user["id"]))
+            if not can_manage_chat(chat, str(user["id"])):
+                raise HTTPException(status_code=403, detail="Only the group owner can invite people.")
+
+            code = str(row_value(chat, "invite_code")) or f"YC-{secrets.token_hex(4).upper()}"
+            cursor.execute(
+                """
+                update yachat_chats
+                set invite_code = %s, updated_at = now()
+                where id = %s
+                returning *
+                """,
+                (code, chat_id),
+            )
+            chat = dict(cursor.fetchone())
+
+            return {
+                "chat": chat_summary(cursor, chat, str(user["id"])),
+                "chats": list_user_chats(str(user["id"])),
+                "inviteCode": code,
+                "inviteUrl": invite_url(code),
+            }
+
+
+@app.post("/api/chat/leave")
+async def leave_chat(request: Request):
+    user = require_user(request)
+    payload = await request.json()
+    chat_id = str(payload.get("chatId") or "")
+
+    if chat_id.startswith("yachat-"):
+        raise HTTPException(status_code=400, detail="System chats cannot be left.")
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            chat = require_chat_member(cursor, chat_id, str(user["id"]))
+            if bool(row_value(chat, "locked")):
+                raise HTTPException(status_code=400, detail="This chat cannot be left.")
+
+            cursor.execute(
+                "delete from yachat_chat_members where chat_id = %s and user_id = %s",
+                (chat_id, user["id"]),
+            )
+
+            cursor.execute("select user_id from yachat_chat_members where chat_id = %s order by joined_at asc", (chat_id,))
+            remaining = [str(row["user_id"]) for row in cursor.fetchall()]
+            if not remaining:
+                cursor.execute("delete from yachat_chats where id = %s", (chat_id,))
+            elif str(row_value(chat, "owner_id")) == str(user["id"]):
+                cursor.execute(
+                    "update yachat_chats set owner_id = %s, updated_at = now() where id = %s",
+                    (remaining[0], chat_id),
+                )
+
+    chats = list_user_chats(str(user["id"]))
+    return {"chats": chats, "activeChatId": chats[0]["id"] if chats else None}
 
 
 @app.post("/api/message")
@@ -1315,6 +1675,105 @@ async def forward_message(request: Request):
             )
             cursor.execute("update yachat_chats set updated_at = now() where id = %s", (to_chat_id,))
     return {"chatId": to_chat_id, "chats": list_user_chats(str(user["id"])), "messages": get_chat_messages(to_chat_id, str(user["id"]))}
+
+
+@app.post("/api/qr/create")
+async def create_qr_session(request: Request):
+    await request.json()
+    ensure_schema()
+    session_id = secrets.token_urlsafe(8)
+    token = secrets.token_urlsafe(18)
+    expires_at = utc_now() + timedelta(minutes=QR_SESSION_TTL_MINUTES)
+    qr_payload = json.dumps({"a": "yc", "t": "l", "i": session_id, "k": token}, separators=(",", ":"))
+
+    with connect_db() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                insert into yachat_qr_sessions(id, token_hash, status, expires_at)
+                values (%s, %s, 'pending', %s)
+                """,
+                (session_id, hash_secret(token), expires_at),
+            )
+
+    return {
+        "id": session_id,
+        "token": token,
+        "payload": qr_payload,
+        "status": "pending",
+        "expiresAt": expires_at,
+    }
+
+
+@app.post("/api/qr/confirm")
+async def confirm_qr_session(request: Request):
+    user = require_user(request)
+    payload = await request.json()
+    parsed = parse_qr_payload(payload.get("payload"))
+    if not parsed:
+        raise HTTPException(status_code=400, detail="Invalid YaChat QR code.")
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("select * from yachat_qr_sessions where id = %s limit 1", (parsed["id"],))
+            session_row = cursor.fetchone()
+            if not session_row or not hmac.compare_digest(str(session_row["token_hash"]), hash_secret(parsed["token"])):
+                raise HTTPException(status_code=404, detail="QR session not found.")
+
+            if session_row["expires_at"] < utc_now():
+                cursor.execute("update yachat_qr_sessions set status = 'expired' where id = %s", (parsed["id"],))
+                raise HTTPException(status_code=400, detail="QR code expired.")
+
+            cursor.execute(
+                """
+                update yachat_qr_sessions
+                set status = 'approved', account_id = %s, approved_at = now()
+                where id = %s
+                """,
+                (user["id"], parsed["id"]),
+            )
+
+    return {"ok": True, "status": "approved", "account": public_account(user)}
+
+
+@app.post("/api/qr/status")
+async def qr_session_status(request: Request):
+    ensure_schema()
+    payload = await request.json()
+    parsed = parse_qr_payload(payload.get("payload")) or {
+        "id": str(payload.get("id") or ""),
+        "token": str(payload.get("token") or ""),
+    }
+    if not parsed["id"] or not parsed["token"]:
+        return {"status": "missing"}
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute("select * from yachat_qr_sessions where id = %s limit 1", (parsed["id"],))
+            session_row = cursor.fetchone()
+            if not session_row or not hmac.compare_digest(str(session_row["token_hash"]), hash_secret(parsed["token"])):
+                return {"status": "missing"}
+
+            if session_row["expires_at"] < utc_now() and session_row["status"] == "pending":
+                cursor.execute("update yachat_qr_sessions set status = 'expired' where id = %s", (parsed["id"],))
+                return {"id": parsed["id"], "status": "expired", "expiresAt": session_row["expires_at"]}
+
+            result = {
+                "id": parsed["id"],
+                "status": session_row["status"],
+                "expiresAt": session_row["expires_at"],
+                "approvedAt": session_row["approved_at"],
+            }
+
+            if session_row["status"] == "approved" and session_row["account_id"]:
+                cursor.execute("select * from public_users where id = %s limit 1", (session_row["account_id"],))
+                account_row = cursor.fetchone()
+                if account_row:
+                    token = insert_session(cursor, str(session_row["account_id"]))
+                    result["account"] = public_account(dict(account_row), token)
+                    result["sessionToken"] = token
+
+            return result
 
 
 @app.get("/api/push/public-key")

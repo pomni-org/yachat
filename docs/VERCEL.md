@@ -6,7 +6,8 @@ This repository is prepared for a Vercel deployment of the YaChat web UI and Pyt
 
 - Static renderer files are copied from `src/renderer` into the generated `public` output during `npm run build:vercel`.
 - `api/index.py` exposes the Python API for accounts, sessions, public user search, chats, messages, and Web Push subscriptions.
-- The desktop Electron runtime still uses the local backend from `src/main.cjs`.
+- The web runtime is server-first: accounts, sessions, public users, chats, messages, QR sessions, settings, and push subscriptions go through `/api/*`.
+- The desktop Electron runtime can still use the local backend from `src/main.cjs` when it is opened as a local file build.
 
 ## What is not deployed
 
@@ -18,7 +19,7 @@ This repository is prepared for a Vercel deployment of the YaChat web UI and Pyt
 
 Set these in Vercel Project Settings:
 
-- `YACHAT_USERS_DB_URL`: hosted Postgres connection string. The API also accepts `DATABASE_URL`, `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL_NON_POOLING`, `NEON_DATABASE_URL`, and `SUPABASE_DB_URL`.
+- `YACHAT_USERS_DB_URL`: hosted Postgres connection string. The API also accepts `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_URL`, `POSTGRES_URL_POOLER`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL_NON_POOLING`, `POSTGRES_URL_NO_SSL`, `NEON_DATABASE_URL`, `NEON_DATABASE_URL_UNPOOLED`, and `SUPABASE_DB_URL`.
 - `YACHAT_AUTH_SECRET`: secret used to hash sessions, confirmation codes, and registration tokens.
 - `YACHAT_PUBLIC_USER_LIMIT`: optional, defaults to `100`.
 - `YACHAT_PUBLIC_CONTACTS`: optional, defaults to `false`.
@@ -26,6 +27,7 @@ Set these in Vercel Project Settings:
 - `YACHAT_VAPID_PUBLIC_KEY`: public VAPID key for browser push notifications.
 - `YACHAT_VAPID_PRIVATE_KEY`: private VAPID key for browser push notifications.
 - `YACHAT_VAPID_SUBJECT`: optional VAPID subject, for example `mailto:admin@example.com`.
+- `YACHAT_CORS_ORIGINS`: optional comma-separated list for external clients. Defaults to `*`.
 
 Do not commit real environment values.
 
@@ -33,6 +35,12 @@ Do not commit real environment values.
 
 The Python API creates and migrates the required tables on first request when Postgres is configured.
 The main public account table is `public_users`.
+
+If an older database was prepared with the previous `public_users` view over `yachat_users`, the API now migrates it on startup:
+
+1. drops the old `public_users` view,
+2. creates the writable `public_users` table,
+3. copies existing rows from `yachat_users` when that table exists.
 
 Current public account columns:
 
@@ -54,8 +62,19 @@ Current public account columns:
 Only safe profile fields are returned to the browser. The raw contact is returned only when `YACHAT_PUBLIC_CONTACTS=true`.
 
 Chat and push tables are created with the `yachat_` prefix.
+Settings and QR login state are also stored server-side in `yachat_user_settings` and `yachat_qr_sessions`.
 
 See `docs/vercel-users-db.sql` for a starter public-user schema if you want to prepare the database manually.
+
+## Local fallback
+
+The browser fallback is no longer automatic on localhost. This keeps broken Vercel/Postgres setups visible instead of silently creating local-only accounts.
+
+For temporary offline UI testing only, open the app with `?local=1` or set:
+
+```js
+localStorage.setItem("yachat-dev-local-fallback", "true")
+```
 
 ## Notifications
 

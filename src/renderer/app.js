@@ -418,6 +418,8 @@ const translations = {
     errVerify: "Проверка сорвалась.",
     errCodeFailed: "Код не прошёл проверку.",
     errAccountCreate: "Аккаунт не создан.",
+    errDatabaseUnavailable: "База пользователей на сервере недоступна. Проверьте Postgres/Neon в Vercel.",
+    errDatabaseMissing: "База пользователей не настроена. Добавьте YACHAT_USERS_DB_URL или DATABASE_URL в Vercel.",
     codeAutoFilled: "Код вставлен автоматически.",
     accountReady: "{name}, профиль @{username} готов.",
     accountAlready: "{name}, профиль @{username} уже создан.",
@@ -620,6 +622,8 @@ const translations = {
     errVerify: "Verification failed.",
     errCodeFailed: "The code did not pass verification.",
     errAccountCreate: "Account was not created.",
+    errDatabaseUnavailable: "The server user database is unavailable. Check Postgres/Neon in Vercel.",
+    errDatabaseMissing: "The user database is not configured. Add YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.",
     codeAutoFilled: "Code inserted automatically.",
     accountReady: "{name}, profile @{username} is ready.",
     accountAlready: "{name}, profile @{username} already exists.",
@@ -759,7 +763,10 @@ const serverMessageKeys = new Map([
   ["Name must be longer than one character.", "errName"],
   ["Username: 3-24 characters, Latin letters, digits, or underscore.", "errUsername"],
   ["Description must be no longer than 140 characters.", "errBio"],
-  ["Could not open the image.", "errAvatar"]
+  ["Could not open the image.", "errAvatar"],
+  ["Users database is unavailable.", "errDatabaseUnavailable"],
+  ["Users database is not configured. Set YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.", "errDatabaseMissing"],
+  ["Server database is not configured.", "errDatabaseMissing"]
 ]);
 
 const DELETE_PROFILE_CONFIRMATIONS = new Set([
@@ -3544,12 +3551,17 @@ function translatedServerMessage(message, fallbackKey) {
 }
 
 function createRuntimeYachatApi() {
+  const localApi = createLocalYachatApi();
+  const httpApi = createHttpYachatApi(localApi);
+  if (httpApi) {
+    return httpApi;
+  }
+
   if (window.yachat?.account?.get) {
     return window.yachat;
   }
 
-  const localApi = createLocalYachatApi();
-  return createHttpYachatApi(localApi) || localApi;
+  return localApi;
 }
 
 function createHttpYachatApi(fallbackApi = null) {
@@ -3560,6 +3572,10 @@ function createHttpYachatApi(fallbackApi = null) {
   const deviceAuthKey = "yachat-http-device-authorized";
   const authTokenKey = "yachat-http-auth-token";
   const isLoopbackHost = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
+  const allowLocalFallback = isLoopbackHost && (
+    new URLSearchParams(window.location.search).get("local") === "1" ||
+    localStorage.getItem("yachat-dev-local-fallback") === "true"
+  );
 
   function authToken() {
     return localStorage.getItem(authTokenKey) || "";
@@ -3615,7 +3631,7 @@ function createHttpYachatApi(fallbackApi = null) {
     try {
       return await action();
     } catch (error) {
-      if (isLoopbackHost && typeof fallback === "function") {
+      if (allowLocalFallback && typeof fallback === "function") {
         return fallback(error);
       }
 
@@ -3777,6 +3793,7 @@ function createHttpYachatApi(fallbackApi = null) {
         return withFallback(async () => {
           const result = await post("/api/qr/status", payload);
           if (result.status === "approved" && result.account) {
+            saveSession(result);
             localStorage.setItem(deviceAuthKey, "true");
           }
           return result;
