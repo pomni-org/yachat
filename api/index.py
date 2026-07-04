@@ -11,7 +11,7 @@ from typing import Any
 import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from psycopg.rows import dict_row
 
 
@@ -1052,10 +1052,16 @@ def send_push_to_user(user_id: str, title: str, body: str, url: str) -> None:
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
+    forwarded_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    if env_flag("YACHAT_FORCE_HTTPS", True) and forwarded_proto == "http":
+        return RedirectResponse(str(request.url.replace(scheme="https")), status_code=308)
+
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
+    if forwarded_proto == "https" or request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 

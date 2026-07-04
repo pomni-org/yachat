@@ -3047,6 +3047,19 @@ body.messenger-mode .app-shell {
   resize: vertical;
 }
 
+.contacts-input {
+  min-height: 96px;
+  line-height: 1.35;
+}
+
+.contact-row b {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .modal-layer {
   position: absolute;
   z-index: 20;

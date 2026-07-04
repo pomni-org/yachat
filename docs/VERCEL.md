@@ -28,6 +28,7 @@ Set these in Vercel Project Settings:
 - `YACHAT_VAPID_PRIVATE_KEY`: private VAPID key for browser push notifications.
 - `YACHAT_VAPID_SUBJECT`: optional VAPID subject, for example `mailto:admin@example.com`.
 - `YACHAT_CORS_ORIGINS`: optional comma-separated list for external clients. Defaults to `*`.
+- `YACHAT_FORCE_HTTPS`: optional, defaults to `true`. Redirects proxied HTTP API requests to HTTPS.
 
 Do not commit real environment values.
 
@@ -69,6 +70,8 @@ See `docs/vercel-users-db.sql` for a starter public-user schema if you want to p
 ## Local fallback
 
 The browser fallback is no longer automatic on localhost. This keeps broken Vercel/Postgres setups visible instead of silently creating local-only accounts.
+
+Production web builds are HTTPS-first. If the app is opened through a non-local `http://` URL, the renderer redirects to the same URL on `https://`, and the API adds HSTS on HTTPS responses.
 
 For temporary offline UI testing only, open the app with `?local=1` or set:
 

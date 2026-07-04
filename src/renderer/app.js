@@ -3550,8 +3550,24 @@ function translatedServerMessage(message, fallbackKey) {
   return state.language === "ru" && message ? message : t(fallbackKey);
 }
 
+function isLoopbackHostname(hostname) {
+  return ["127.0.0.1", "localhost", "::1"].includes(hostname);
+}
+
+function upgradeRemoteHttpToHttps() {
+  if (window.location.protocol !== "http:" || isLoopbackHostname(window.location.hostname)) {
+    return false;
+  }
+
+  const secureUrl = new URL(window.location.href);
+  secureUrl.protocol = "https:";
+  window.location.replace(secureUrl.href);
+  return true;
+}
+
 function createRuntimeYachatApi() {
   const localApi = createLocalYachatApi();
+  upgradeRemoteHttpToHttps();
   const httpApi = createHttpYachatApi(localApi);
   if (httpApi) {
     return httpApi;
@@ -3565,13 +3581,13 @@ function createRuntimeYachatApi() {
 }
 
 function createHttpYachatApi(fallbackApi = null) {
-  if (!["http:", "https:"].includes(window.location.protocol)) {
+  const deviceAuthKey = "yachat-http-device-authorized";
+  const authTokenKey = "yachat-http-auth-token";
+  const isLoopbackHost = isLoopbackHostname(window.location.hostname);
+  if (window.location.protocol !== "https:" && !(window.location.protocol === "http:" && isLoopbackHost)) {
     return null;
   }
 
-  const deviceAuthKey = "yachat-http-device-authorized";
-  const authTokenKey = "yachat-http-auth-token";
-  const isLoopbackHost = ["127.0.0.1", "localhost", "::1"].includes(window.location.hostname);
   const allowLocalFallback = isLoopbackHost && (
     new URLSearchParams(window.location.search).get("local") === "1" ||
     localStorage.getItem("yachat-dev-local-fallback") === "true"

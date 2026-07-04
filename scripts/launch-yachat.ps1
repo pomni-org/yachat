@@ -13,6 +13,7 @@ $DefaultUrl = "http://127.0.0.1:3087"
 
 function Resolve-Electron {
   $candidates = @()
+  $parent = Split-Path -Parent $Root
 
   if ($env:ELECTRON_PATH) {
     $candidates += $env:ELECTRON_PATH
@@ -25,12 +26,23 @@ function Resolve-Electron {
 
   $candidates += @(
     (Join-Path $Root "node_modules\electron\dist\electron.exe"),
+    (Join-Path $Root "..\3. ЭлЖур\node_modules\electron\dist\electron.exe"),
     (Join-Path $Root "..\ElJour\node_modules\electron\dist\electron.exe"),
     (Join-Path $Root "..\SuperChat\CONFIG\node_modules\electron\dist\electron.exe"),
     (Join-Path $Root "node_modules\.bin\electron.cmd"),
+    (Join-Path $Root "..\3. ЭлЖур\node_modules\.bin\electron.cmd"),
     (Join-Path $Root "..\ElJour\node_modules\.bin\electron.cmd"),
     (Join-Path $Root "..\SuperChat\CONFIG\node_modules\.bin\electron.cmd")
   )
+
+  if (Test-Path -LiteralPath $parent) {
+    Get-ChildItem -LiteralPath $parent -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+      $candidates += Join-Path $_.FullName "node_modules\electron\dist\electron.exe"
+      $candidates += Join-Path $_.FullName "node_modules\.bin\electron.cmd"
+      $candidates += Join-Path $_.FullName "CONFIG\node_modules\electron\dist\electron.exe"
+      $candidates += Join-Path $_.FullName "CONFIG\node_modules\.bin\electron.cmd"
+    }
+  }
 
   $candidates |
     Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
@@ -43,6 +55,18 @@ function Get-StatusFromUrl([string]$baseUrl) {
   }
 
   try {
+    $uri = [Uri]$baseUrl
+    $client = [System.Net.Sockets.TcpClient]::new()
+    try {
+      $connect = $client.BeginConnect($uri.Host, $uri.Port, $null, $null)
+      if (-not $connect.AsyncWaitHandle.WaitOne(700)) {
+        return $null
+      }
+      $client.EndConnect($connect)
+    } finally {
+      $client.Close()
+    }
+
     $statusUrl = $baseUrl.TrimEnd("/") + "/api/status"
     Invoke-RestMethod -Uri $statusUrl -Method Get -TimeoutSec 2 -ErrorAction Stop
   } catch {
@@ -99,7 +123,7 @@ function Start-YachatElectron([string]$electronPath) {
     return Start-Process -FilePath $env:ComSpec -ArgumentList @("/d", "/c", $command) -WorkingDirectory $Root -WindowStyle Hidden -PassThru
   }
 
-  Start-Process -FilePath $electronPath -ArgumentList @($Root) -WorkingDirectory $Root -PassThru
+  Start-Process -FilePath $electronPath -ArgumentList @("`"$Root`"") -WorkingDirectory $Root -PassThru
 }
 
 function Wait-ForServer([int]$timeoutSeconds) {
@@ -115,6 +139,25 @@ function Wait-ForServer([int]$timeoutSeconds) {
   } while ((Get-Date) -lt $deadline)
 
   $null
+}
+
+function Open-LocalBrowser([string]$url) {
+  $chromeCandidates = @(
+    (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"),
+    (Join-Path $env:LocalAppData "Google\Chrome\Application\chrome.exe")
+  )
+
+  $chrome = $chromeCandidates |
+    Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
+    Select-Object -First 1
+
+  if ($chrome) {
+    Start-Process -FilePath $chrome -ArgumentList @($url)
+    return
+  }
+
+  Start-Process $url
 }
 
 Set-Location -LiteralPath $Root
@@ -152,4 +195,4 @@ Write-Host ""
 Write-Host "Open the Wi-Fi link from another device on the same network."
 Write-Host "If it does not open, allow Node/Electron in Windows Firewall for Private networks."
 
-Start-Process $server.WebUrl
+Open-LocalBrowser $server.WebUrl

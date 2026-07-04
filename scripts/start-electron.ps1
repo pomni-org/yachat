@@ -14,11 +14,23 @@ if ($Command) {
 
 $Candidates += @(
   (Join-Path $Root "node_modules\.bin\electron.cmd"),
+  (Join-Path $Root "..\3. ЭлЖур\node_modules\.bin\electron.cmd"),
   (Join-Path $Root "..\ElJour\node_modules\.bin\electron.cmd"),
   (Join-Path $Root "..\SuperChat\CONFIG\node_modules\.bin\electron.cmd"),
+  (Join-Path $Root "..\3. ЭлЖур\node_modules\electron\dist\electron.exe"),
   (Join-Path $Root "..\ElJour\node_modules\electron\dist\electron.exe"),
   (Join-Path $Root "..\SuperChat\CONFIG\node_modules\electron\dist\electron.exe")
 )
+
+$Parent = Split-Path -Parent $Root
+if (Test-Path -LiteralPath $Parent) {
+  Get-ChildItem -LiteralPath $Parent -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    $Candidates += Join-Path $_.FullName "node_modules\.bin\electron.cmd"
+    $Candidates += Join-Path $_.FullName "node_modules\electron\dist\electron.exe"
+    $Candidates += Join-Path $_.FullName "CONFIG\node_modules\.bin\electron.cmd"
+    $Candidates += Join-Path $_.FullName "CONFIG\node_modules\electron\dist\electron.exe"
+  }
+}
 
 $Electron = $Candidates |
   Where-Object { $_ -and (Test-Path -LiteralPath $_) } |
