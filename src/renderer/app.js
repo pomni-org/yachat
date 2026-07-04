@@ -59,6 +59,11 @@ const state = {
   newChatKind: "private",
   createChatUsers: [],
   createChatSelectedIds: [],
+  chatSearchUsers: [],
+  chatSearchLoading: false,
+  chatSearchError: "",
+  chatSearchRequestId: 0,
+  pendingSearchChat: null,
   contactMatches: [],
   contactLookupMessage: "",
   contactLookupLoading: false,
@@ -1024,7 +1029,95 @@ function renderChatAvatar(chat, className = "chat-avatar") {
   return `<div class="${className}${modifier}">${avatar}</div>`;
 }
 
+function getPrivateChatParticipantId(chat) {
+  if (chat?.kind !== "private" || !Array.isArray(chat.participantIds)) {
+    return "";
+  }
+
+  const accountId = String(state.account?.id || "");
+  return chat.participantIds
+    .map((id) => String(id || "").trim())
+    .find((id) => id && id !== accountId) || "";
+}
+
+function findPrivateChatForUser(userId) {
+  const targetId = String(userId || "").trim();
+
+  if (!targetId) {
+    return null;
+  }
+
+  return state.chats.find((chat) => getPrivateChatParticipantId(chat) === targetId) || null;
+}
+
+function chatSearchValue() {
+  return String(chatSearch?.value || "").trim();
+}
+
+function chatSearchText(chat) {
+  const profileText = Object.values(chat?.participantProfiles || {})
+    .map((profile) => userSearchText(profile))
+    .join(" ");
+
+  return `${getChatTitle(chat)} ${getChatSubtitle(chat)} ${chat?.lastMessage || ""} ${profileText}`.toLowerCase();
+}
+
+function getChatSearchMatches(query = chatSearchValue().toLowerCase()) {
+  return state.chats.filter((chat) => !query || chatSearchText(chat).includes(query));
+}
+
+function shouldSearchUserDirectory(query, chats) {
+  const value = String(query || "").trim();
+
+  if (!value || chats.length > 0) {
+    return false;
+  }
+
+  return value.length >= 2 || digitsOnly(value).length >= 3;
+}
+
+function createPendingSearchChat(user) {
+  const profile = contactProfilePayload(normalizeUser(user));
+  const participantProfiles = {
+    [profile.id]: profile
+  };
+
+  if (state.account?.id) {
+    participantProfiles[state.account.id] = {
+      id: state.account.id,
+      username: state.account.username,
+      displayName: state.account.displayName,
+      previewName: state.account.displayName,
+      avatarDataUrl: state.account.avatarDataUrl || "",
+      avatarAccent: state.account.avatarAccent || "#471AFF"
+    };
+  }
+
+  return {
+    id: `search-user-${profile.id}`,
+    kind: "private",
+    title: profile.displayName || profile.username || t("privateChat"),
+    subtitle: profile.username ? `@${profile.username}` : t("privateChat"),
+    participantIds: [state.account?.id, profile.id].filter(Boolean),
+    participantProfiles,
+    locked: false,
+    verified: false,
+    pinned: false,
+    canSend: true,
+    avatar: "private",
+    avatarDataUrl: profile.avatarDataUrl || "",
+    createdAt: new Date().toISOString(),
+    lastMessage: "",
+    pendingSearchUserId: profile.id,
+    pendingSearchUser: profile
+  };
+}
+
 function getActiveChat() {
+  if (state.pendingSearchChat?.id === state.activeChatId) {
+    return state.pendingSearchChat;
+  }
+
   return state.chats.find((chat) => chat.id === state.activeChatId) || state.chats[0] || null;
 }
 
@@ -1059,16 +1152,10 @@ function renderChatList() {
     return;
   }
 
-  const query = String(chatSearch?.value || "").trim().toLowerCase();
-  const chats = state.chats.filter((chat) => {
-    if (!query) {
-      return true;
-    }
-
-    return `${getChatTitle(chat)} ${getChatSubtitle(chat)} ${chat.lastMessage}`.toLowerCase().includes(query);
-  });
-
-  chatList.innerHTML = chats.map((chat) => {
+  const rawQuery = chatSearchValue();
+  const query = rawQuery.toLowerCase();
+  const chats = getChatSearchMatches(query);
+  const chatRows = chats.map((chat) => {
     const unread = unreadCountLabel(chat);
     return `
       <button class="chat-row${chat.id === state.activeChatId ? " is-active" : ""}" type="button" data-chat-id="${chat.id}">
@@ -1086,6 +1173,11 @@ function renderChatList() {
       </button>
     `;
   }).join("");
+  const directoryRows = shouldSearchUserDirectory(rawQuery, chats)
+    ? renderChatSearchUsers()
+    : "";
+
+  chatList.innerHTML = `${chatRows}${directoryRows}`;
 }
 
 function renderActiveChat() {
@@ -1665,6 +1757,7 @@ async function loadMessenger(selectedChatId = state.activeChatId) {
     return;
   }
 
+  state.pendingSearchChat = null;
   state.chats = await yachatApi.messenger.chats();
   state.activeChatId = state.chats.some((chat) => chat.id === selectedChatId)
     ? selectedChatId
@@ -1683,6 +1776,7 @@ async function selectChat(chatId) {
   state.replyToMessage = null;
   state.selectedMessageIds.clear();
   state.selectingMessages = false;
+  state.pendingSearchChat = null;
   state.activeChatId = chatId;
   state.messages = await yachatApi.messenger.messages(chatId);
   if (yachatApi.messenger?.markRead) {
@@ -1722,6 +1816,10 @@ function resetAccountSessionUi() {
   state.chats = [];
   state.messages = [];
   state.activeChatId = "yachat-codes";
+  state.pendingSearchChat = null;
+  state.chatSearchUsers = [];
+  state.chatSearchLoading = false;
+  state.chatSearchError = "";
   state.pendingAttachments = [];
   setMobileDialogOpen(false);
   renderAttachmentTray();
@@ -1932,7 +2030,8 @@ function userSearchText(user) {
     user.username,
     user.contact,
     user.matchedContact,
-    String(user.contact || "").replace(/\D/g, "")
+    String(user.contact || "").replace(/\D/g, ""),
+    String(user.matchedContact || "").replace(/\D/g, "")
   ].join(" ").toLowerCase();
 }
 
@@ -1942,6 +2041,266 @@ function renderUserAvatar(user, className = "panel-row-avatar") {
     ? `<img src="${escapeHtml(user.avatarDataUrl)}" alt="" />`
     : escapeHtml(initial);
   return `<span class="${className}">${content}</span>`;
+}
+
+function uniqueContactPhones(items) {
+  const seen = new Set();
+  const phones = [];
+
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const phone = typeof item === "object" ? item?.phone || item?.tel || item?.contact : item;
+    const source = String(phone || "").trim();
+    const primaryKey = [...contactMatchKeys(source)][0];
+
+    if (!source || !primaryKey || seen.has(primaryKey)) {
+      return;
+    }
+
+    seen.add(primaryKey);
+    phones.push(source);
+  });
+
+  return phones;
+}
+
+async function requestDeviceContacts() {
+  if (!contactPickerAvailable()) {
+    throw new Error(t("contactsUnavailable"));
+  }
+
+  const records = await navigator.contacts.select(["name", "tel"], { multiple: true });
+  return (records || []).flatMap((record) => {
+    const name = Array.isArray(record.name) ? record.name[0] : record.name;
+    const phones = Array.isArray(record.tel) ? record.tel : [];
+    return phones.map((phone) => ({ name: String(name || "").trim(), phone }));
+  });
+}
+
+async function matchContactsFromUsers(phones) {
+  const requested = new Set(uniqueContactPhones(phones).flatMap((phone) => [...contactMatchKeys(phone)]));
+
+  if (requested.size === 0) {
+    return [];
+  }
+
+  const users = await yachatApi.users.list();
+  return (users || []).filter((user) => {
+    if (!user || user.id === state.account?.id) {
+      return false;
+    }
+
+    return [...contactMatchKeys(user.contact)].some((key) => requested.has(key));
+  });
+}
+
+async function lookupContacts(phones, sourceButton = null) {
+  const contacts = uniqueContactPhones(phones);
+
+  if (contacts.length === 0) {
+    state.contactLookupMessage = t("contactsInputEmpty");
+    renderPanel();
+    return [];
+  }
+
+  state.contactLookupLoading = true;
+  state.contactLookupMessage = "";
+  renderPanel();
+
+  if (sourceButton) {
+    setLoading(sourceButton, true);
+  }
+
+  try {
+    const users = yachatApi.contacts?.lookup
+      ? await yachatApi.contacts.lookup({ contacts })
+      : await matchContactsFromUsers(contacts);
+    const normalized = (users || [])
+      .map(normalizeUser)
+      .filter((user) => user && user.id !== state.account?.id);
+    const byId = new Map(normalized.map((user) => [user.id, user]));
+
+    state.contactMatches = [...byId.values()];
+    state.contactLookupMessage = state.contactMatches.length
+      ? t("contactsFoundCount", { count: state.contactMatches.length })
+      : t("contactsNoMatches");
+    return state.contactMatches;
+  } catch (error) {
+    state.contactLookupMessage = error.message || t("contactsUnavailable");
+    return [];
+  } finally {
+    state.contactLookupLoading = false;
+    if (sourceButton) {
+      setLoading(sourceButton, false);
+    }
+    renderPanel();
+  }
+}
+
+async function importDeviceContacts(sourceButton) {
+  try {
+    const contacts = await requestDeviceContacts();
+    await lookupContacts(contacts, sourceButton);
+  } catch (error) {
+    state.contactLookupMessage = error.name === "NotAllowedError"
+      ? t("contactsPermissionDenied")
+      : error.message || t("contactsUnavailable");
+    state.contactLookupLoading = false;
+    renderPanel();
+  }
+}
+
+async function checkManualContacts(sourceButton) {
+  const text = panelBody?.querySelector("[data-contact-input]")?.value || "";
+  await lookupContacts(extractContactPhones(text), sourceButton);
+}
+
+function contactProfilePayload(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    previewName: user.previewName || user.displayName,
+    contact: contactLookupText(user),
+    avatarDataUrl: user.avatarDataUrl || "",
+    avatarAccent: user.avatarAccent || "#471AFF"
+  };
+}
+
+function renderContactMatches() {
+  if (state.contactMatches.length === 0) {
+    return `<p class="empty-users">${t("contactsNoMatches")}</p>`;
+  }
+
+  return state.contactMatches.map((user) => {
+    const contact = contactLookupText(user);
+    return `
+      <button class="panel-row contact-row" type="button" data-contact-user-id="${escapeHtml(user.id)}">
+        ${renderUserAvatar(user)}
+        <span>
+          <strong>${escapeHtml(user.displayName)}</strong>
+          <small>@${escapeHtml(user.username)}${contact ? ` · ${escapeHtml(contact)}` : ""}</small>
+        </span>
+        <b>${escapeHtml(t("openChat"))}</b>
+      </button>
+    `;
+  }).join("");
+}
+
+function renderChatSearchUsers() {
+  if (state.chatSearchLoading) {
+    return `<p class="empty-users">${escapeHtml(t("search"))}...</p>`;
+  }
+
+  if (state.chatSearchError) {
+    return `<p class="empty-users">${escapeHtml(state.chatSearchError)}</p>`;
+  }
+
+  if (state.chatSearchUsers.length === 0) {
+    return `<p class="empty-users">${t("noPeopleFound")}</p>`;
+  }
+
+  return state.chatSearchUsers.map((user) => {
+    const chat = createPendingSearchChat(user);
+    const contact = contactLookupText(user);
+    return `
+      <button class="chat-row${chat.id === state.activeChatId ? " is-active" : ""}" type="button" data-search-user-id="${escapeHtml(user.id)}">
+        ${renderChatAvatar(chat)}
+        <span class="chat-row-main">
+          <span class="chat-row-top">
+            <strong>${escapeHtml(user.displayName)}</strong>
+            <time>${escapeHtml(t("openChat"))}</time>
+          </span>
+          <span class="chat-row-bottom">
+            <span>@${escapeHtml(user.username)}${contact ? ` · ${escapeHtml(contact)}` : ""}</span>
+          </span>
+        </span>
+      </button>
+    `;
+  }).join("");
+}
+
+async function openPendingPrivateChat(user, options = {}) {
+  const normalized = normalizeUser(user);
+
+  if (!normalized?.id) {
+    throw new Error(t("errChoosePerson"));
+  }
+
+  const existing = findPrivateChatForUser(normalized.id);
+  if (existing) {
+    state.pendingSearchChat = null;
+    if (options.closePanelOnOpen) {
+      closePanel();
+    }
+    await selectChat(existing.id);
+    return;
+  }
+
+  closeMessageMenu();
+  closeForwardPicker();
+  state.pendingSearchChat = createPendingSearchChat(normalized);
+  state.activeChatId = state.pendingSearchChat.id;
+  state.messages = [];
+  state.editingMessageId = null;
+  state.replyToMessage = null;
+  state.selectedMessageIds.clear();
+  state.selectingMessages = false;
+
+  if (options.closePanelOnOpen) {
+    closePanel();
+  }
+
+  renderComposerContext();
+  setMobileDialogOpen(true);
+  renderChatList();
+  renderActiveChat();
+  renderMessages();
+}
+
+async function openPrivateChatWithContact(userId, sourceButton = null) {
+  const user = state.contactMatches.find((item) => item.id === userId);
+
+  if (sourceButton) {
+    setLoading(sourceButton, true);
+  }
+
+  try {
+    await openPendingPrivateChat(user, { closePanelOnOpen: true });
+  } catch (error) {
+    state.contactLookupMessage = error.message || t("errSendMessage");
+    renderPanel();
+  } finally {
+    if (sourceButton) {
+      setLoading(sourceButton, false);
+    }
+  }
+}
+
+async function openPrivateChatFromSearch(userId) {
+  const user = state.chatSearchUsers.find((item) => item.id === userId);
+  await openPendingPrivateChat(user);
+}
+
+async function ensureRealChatForMessage(chat) {
+  if (!chat?.pendingSearchUserId) {
+    return chat;
+  }
+
+  const user = chat.pendingSearchUser || chat.participantProfiles?.[chat.pendingSearchUserId];
+  const participantProfiles = user ? { [chat.pendingSearchUserId]: contactProfilePayload(user) } : {};
+  const result = await yachatApi.messenger.createChat({
+    kind: "private",
+    participantIds: [chat.pendingSearchUserId],
+    participantProfiles,
+    title: user?.displayName || chat.title || ""
+  });
+
+  state.chats = result.chats || await yachatApi.messenger.chats();
+  state.activeChatId = result.chat?.id || state.activeChatId;
+  state.messages = result.messages || await yachatApi.messenger.messages(state.activeChatId);
+  state.pendingSearchChat = null;
+
+  return getActiveChat();
 }
 
 function utf8Bytes(value) {
@@ -2477,17 +2836,18 @@ function renderPanel() {
   if (state.activePanel === "contacts") {
     panelBody.innerHTML = `
       <section class="panel-section">
-        <h3>${t("contacts")}</h3>
-        <p>${t("contactsEmpty")}</p>
+        <h3>${t("contactsImportTitle")}</h3>
+        <p>${t("contactsImportHint")}</p>
+        <div class="panel-actions">
+          <button class="panel-primary is-secondary" type="button" data-panel-action="request-contacts" ${state.contactLookupLoading ? "disabled" : ""}>${iconSvg("users", "button-icon")}<span>${t("requestContacts")}</span></button>
+          <button type="button" data-panel-action="check-contact-input" ${state.contactLookupLoading ? "disabled" : ""}>${iconSvg("search", "button-icon")}<span>${t("checkContacts")}</span></button>
+        </div>
+        <textarea class="session-input contacts-input" rows="4" placeholder="${escapeHtml(t("contactsInputPlaceholder"))}" data-contact-input></textarea>
+        <div class="session-message" data-contact-status>${escapeHtml(state.contactLookupMessage || "")}</div>
       </section>
       <section class="panel-section">
-        <h3>${t("chatsTitle")}</h3>
-        ${state.chats.map((chat) => `
-          <button class="panel-row" type="button" data-panel-chat="${escapeHtml(chat.id)}">
-            ${renderChatAvatar(chat, "panel-row-avatar")}
-            <span><strong>${escapeHtml(chat.title)}</strong><small>${escapeHtml(chat.subtitle || "")}</small></span>
-          </button>
-        `).join("")}
+        <h3>${t("contactsFoundTitle")}</h3>
+        ${renderContactMatches()}
       </section>
     `;
     hydrateIcons(panelBody);
@@ -2587,6 +2947,70 @@ async function loadCreateChatUsers() {
   } catch {
     state.createChatUsers = [];
   }
+}
+
+function normalizeChatSearchUsers(users) {
+  const seen = new Set();
+  return (users || [])
+    .map(normalizeUser)
+    .filter((user) => {
+      if (!user?.id || user.id === state.account?.id || seen.has(user.id) || findPrivateChatForUser(user.id)) {
+        return false;
+      }
+
+      seen.add(user.id);
+      return true;
+    })
+    .slice(0, 8);
+}
+
+async function searchChatUserDirectory(query, requestId) {
+  state.chatSearchLoading = true;
+  state.chatSearchError = "";
+  state.chatSearchUsers = [];
+  renderChatList();
+
+  try {
+    const users = yachatApi.users?.search
+      ? await yachatApi.users.search(query)
+      : await yachatApi.users.list();
+
+    if (requestId !== state.chatSearchRequestId || query !== chatSearchValue()) {
+      return;
+    }
+
+    state.chatSearchUsers = normalizeChatSearchUsers(users);
+  } catch (error) {
+    if (requestId !== state.chatSearchRequestId) {
+      return;
+    }
+
+    state.chatSearchUsers = [];
+    state.chatSearchError = error.message || t("contactsUnavailable");
+  } finally {
+    if (requestId === state.chatSearchRequestId) {
+      state.chatSearchLoading = false;
+      renderChatList();
+    }
+  }
+}
+
+function refreshChatSearch() {
+  const query = chatSearchValue();
+  const chats = getChatSearchMatches(query.toLowerCase());
+  const requestId = state.chatSearchRequestId + 1;
+
+  state.chatSearchRequestId = requestId;
+  state.chatSearchError = "";
+
+  if (!shouldSearchUserDirectory(query, chats)) {
+    state.chatSearchLoading = false;
+    state.chatSearchUsers = [];
+    renderChatList();
+    return;
+  }
+
+  searchChatUserDirectory(query, requestId);
 }
 
 function getCreateChatSelectedUsers() {
@@ -3136,6 +3560,16 @@ function createHttpYachatApi(fallbackApi = null) {
       list: () => withFallback(
         () => request("/api/users"),
         () => fallbackApi?.users?.list?.() || []
+      ),
+      search: (query) => withFallback(
+        () => request(`/api/users/search?q=${encodeURIComponent(query || "")}`),
+        () => fallbackApi?.users?.search?.(query) || fallbackApi?.users?.list?.() || []
+      )
+    },
+    contacts: {
+      lookup: (payload) => withFallback(
+        () => post("/api/contacts/lookup", payload),
+        () => fallbackApi?.contacts?.lookup?.(payload) || matchContactsFromUsers(payload?.contacts || [])
       )
     },
     messenger: {
@@ -3642,6 +4076,31 @@ function createLocalYachatApi() {
       list: async () => {
         const account = readAccount()?.account;
         return account ? [account] : [];
+      },
+      search: async (query) => {
+        const value = String(query || "").trim().toLowerCase();
+        const account = readAccount()?.account;
+
+        if (!account || !value) {
+          return [];
+        }
+
+        return userSearchText(account).includes(value) ? [account] : [];
+      }
+    },
+    contacts: {
+      lookup: async (payload) => {
+        const contacts = uniqueContactPhones(payload?.contacts || []);
+        const requested = new Set(contacts.flatMap((phone) => [...contactMatchKeys(phone)]));
+        const account = readAccount()?.account;
+
+        if (!account || requested.size === 0 || account.id === state.account?.id) {
+          return [];
+        }
+
+        return [...contactMatchKeys(account.contact)].some((key) => requested.has(key))
+          ? [account]
+          : [];
       }
     },
     messenger: {
@@ -3654,6 +4113,10 @@ function createLocalYachatApi() {
         const selectedIds = [...new Set((Array.isArray(payload?.participantIds) ? payload.participantIds : [])
           .map((id) => String(id || "").trim())
           .filter((id) => id && id !== account?.id))];
+        const incomingProfiles = payload?.participantProfiles && typeof payload.participantProfiles === "object"
+          ? payload.participantProfiles
+          : {};
+        const selectedProfile = incomingProfiles[selectedIds[0]] || null;
 
         if (!account?.id) {
           throw new Error(t("errConfirmCodeFirst"));
@@ -3669,7 +4132,7 @@ function createLocalYachatApi() {
 
         const title = kind === "group"
           ? String(payload?.title || "").trim()
-          : String(payload?.title || "").trim() || t("privateChat");
+          : String(selectedProfile?.displayName || selectedProfile?.previewName || payload?.title || "").trim() || t("privateChat");
 
         if (kind === "group" && !title) {
           throw new Error(t("errGroupName"));
@@ -3685,6 +4148,40 @@ function createLocalYachatApi() {
             avatarDataUrl: account.avatarDataUrl || ""
           }
         };
+        selectedIds.forEach((id) => {
+          const profile = incomingProfiles[id];
+          if (!profile) {
+            return;
+          }
+
+          const username = cleanDisplayText(profile.username, "user");
+          const displayName = cleanDisplayText(profile.displayName || profile.previewName, username);
+          participantProfiles[id] = {
+            id,
+            username,
+            displayName,
+            previewName: displayName,
+            contact: cleanDisplayText(profile.contact, ""),
+            avatarDataUrl: profile.avatarDataUrl || "",
+            avatarAccent: profile.avatarAccent || "#471AFF"
+          };
+        });
+
+        if (kind === "private") {
+          const pair = [...participantIds].sort().join(":");
+          const existing = data.chats.find((chat) => (
+            chat.kind === "private" &&
+            localParticipantIds(chat).sort().join(":") === pair
+          ));
+
+          if (existing) {
+            return {
+              chat: existing,
+              chats: summarizeLocalChats(data),
+              messages: data.messages[existing.id] || []
+            };
+          }
+        }
 
         const chat = {
           id: `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -4709,9 +5206,15 @@ document.querySelectorAll("[data-language]").forEach((button) => {
   });
 });
 
-chatSearch?.addEventListener("input", renderChatList);
+chatSearch?.addEventListener("input", refreshChatSearch);
 
 chatList?.addEventListener("click", (event) => {
+  const searchUserRow = event.target.closest("[data-search-user-id]");
+  if (searchUserRow) {
+    openPrivateChatFromSearch(searchUserRow.dataset.searchUserId).catch(() => {});
+    return;
+  }
+
   const row = event.target.closest("[data-chat-id]");
   if (!row) {
     return;
@@ -4869,6 +5372,7 @@ messageForm?.addEventListener("submit", async (event) => {
   sendButton.disabled = true;
 
   try {
+    const targetChat = state.editingMessageId ? chat : await ensureRealChatForMessage(chat);
     const result = state.editingMessageId && yachatApi.messenger.updateMessage
       ? await yachatApi.messenger.updateMessage({
           chatId: chat.id,
@@ -4876,7 +5380,7 @@ messageForm?.addEventListener("submit", async (event) => {
           text
         })
       : await yachatApi.messenger.send({
-          chatId: chat.id,
+          chatId: targetChat.id,
           text,
           attachments: state.pendingAttachments,
           replyToMessageId: state.replyToMessage?.messageId || null
@@ -4888,7 +5392,7 @@ messageForm?.addEventListener("submit", async (event) => {
     renderAttachmentTray();
     renderComposerContext();
     state.chats = result.chats || await yachatApi.messenger.chats();
-    state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
+    state.messages = result.messages || await yachatApi.messenger.messages(targetChat.id);
     renderChatList();
     renderActiveChat();
     renderMessages();
@@ -4938,6 +5442,12 @@ panelBody?.addEventListener("click", async (event) => {
     return;
   }
 
+  const contactButton = event.target.closest("[data-contact-user-id]");
+  if (contactButton) {
+    await openPrivateChatWithContact(contactButton.dataset.contactUserId, contactButton);
+    return;
+  }
+
   const actionButton = event.target.closest("[data-panel-action]");
   if (!actionButton) {
     return;
@@ -4951,6 +5461,16 @@ panelBody?.addEventListener("click", async (event) => {
 
   if (action === "scan-session") {
     startQrScanner();
+    return;
+  }
+
+  if (action === "request-contacts") {
+    importDeviceContacts(actionButton);
+    return;
+  }
+
+  if (action === "check-contact-input") {
+    checkManualContacts(actionButton);
     return;
   }
 

@@ -25,7 +25,11 @@ contextBridge.exposeInMainWorld("yachat", {
     update: (payload) => ipcRenderer.invoke("settings:update", payload)
   },
   users: {
-    list: () => ipcRenderer.invoke("users:list")
+    list: () => ipcRenderer.invoke("users:list"),
+    search: (query) => ipcRenderer.invoke("users:search", query)
+  },
+  contacts: {
+    lookup: (payload) => ipcRenderer.invoke("contacts:lookup", payload)
   },
   messenger: {
     chats: () => ipcRenderer.invoke("chats:list"),

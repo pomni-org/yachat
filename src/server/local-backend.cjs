@@ -273,6 +273,31 @@ function createLocalBackend(app, appTitle) {
       .replace(/[^\d+a-z@._-]+/g, "");
   }
 
+  function contactLookupKeys(contact) {
+    const digits = String(contact || "").replace(/\D/g, "");
+    const keys = new Set();
+
+    if (!digits) {
+      return keys;
+    }
+
+    keys.add(digits);
+
+    if (digits.length === 11 && digits.startsWith("8")) {
+      keys.add(`7${digits.slice(1)}`);
+    }
+
+    if (digits.length === 11 && digits.startsWith("7")) {
+      keys.add(digits.slice(1));
+    }
+
+    if (digits.length === 10) {
+      keys.add(`7${digits}`);
+    }
+
+    return keys;
+  }
+
   function accountFromManifest(manifest) {
     if (!manifest) {
       return null;
@@ -348,8 +373,50 @@ function createLocalBackend(app, appTitle) {
       username,
       displayName,
       previewName: displayName,
+      contact: cleanPersonalText(manifest.contact, ""),
       avatarDataUrl: manifest.avatarDataUrl || "",
       avatarAccent: manifest.avatarAccent || "#471AFF"
+    };
+  }
+
+  function publicDirectoryUser(manifest, extra = {}) {
+    const username = cleanPersonalText(manifest.username, "user");
+    const displayName = cleanPersonalText(manifest.previewName, username);
+
+    return {
+      id: manifest.id,
+      username,
+      previewName: displayName,
+      displayName,
+      bio: cleanPersonalText(manifest.bio, ""),
+      contact: cleanPersonalText(manifest.contact, ""),
+      matchedContact: cleanPersonalText(extra.matchedContact, ""),
+      avatarDataUrl: manifest.avatarDataUrl || "",
+      avatarAccent: manifest.avatarAccent || "#471AFF",
+      createdAt: manifest.createdAt,
+      encrypted: true,
+      publicKeyType: manifest.publicKeyType || "x25519"
+    };
+  }
+
+  function payloadChatProfile(id, profile) {
+    const profileId = String(id || profile?.id || "").trim();
+
+    if (!profileId) {
+      return null;
+    }
+
+    const username = cleanPersonalText(profile?.username, "user");
+    const displayName = cleanPersonalText(profile?.displayName || profile?.previewName, username);
+
+    return {
+      id: profileId,
+      username,
+      displayName,
+      previewName: displayName,
+      contact: cleanPersonalText(profile?.contact || profile?.matchedContact, ""),
+      avatarDataUrl: profile?.avatarDataUrl || "",
+      avatarAccent: profile?.avatarAccent || "#471AFF"
     };
   }
 
@@ -441,6 +508,73 @@ function createLocalBackend(app, appTitle) {
   async function listUsers() {
     await init();
     return readAllManifests();
+  }
+
+  async function lookupContacts(payload) {
+    await init();
+
+    const contacts = Array.isArray(payload?.contacts) ? payload.contacts : [];
+    const requested = new Set();
+    const submittedByKey = new Map();
+
+    contacts.forEach((item) => {
+      const source = typeof item === "object" ? item?.phone || item?.tel || item?.contact : item;
+      contactLookupKeys(source).forEach((key) => {
+        requested.add(key);
+        if (!submittedByKey.has(key)) {
+          submittedByKey.set(key, source);
+        }
+      });
+    });
+
+    if (requested.size === 0) {
+      return [];
+    }
+
+    const account = await getLastAccount();
+    const users = await readAllManifests();
+
+    return users
+      .filter((manifest) => manifest.id !== account?.id)
+      .filter((manifest) => [...contactLookupKeys(manifest.contact)].some((key) => requested.has(key)))
+      .map((manifest) => {
+        const matchedKey = [...contactLookupKeys(manifest.contact)].find((key) => requested.has(key));
+        return publicDirectoryUser(manifest, { matchedContact: submittedByKey.get(matchedKey) || "" });
+      });
+  }
+
+  async function searchUsers(query) {
+    await init();
+
+    const rawQuery = String(query || "").trim();
+    const text = rawQuery.toLowerCase().replace(/^@+/, "");
+    const digits = rawQuery.replace(/\D/g, "");
+
+    if (!rawQuery || (rawQuery.length < 2 && digits.length < 3)) {
+      return [];
+    }
+
+    const account = await getLastAccount();
+    const users = await readAllManifests();
+
+    return users
+      .filter((manifest) => manifest.id !== account?.id)
+      .filter((manifest) => {
+        const username = cleanPersonalText(manifest.username, "user").toLowerCase();
+        const displayName = cleanPersonalText(manifest.previewName, username).toLowerCase();
+        const bio = cleanPersonalText(manifest.bio, "").toLowerCase();
+        const contact = cleanPersonalText(manifest.contact, "").toLowerCase();
+        const contactDigits = contact.replace(/\D/g, "");
+
+        return username.includes(text)
+          || `@${username}`.includes(rawQuery.toLowerCase())
+          || displayName.includes(text)
+          || bio.includes(text)
+          || contact.includes(text)
+          || (digits.length >= 3 && contactDigits.includes(digits));
+      })
+      .slice(0, 25)
+      .map((manifest) => publicDirectoryUser(manifest));
   }
 
   async function getLastAccount() {
@@ -1015,7 +1149,14 @@ function createLocalBackend(app, appTitle) {
     const users = await readAllManifests();
     const usersById = createUserMap(users);
     const kind = payload?.kind === "group" ? "group" : "private";
-    const selectedIds = uniqueIds(payload?.participantIds).filter((id) => id !== account?.id && usersById.has(id));
+    const incomingProfiles = new Map(
+      Object.entries(payload?.participantProfiles && typeof payload.participantProfiles === "object" ? payload.participantProfiles : {})
+        .map(([id, profile]) => payloadChatProfile(id, profile))
+        .filter(Boolean)
+        .map((profile) => [profile.id, profile])
+    );
+    const selectedIds = uniqueIds(payload?.participantIds)
+      .filter((id) => id !== account?.id && (usersById.has(id) || incomingProfiles.has(id)));
 
     if (!account?.id) {
       throw new Error("Сначала войдите в аккаунт.");
@@ -1031,14 +1172,18 @@ function createLocalBackend(app, appTitle) {
 
     const title = kind === "group"
       ? normalizeProfileText(payload?.title, 60)
-      : usersById.get(selectedIds[0])?.displayName || "Личный чат";
+      : usersById.get(selectedIds[0])?.displayName || incomingProfiles.get(selectedIds[0])?.displayName || "Личный чат";
 
     if (kind === "group" && !title) {
       throw new Error("Введите название группы.");
     }
 
     const participantIds = [account.id, ...selectedIds];
-    const participantProfiles = Object.fromEntries(participantIds.map((id) => [id, usersById.get(id)]).filter(([, profile]) => profile));
+    const participantProfiles = Object.fromEntries(
+      participantIds
+        .map((id) => [id, usersById.get(id) || incomingProfiles.get(id)])
+        .filter(([, profile]) => profile)
+    );
 
     if (kind === "private") {
       const pair = [...participantIds].sort().join(":");
@@ -1548,6 +1693,8 @@ function createLocalBackend(app, appTitle) {
     getSettings,
     updateSettings,
     listUsers,
+    searchUsers,
+    lookupContacts,
     getLastAccount,
     findAccountByContact,
     createUser,

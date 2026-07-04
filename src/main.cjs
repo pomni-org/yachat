@@ -95,8 +95,10 @@ function publicUser(user) {
     id: user.id,
     username: user.username,
     previewName: user.previewName || user.username,
+    displayName: user.displayName || user.previewName || user.username,
     bio: user.bio || "",
     contact: user.contact || "",
+    matchedContact: user.matchedContact || "",
     avatarDataUrl: user.avatarDataUrl || "",
     avatarAccent: user.avatarAccent || "#471AFF",
     createdAt: user.createdAt,
@@ -404,6 +406,18 @@ async function handleHttpRequest(request, response) {
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/api/users/search") {
+        const users = await localBackend.searchUsers(url.searchParams.get("q"));
+        sendJson(response, 200, users.map(publicUser));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/contacts/lookup") {
+        const users = await localBackend.lookupContacts(await readRequestJson(request));
+        sendJson(response, 200, users.map(publicUser));
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/api/chats") {
         sendJson(response, 200, await localBackend.listChats());
         return;
@@ -647,6 +661,16 @@ ipcMain.handle("settings:update", async (_event, payload) => {
 
 ipcMain.handle("users:list", async () => {
   const users = await localBackend.listUsers();
+  return users.map(publicUser);
+});
+
+ipcMain.handle("users:search", async (_event, query) => {
+  const users = await localBackend.searchUsers(query);
+  return users.map(publicUser);
+});
+
+ipcMain.handle("contacts:lookup", async (_event, payload) => {
+  const users = await localBackend.lookupContacts(payload);
   return users.map(publicUser);
 });
 
