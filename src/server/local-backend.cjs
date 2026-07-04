@@ -2,6 +2,13 @@ const fs = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
 
+let DatabaseSync = null;
+try {
+  ({ DatabaseSync } = require("node:sqlite"));
+} catch {
+  DatabaseSync = null;
+}
+
 const CIPHER = "aes-256-gcm";
 const KDF = "scrypt";
 const REMOVED_TEST_MESSAGE_TEXTS = new Set(["Приыет?"]);
@@ -138,10 +145,13 @@ function createLocalBackend(app, appTitle) {
   const usersRoot = path.join(appRoot, "users");
   const serverRoot = path.join(appRoot, "server");
   const attachmentsRoot = path.join(appRoot, "attachments");
+  const databasePath = path.join(serverRoot, "yachat.sqlite");
   const settingsPath = path.join(serverRoot, "settings.json");
   const chatsPath = path.join(serverRoot, "chats.json");
   const sessionsPath = path.join(serverRoot, "qr-sessions.json");
-  const accountsPath = path.join(serverRoot, "accounts.json");
+  let database = null;
+  let initialized = false;
+  let initPromise = null;
 
   const defaultSettings = {
     language: "ru",
@@ -152,6 +162,167 @@ function createLocalBackend(app, appTitle) {
     signedOut: false,
     updatedAt: null
   };
+
+  function requireSqliteRuntime() {
+    if (!DatabaseSync) {
+      throw new Error("SQLite недоступен в этом Node/Electron. Нужен Node/Electron со встроенным node:sqlite.");
+    }
+  }
+
+  function db() {
+    if (!database) {
+      requireSqliteRuntime();
+      database = new DatabaseSync(databasePath);
+      database.exec("pragma journal_mode = WAL");
+      database.exec("pragma foreign_keys = ON");
+    }
+
+    return database;
+  }
+
+  function dbGet(sql, params = []) {
+    return db().prepare(sql).get(...params);
+  }
+
+  function dbAll(sql, params = []) {
+    return db().prepare(sql).all(...params);
+  }
+
+  function dbRun(sql, params = []) {
+    return db().prepare(sql).run(...params);
+  }
+
+  function runInTransaction(callback) {
+    const connection = db();
+    connection.exec("BEGIN IMMEDIATE");
+    try {
+      const result = callback();
+      connection.exec("COMMIT");
+      return result;
+    } catch (error) {
+      connection.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  function parseStoredJson(value, fallback) {
+    if (!value) {
+      return fallback;
+    }
+
+    try {
+      return JSON.parse(String(value));
+    } catch {
+      return fallback;
+    }
+  }
+
+  function boolToDb(value) {
+    return value ? 1 : 0;
+  }
+
+  function dbToBool(value) {
+    return value === 1 || value === true;
+  }
+
+  function ensureSchema() {
+    db().exec(`
+      create table if not exists meta (
+        key text primary key,
+        value text not null
+      );
+
+      create table if not exists settings (
+        key text primary key,
+        value text not null
+      );
+
+      create table if not exists users (
+        id text primary key,
+        username text not null,
+        preview_name text not null,
+        display_name text not null,
+        bio text not null default '',
+        contact text not null,
+        contact_key text not null,
+        method text not null default 'phone',
+        avatar_data_url text not null default '',
+        avatar_accent text not null default '#471AFF',
+        folder text not null default '',
+        encrypted integer not null default 1,
+        public_key_type text not null default 'x25519',
+        public_key text not null default '',
+        vault_json text not null default '',
+        created_at text not null,
+        updated_at text not null
+      );
+
+      create unique index if not exists users_contact_key_idx on users(contact_key);
+      create unique index if not exists users_username_idx on users(lower(username));
+      create index if not exists users_search_idx on users(username, display_name, contact_key);
+
+      create table if not exists chats (
+        id text primary key,
+        data_json text not null,
+        created_at text not null,
+        updated_at text not null
+      );
+
+      create table if not exists messages (
+        id text primary key,
+        chat_id text not null references chats(id) on delete cascade,
+        data_json text not null,
+        created_at text not null
+      );
+
+      create index if not exists messages_chat_created_idx on messages(chat_id, created_at);
+
+      create table if not exists qr_sessions (
+        id text primary key,
+        data_json text not null,
+        updated_at text not null
+      );
+    `);
+  }
+
+  function readMeta(key) {
+    return dbGet("select value from meta where key = ?", [key])?.value || "";
+  }
+
+  function writeMeta(key, value) {
+    dbRun(
+      "insert into meta(key, value) values(?, ?) on conflict(key) do update set value = excluded.value",
+      [key, String(value)]
+    );
+  }
+
+  function getSettingRows() {
+    const rows = dbAll("select key, value from settings");
+    return Object.fromEntries(rows.map((row) => [row.key, parseStoredJson(row.value, row.value)]));
+  }
+
+  function writeSettingRows(settings) {
+    const insert = db().prepare(`
+      insert into settings(key, value)
+      values(?, ?)
+      on conflict(key) do update set value = excluded.value
+    `);
+    runInTransaction(() => {
+      for (const [key, value] of Object.entries(settings)) {
+        insert.run(key, JSON.stringify(value));
+      }
+    });
+  }
+
+  function ensureDefaultSettings() {
+    const stored = getSettingRows();
+    if (Object.keys(stored).length === 0) {
+      writeSettingRows({
+        ...defaultSettings,
+        updatedAt: new Date().toISOString()
+      });
+    }
+  }
 
   async function migrateLegacyStorage() {
     try {
@@ -173,25 +344,116 @@ function createLocalBackend(app, appTitle) {
     }
   }
 
-  async function init() {
-    await migrateLegacyStorage();
-    await fs.mkdir(usersRoot, { recursive: true });
-    await fs.mkdir(serverRoot, { recursive: true });
-    await fs.mkdir(attachmentsRoot, { recursive: true });
-    const settings = await readJson(settingsPath, null);
-    if (!settings) {
-      await writeJson(settingsPath, {
+  async function readLegacyManifests() {
+    try {
+      const entries = await fs.readdir(usersRoot, { withFileTypes: true });
+      const users = [];
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) {
+          continue;
+        }
+
+        const manifest = await readManifest(path.join(usersRoot, entry.name));
+        if (manifest) {
+          users.push(manifest);
+        }
+      }
+
+      return users.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async function migrateLegacyDatabase() {
+    if (readMeta("legacy_migrated") === "1") {
+      return;
+    }
+
+    const legacySettings = await readJson(settingsPath, null);
+    if (legacySettings && Object.keys(getSettingRows()).length === 0) {
+      writeSettingRows({
         ...defaultSettings,
-        updatedAt: new Date().toISOString()
+        ...legacySettings,
+        updatedAt: legacySettings.updatedAt || new Date().toISOString()
       });
     }
-    await rebuildAccountIndex();
-    await ensureMessengerState();
+
+    for (const manifest of await readLegacyManifests()) {
+      const existing = dbGet("select id from users where id = ? or contact_key = ? limit 1", [
+        manifest.id,
+        contactKey(manifest.contact)
+      ]);
+      if (existing) {
+        continue;
+      }
+
+      const userDir = path.join(usersRoot, manifest.folder || "");
+      const vault = await readJson(path.join(userDir, manifest.vaultFile || "vault.enc.json"), null);
+      insertUserManifest(manifest, vault);
+    }
+
+    const chatCount = Number(dbGet("select count(*) as count from chats")?.count || 0);
+    const legacyChats = await readJson(chatsPath, null);
+    if (chatCount === 0 && legacyChats) {
+      persistMessengerState(ensureSystemChats(legacyChats));
+    }
+
+    const legacySessions = await readJson(sessionsPath, null);
+    if (legacySessions?.sessions && Number(dbGet("select count(*) as count from qr_sessions")?.count || 0) === 0) {
+      const insertSession = db().prepare(`
+        insert into qr_sessions(id, data_json, updated_at)
+        values(?, ?, ?)
+        on conflict(id) do update set data_json = excluded.data_json, updated_at = excluded.updated_at
+      `);
+      runInTransaction(() => {
+        for (const [id, session] of Object.entries(legacySessions.sessions)) {
+          insertSession.run(id, JSON.stringify(session), session.updatedAt || legacySessions.updatedAt || new Date().toISOString());
+        }
+      });
+    }
+
+    writeMeta("legacy_migrated", "1");
+  }
+
+  async function init() {
+    if (initialized) {
+      return;
+    }
+
+    if (initPromise) {
+      await initPromise;
+      return;
+    }
+
+    initPromise = (async () => {
+      await migrateLegacyStorage();
+      await fs.mkdir(serverRoot, { recursive: true });
+      await fs.mkdir(attachmentsRoot, { recursive: true });
+      db();
+      ensureSchema();
+      await migrateLegacyDatabase();
+      ensureDefaultSettings();
+      await ensureMessengerState();
+      initialized = true;
+    })();
+
+    try {
+      await initPromise;
+    } finally {
+      if (!initialized) {
+        initPromise = null;
+      }
+    }
   }
 
   async function getSettings() {
     await init();
-    const settings = await readJson(settingsPath, defaultSettings);
+    const settings = getSettingRows();
     return { ...defaultSettings, ...settings };
   }
 
@@ -226,7 +488,7 @@ function createLocalBackend(app, appTitle) {
       next.signedOut = Boolean(patch.signedOut);
     }
 
-    await writeJson(settingsPath, next);
+    writeSettingRows(next);
     return next;
   }
 
@@ -234,10 +496,12 @@ function createLocalBackend(app, appTitle) {
     await init();
     return {
       appRoot,
+      databasePath,
       usersRoot,
       serverRoot,
       attachmentsRoot,
-      settingsPath,
+      settingsPath: databasePath,
+      storage: "sqlite",
       encryption: {
         storage: CIPHER,
         kdf: KDF,
@@ -299,6 +563,95 @@ function createLocalBackend(app, appTitle) {
     return keys;
   }
 
+  function uniqueUsername(baseUsername) {
+    const base = safeSegment(baseUsername).slice(0, 24) || "user";
+    let username = base;
+    let suffix = 1;
+
+    while (dbGet("select id from users where lower(username) = lower(?) limit 1", [username])) {
+      suffix += 1;
+      username = `${base.slice(0, 18)}_${suffix}`;
+    }
+
+    return username;
+  }
+
+  function manifestFromRow(row) {
+    if (!row) {
+      return null;
+    }
+
+    const username = cleanPersonalText(row.username, "user");
+    const previewName = cleanPersonalText(row.preview_name, username);
+
+    return {
+      id: row.id,
+      folder: row.folder || "",
+      username,
+      previewName,
+      displayName: cleanPersonalText(row.display_name, previewName),
+      bio: cleanPersonalText(row.bio, ""),
+      contact: cleanPersonalText(row.contact, ""),
+      contactKey: cleanPersonalText(row.contact_key, ""),
+      method: row.method === "email" ? "email" : "phone",
+      avatarDataUrl: row.avatar_data_url || "",
+      avatarAccent: row.avatar_accent || "#471AFF",
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      encrypted: dbToBool(row.encrypted),
+      publicKeyType: row.public_key_type || "x25519",
+      publicKey: row.public_key || "",
+      vaultFile: "",
+      vault: parseStoredJson(row.vault_json, null),
+      encryption: {
+        storage: CIPHER,
+        kdf: KDF
+      }
+    };
+  }
+
+  function insertUserManifest(manifest, vault = null) {
+    const now = new Date().toISOString();
+    const id = String(manifest.id || crypto.randomUUID());
+    let username = safeSegment(manifest.username);
+    if (dbGet("select id from users where lower(username) = lower(?) and id <> ? limit 1", [username, id])) {
+      username = uniqueUsername(username);
+    }
+    const previewName = cleanPersonalText(manifest.previewName || manifest.displayName, username);
+    const contact = cleanPersonalText(manifest.contact, "");
+    const key = cleanPersonalText(manifest.contactKey, "") || contactKey(contact) || `id:${id}`;
+
+    dbRun(
+      `
+      insert into users(
+        id, username, preview_name, display_name, bio, contact, contact_key, method,
+        avatar_data_url, avatar_accent, folder, encrypted, public_key_type, public_key,
+        vault_json, created_at, updated_at
+      )
+      values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        id,
+        username,
+        previewName,
+        cleanPersonalText(manifest.displayName, previewName),
+        cleanPersonalText(manifest.bio, ""),
+        contact,
+        key,
+        manifest.method === "email" ? "email" : "phone",
+        manifest.avatarDataUrl || "",
+        manifest.avatarAccent || "#471AFF",
+        manifest.folder || "",
+        boolToDb(manifest.encrypted !== false),
+        manifest.publicKeyType || "x25519",
+        manifest.publicKey || "",
+        vault ? JSON.stringify(vault) : JSON.stringify(manifest.vault || null),
+        manifest.createdAt || now,
+        manifest.updatedAt || manifest.createdAt || now
+      ]
+    );
+  }
+
   function accountFromManifest(manifest) {
     if (!manifest) {
       return null;
@@ -317,48 +670,13 @@ function createLocalBackend(app, appTitle) {
       createdAt: manifest.createdAt,
       status: "account-created",
       encrypted: true,
-      userDir: path.join(usersRoot, manifest.folder)
+      userDir: databasePath
     };
-  }
-
-  async function readAccountIndex() {
-    const stored = await readJson(accountsPath, null);
-
-    if (stored?.accounts && typeof stored.accounts === "object") {
-      return stored;
-    }
-
-    return {
-      version: 1,
-      accounts: {},
-      updatedAt: new Date().toISOString()
-    };
-  }
-
-  async function writeAccountIndex(index) {
-    await writeJson(accountsPath, {
-      version: 1,
-      accounts: index.accounts || {},
-      updatedAt: new Date().toISOString()
-    });
   }
 
   async function readAllManifests() {
-    const entries = await fs.readdir(usersRoot, { withFileTypes: true });
-    const users = [];
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-
-      const manifest = await readManifest(path.join(usersRoot, entry.name));
-      if (manifest) {
-        users.push(manifest);
-      }
-    }
-
-    return users.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const rows = dbAll("select * from users order by created_at desc");
+    return rows.map(manifestFromRow);
   }
 
   function userChatProfile(manifest) {
@@ -453,28 +771,6 @@ function createLocalBackend(app, appTitle) {
     return Boolean(relative) && !relative.startsWith("..") && !path.isAbsolute(relative);
   }
 
-  async function rebuildAccountIndex() {
-    const users = await readAllManifests();
-    const accounts = {};
-
-    for (const manifest of users) {
-      const key = contactKey(manifest.contact);
-      if (!key) {
-        continue;
-      }
-
-      accounts[key] = {
-        id: manifest.id,
-        folder: manifest.folder,
-        contact: manifest.contact,
-        updatedAt: manifest.updatedAt || manifest.createdAt
-      };
-    }
-
-    await writeAccountIndex({ accounts });
-    return accounts;
-  }
-
   async function findAccountByContact(contact) {
     await init();
 
@@ -483,22 +779,9 @@ function createLocalBackend(app, appTitle) {
       return null;
     }
 
-    let index = await readAccountIndex();
-    let entry = index.accounts[key];
-
-    if (!entry) {
-      await rebuildAccountIndex();
-      index = await readAccountIndex();
-      entry = index.accounts[key];
-    }
-
-    if (!entry?.folder) {
-      return null;
-    }
-
-    const manifest = await readManifest(path.join(usersRoot, entry.folder));
-    if (!manifest || contactKey(manifest.contact) !== key) {
-      await rebuildAccountIndex();
+    const row = dbGet("select * from users where contact_key = ? limit 1", [key]);
+    const manifest = manifestFromRow(row);
+    if (!manifest) {
       return null;
     }
 
@@ -602,7 +885,7 @@ function createLocalBackend(app, appTitle) {
       createdAt: manifest.createdAt,
       status: "account-created",
       encrypted: true,
-      userDir: path.join(usersRoot, manifest.folder)
+      userDir: databasePath
     };
   }
 
@@ -616,9 +899,8 @@ function createLocalBackend(app, appTitle) {
 
     const now = new Date().toISOString();
     const id = crypto.randomUUID();
-    const username = safeSegment(payload.username);
+    const username = uniqueUsername(payload.username);
     const folder = `${username}_${id.slice(0, 8)}`;
-    const userDir = path.join(usersRoot, folder);
     const identity = createIdentity();
 
     const account = {
@@ -667,16 +949,13 @@ function createLocalBackend(app, appTitle) {
       }
     };
 
-    await fs.mkdir(userDir, { recursive: true });
-    await writeJson(path.join(userDir, "manifest.json"), manifest);
-    await writeJson(path.join(userDir, "vault.enc.json"), vault);
-    await rebuildAccountIndex();
+    insertUserManifest(manifest, vault);
     await updateSettings({ lastUserId: id, signedOut: false });
 
     return {
       ...account,
       encrypted: true,
-      userDir
+      userDir: databasePath
     };
   }
 
@@ -851,13 +1130,7 @@ function createLocalBackend(app, appTitle) {
       return { ok: true, deleted: false, removedChats: 0, removedMessages: 0, removedAttachments: 0 };
     }
 
-    const userDir = path.join(usersRoot, manifest.folder);
-    if (!isInsideDirectory(usersRoot, userDir)) {
-      throw new Error("Profile path is outside the users directory.");
-    }
-
-    await fs.rm(userDir, { recursive: true, force: true });
-    await rebuildAccountIndex();
+    dbRun("delete from users where id = ?", [manifest.id]);
     const cleanup = await removeAccountDataFromMessenger(manifest);
     await updateSettings({ lastUserId: null, signedOut: true });
 
@@ -1024,10 +1297,77 @@ function createLocalBackend(app, appTitle) {
     };
   }
 
+  function loadMessengerState() {
+    const chats = dbAll("select data_json from chats order by created_at")
+      .map((row) => parseStoredJson(row.data_json, null))
+      .filter(Boolean);
+    const messages = {};
+
+    for (const row of dbAll("select chat_id, data_json from messages order by created_at")) {
+      const message = parseStoredJson(row.data_json, null);
+      if (!message) {
+        continue;
+      }
+
+      messages[row.chat_id] = [...(messages[row.chat_id] || []), message];
+    }
+
+    if (chats.length === 0) {
+      return null;
+    }
+
+    return {
+      version: 1,
+      chats,
+      messages,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  function persistMessengerState(state) {
+    const insertChat = db().prepare(`
+      insert into chats(id, data_json, created_at, updated_at)
+      values(?, ?, ?, ?)
+    `);
+    const insertMessage = db().prepare(`
+      insert into messages(id, chat_id, data_json, created_at)
+      values(?, ?, ?, ?)
+    `);
+    const now = new Date().toISOString();
+
+    runInTransaction(() => {
+      db().exec("delete from messages");
+      db().exec("delete from chats");
+
+      for (const chat of Array.isArray(state.chats) ? state.chats : []) {
+        const chatId = String(chat?.id || "");
+        if (!chatId) {
+          continue;
+        }
+
+        insertChat.run(
+          chatId,
+          JSON.stringify(chat),
+          chat.createdAt || now,
+          chat.updatedAt || state.updatedAt || now
+        );
+
+        for (const message of Array.isArray(state.messages?.[chatId]) ? state.messages[chatId] : []) {
+          const messageId = String(message?.id || crypto.randomUUID());
+          insertMessage.run(
+            messageId,
+            chatId,
+            JSON.stringify({ ...message, id: messageId, chatId }),
+            message.createdAt || now
+          );
+        }
+      }
+    });
+  }
+
   async function ensureMessengerState() {
-    const stored = await readJson(chatsPath, null);
-    const state = ensureSystemChats(stored || createDefaultMessengerState());
-    await writeJson(chatsPath, state);
+    const state = ensureSystemChats(loadMessengerState() || createDefaultMessengerState());
+    persistMessengerState(state);
     return state;
   }
 
@@ -1107,15 +1447,40 @@ function createLocalBackend(app, appTitle) {
     return summarizeChatList(state, account, usersById);
   }
 
+  function messageForAccount(message, account) {
+    if (!message || !account?.id || !["user", "contact"].includes(message.author)) {
+      return message;
+    }
+
+    const senderId = String(message.senderId || message.authorId || message.userId || "");
+    if (!senderId) {
+      return message;
+    }
+
+    return {
+      ...message,
+      author: senderId === account.id ? "user" : "contact"
+    };
+  }
+
+  function messagesForAccount(messages, account) {
+    return (Array.isArray(messages) ? messages : []).map((message) => messageForAccount(message, account));
+  }
+
+  function chatMessagesForAccount(state, chatId, account) {
+    return messagesForAccount(state.messages?.[chatId] || [], account);
+  }
+
   async function getMessages(chatId) {
     const state = await ensureMessengerState();
+    const account = await getLastAccount();
     const chat = state.chats.find((item) => item.id === chatId);
 
     if (!chat) {
       throw new Error("Чат не найден.");
     }
 
-    return state.messages[chat.id] || [];
+    return chatMessagesForAccount(state, chat.id, account);
   }
 
   async function saveMessengerState(state) {
@@ -1123,7 +1488,7 @@ function createLocalBackend(app, appTitle) {
       ...state,
       updatedAt: new Date().toISOString()
     };
-    await writeJson(chatsPath, next);
+    persistMessengerState(next);
     return next;
   }
 
@@ -1203,7 +1568,7 @@ function createLocalBackend(app, appTitle) {
         return {
           chat: summarizeChat(existing, state.messages, account, usersById),
           chats: summarizeChatList(state, account, usersById),
-          messages: state.messages[existing.id] || []
+          messages: chatMessagesForAccount(state, existing.id, account)
         };
       }
     }
@@ -1238,7 +1603,7 @@ function createLocalBackend(app, appTitle) {
     return {
       chat: summarizeChat(chat, state.messages, account, usersById),
       chats: summarizeChatList(state, account, usersById),
-      messages: state.messages[chat.id]
+      messages: chatMessagesForAccount(state, chat.id, account)
     };
   }
 
@@ -1295,7 +1660,7 @@ function createLocalBackend(app, appTitle) {
     return {
       chat: summarizeChat(chat, state.messages, account, usersById),
       chats: summarizeChatList(state, account, usersById),
-      messages: state.messages[chat.id] || []
+      messages: chatMessagesForAccount(state, chat.id, account)
     };
   }
 
@@ -1385,7 +1750,7 @@ function createLocalBackend(app, appTitle) {
       throw new Error("В этот канал нельзя писать.");
     }
 
-    const userMessage = createMessage(chat.id, text, "user", { attachments, ...(replyTo ? { replyTo } : {}) });
+    const userMessage = createMessage(chat.id, text, "user", { senderId: account.id, attachments, ...(replyTo ? { replyTo } : {}) });
     state.messages[chat.id] = [...(state.messages[chat.id] || []), userMessage];
     chat.manualUnread = false;
     chat.unreadMessageId = "";
@@ -1401,7 +1766,7 @@ function createLocalBackend(app, appTitle) {
     await saveMessengerState(state);
     return {
       chats: summarizeChatList(state, account, usersById),
-      messages: state.messages[chat.id]
+      messages: chatMessagesForAccount(state, chat.id, account)
     };
   }
 
@@ -1421,7 +1786,7 @@ function createLocalBackend(app, appTitle) {
     }
 
     const message = (state.messages[chat.id] || []).find((item) => item.id === payload?.messageId);
-    if (!message || message.author !== "user") {
+    if (!message || (message.senderId ? message.senderId !== account?.id : message.author !== "user")) {
       throw new Error("Это сообщение нельзя редактировать.");
     }
 
@@ -1430,7 +1795,7 @@ function createLocalBackend(app, appTitle) {
     await saveMessengerState(state);
     return {
       chats: summarizeChatList(state, account, usersById),
-      messages: state.messages[chat.id] || []
+      messages: chatMessagesForAccount(state, chat.id, account)
     };
   }
 
@@ -1454,7 +1819,7 @@ function createLocalBackend(app, appTitle) {
     await saveMessengerState(state);
     return {
       chats: summarizeChatList(state, account, usersById),
-      messages: state.messages[chat.id] || []
+      messages: chatMessagesForAccount(state, chat.id, account)
     };
   }
 
@@ -1481,7 +1846,7 @@ function createLocalBackend(app, appTitle) {
     await saveMessengerState(state);
     return {
       chats: summarizeChatList(state, account, usersById),
-      messages: state.messages[chat.id] || []
+      messages: chatMessagesForAccount(state, chat.id, account)
     };
   }
 
@@ -1500,7 +1865,7 @@ function createLocalBackend(app, appTitle) {
     await saveMessengerState(state);
     return {
       chats: summarizeChatList(state, account, usersById),
-      messages: state.messages[chat.id] || []
+      messages: chatMessagesForAccount(state, chat.id, account)
     };
   }
 
@@ -1521,6 +1886,7 @@ function createLocalBackend(app, appTitle) {
     }
 
     const forwarded = createMessage(toChat.id, source.text || "", "user", {
+      senderId: account.id,
       attachments: Array.isArray(source.attachments) ? source.attachments : [],
       forwardedFrom: fromChat.title || ""
     });
@@ -1530,7 +1896,7 @@ function createLocalBackend(app, appTitle) {
     await saveMessengerState(state);
     return {
       chats: summarizeChatList(state, account, usersById),
-      messages: state.messages[toChat.id] || [],
+      messages: chatMessagesForAccount(state, toChat.id, account),
       chatId: toChat.id
     };
   }
@@ -1543,24 +1909,44 @@ function createLocalBackend(app, appTitle) {
   }
 
   async function readQrSessions() {
-    const stored = await readJson(sessionsPath, null);
+    const rows = dbAll("select id, data_json from qr_sessions");
+    const sessions = {};
 
-    if (stored?.sessions && typeof stored.sessions === "object") {
-      return stored;
+    for (const row of rows) {
+      const session = parseStoredJson(row.data_json, null);
+      if (session) {
+        sessions[row.id] = session;
+      }
     }
 
     return {
       version: 1,
-      sessions: {},
+      sessions,
       updatedAt: new Date().toISOString()
     };
   }
 
   async function writeQrSessions(payload) {
-    await writeJson(sessionsPath, {
-      version: 1,
-      sessions: payload.sessions || {},
-      updatedAt: new Date().toISOString()
+    const insertSession = db().prepare(`
+      insert into qr_sessions(id, data_json, updated_at)
+      values(?, ?, ?)
+      on conflict(id) do update set data_json = excluded.data_json, updated_at = excluded.updated_at
+    `);
+    const removeSession = db().prepare("delete from qr_sessions where id = ?");
+    const sessions = payload.sessions || {};
+    const ids = new Set(Object.keys(sessions));
+    const now = new Date().toISOString();
+
+    runInTransaction(() => {
+      for (const row of dbAll("select id from qr_sessions")) {
+        if (!ids.has(row.id)) {
+          removeSession.run(row.id);
+        }
+      }
+
+      for (const [id, session] of Object.entries(sessions)) {
+        insertSession.run(id, JSON.stringify(session), session.updatedAt || now);
+      }
     });
   }
 

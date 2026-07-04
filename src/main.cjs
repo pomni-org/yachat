@@ -109,8 +109,8 @@ function publicUser(user) {
 
 function publicStatus(status) {
   return {
-    storage: "encrypted-local-vault",
-    users: "encrypted",
+    storage: status?.storage || "encrypted-local-vault",
+    users: status?.storage === "sqlite" ? "sqlite" : "encrypted",
     webUrl: webServerInfo?.webUrl || null,
     lanUrl: webServerInfo?.lanUrl || null,
     encryption: status?.encryption || {
