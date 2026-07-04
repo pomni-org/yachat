@@ -133,9 +133,12 @@
               <input name="displayName" type="text" autocomplete="name" placeholder="Рей" required />
             </label>
 
-            <label class="text-field">
+            <label class="text-field username-field">
               <span>Ник</span>
-              <input name="username" type="text" autocomplete="username" placeholder="необязательно" />
+              <div class="username-input-shell">
+                <b aria-hidden="true">@</b>
+                <input name="username" type="text" autocomplete="username" placeholder="необязательно" />
+              </div>
             </label>
 
             <label class="text-field textarea-field">

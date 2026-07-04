@@ -396,7 +396,7 @@ def contact_lookup_keys(value: Any) -> set[str]:
 
 
 def normalize_username(value: Any) -> str:
-    username = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower())
+    username = re.sub(r"[^a-z0-9_]+", "_", str(value or "").strip().lower().lstrip("@"))
     username = re.sub(r"^_+|_+$", "", username)[:24]
     return username if len(username) >= 3 else ""
 
@@ -531,6 +531,19 @@ def find_user_by_contact(key: str) -> dict[str, Any] | None:
             cursor.execute("select * from public_users where contact_key = %s limit 1", (key,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
+
+def username_taken(cursor, username: str, exclude_user_id: str = "") -> bool:
+    if not username:
+        return False
+    if exclude_user_id:
+        cursor.execute(
+            "select 1 from public_users where lower(username) = lower(%s) and id <> %s limit 1",
+            (username, exclude_user_id),
+        )
+    else:
+        cursor.execute("select 1 from public_users where lower(username) = lower(%s) limit 1", (username,))
+    return bool(cursor.fetchone())
 
 
 def fetch_public_users() -> list[dict[str, Any]]:
@@ -734,6 +747,8 @@ def save_user_settings(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 def system_chats(now_value: datetime | None = None) -> list[dict[str, Any]]:
     created_at = now_value or utc_now()
+    codes_intro = "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов."
+    channel_intro = "Канал ЯЧата запущен. Здесь будут новости приложения, изменения и служебные объявления."
     return [
         {
             "id": "yachat-favorites",
@@ -763,7 +778,7 @@ def system_chats(now_value: datetime | None = None) -> list[dict[str, Any]]:
             "avatarDataUrl": "./assets/yachat-codes-avatar.webp",
             "createdAt": created_at,
             "lastAt": created_at,
-            "lastMessage": "",
+            "lastMessage": codes_intro,
             "unread": 0,
         },
         {
@@ -779,9 +794,40 @@ def system_chats(now_value: datetime | None = None) -> list[dict[str, Any]]:
             "avatarDataUrl": "./assets/yachat-logo-COLOR.png",
             "createdAt": created_at,
             "lastAt": created_at,
-            "lastMessage": "",
+            "lastMessage": channel_intro,
             "unread": 0,
         },
+    ]
+
+
+def system_chat_messages(chat_id: str) -> list[dict[str, Any]]:
+    messages = {
+        "yachat-codes": (
+            "bot",
+            "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов.",
+        ),
+        "yachat-channel": (
+            "channel",
+            "Канал ЯЧата запущен. Здесь будут новости приложения, изменения и служебные объявления.",
+        ),
+    }
+    entry = messages.get(chat_id)
+    if not entry:
+        return []
+    author, text = entry
+    return [
+        {
+            "id": f"{chat_id}-intro",
+            "chatId": chat_id,
+            "author": author,
+            "authorId": "yachat",
+            "text": text,
+            "attachments": [],
+            "replyToMessageId": None,
+            "forwardedFrom": "",
+            "createdAt": utc_now(),
+            "editedAt": None,
+        }
     ]
 
 
@@ -927,7 +973,7 @@ def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
     if chat_id == "yachat-favorites":
         chat_id = saved_chat_id(user_id)
     elif chat_id.startswith("yachat-"):
-        return []
+        return system_chat_messages(chat_id)
 
     ensure_schema()
     with connect_db() as connection:
@@ -1095,6 +1141,22 @@ def account(request: Request):
     return public_account(user) if user else None
 
 
+@app.get("/api/users/check-username")
+def check_username(request: Request, username: str = ""):
+    ensure_schema()
+    normalized = normalize_username(username)
+    if not normalized:
+        return {"username": "", "available": False, "reason": "Username: 3-24 characters, Latin letters, digits, or underscore."}
+
+    user = current_user(request)
+    exclude_user_id = str(user["id"]) if user else ""
+    with connect_db() as connection:
+        with connection.cursor() as cursor:
+            available = not username_taken(cursor, normalized, exclude_user_id)
+
+    return {"username": normalized, "available": available}
+
+
 @app.post("/api/challenge")
 async def create_challenge(request: Request):
     ensure_schema()
@@ -1217,14 +1279,8 @@ async def create_account(request: Request):
                 token = insert_session(cursor, str(existing["id"]))
                 return public_account(existing, token)
 
-            base_username = username
-            suffix = 1
-            while True:
-                cursor.execute("select 1 from public_users where lower(username) = lower(%s) limit 1", (username,))
-                if not cursor.fetchone():
-                    break
-                suffix += 1
-                username = f"{base_username[:18]}_{suffix}"
+            if username_taken(cursor, username):
+                raise HTTPException(status_code=409, detail="Username is already taken.")
 
             user_id = str(uuid.uuid4())
             cursor.execute(
@@ -1252,6 +1308,47 @@ async def create_account(request: Request):
             user = dict(cursor.fetchone())
             token = insert_session(cursor, user_id)
             return public_account(user, token)
+
+
+@app.post("/api/account/update")
+async def update_account(request: Request):
+    user = require_user(request)
+    payload = await request.json()
+    display_name = clean_text(payload.get("displayName"), 60)
+    username = normalize_username(payload.get("username"))
+    bio = clean_text(payload.get("bio"), 140)
+    avatar_url = clean_text(payload.get("avatarDataUrl"), 900000)
+    avatar_accent = clean_text(payload.get("avatarAccent") or row_value(user, "avatar_accent") or "#471AFF", 24)
+
+    if not display_name:
+        raise HTTPException(status_code=400, detail="Enter a name.")
+    if not username:
+        raise HTTPException(status_code=400, detail="Username: 3-24 characters, Latin letters, digits, or underscore.")
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            if username_taken(cursor, username, str(user["id"])):
+                raise HTTPException(status_code=409, detail="Username is already taken.")
+
+            cursor.execute(
+                """
+                update public_users
+                set username = %s,
+                    preview_name = %s,
+                    display_name = %s,
+                    bio = %s,
+                    avatar_url = %s,
+                    avatar_accent = %s,
+                    updated_at = now()
+                where id = %s
+                returning *
+                """,
+                (username, display_name, display_name, bio, avatar_url, avatar_accent, user["id"]),
+            )
+            updated = cursor.fetchone()
+            if not updated:
+                raise HTTPException(status_code=404, detail="Account not found.")
+            return public_account(dict(updated))
 
 
 @app.post("/api/logout")

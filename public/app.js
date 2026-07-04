@@ -68,6 +68,9 @@ const state = {
   contactLookupMessage: "",
   contactLookupLoading: false,
   deleteProfileActionButton: null,
+  editingProfile: false,
+  profileEditAvatarDataUrl: null,
+  profileEditMessage: "",
   pendingCreateChatAvatarDataUrl: "",
   pendingChatAvatarDataUrl: null,
   pendingAttachments: [],
@@ -409,7 +412,9 @@ const translations = {
     errWrongCode: "Код не совпал.",
     errConfirmCodeFirst: "Сначала подтвердите код.",
     errName: "Введите имя.",
-    errUsername: "Ник будет создан автоматически.",
+    errUsername: "Ник: 3-24 символа, латиница, цифры или подчёркивание.",
+    errUsernameTaken: "Этот ник уже занят.",
+    usernameChecking: "Проверяю ник...",
     errBio: "Описание не должно быть длиннее 140 символов.",
     errAvatar: "Не удалось открыть изображение.",
     errPhoneDigits: "Введите номер: {count} цифр.",
@@ -468,6 +473,9 @@ const translations = {
     openChat: "Открыть чат",
     callsEmpty: "Звонки пока без истории. Интерфейс готов под будущий голосовой модуль.",
     profileAndSettings: "Настройки",
+    editProfile: "Изменить профиль",
+    profileEditHint: "Нажмите на профиль, чтобы поменять имя, ник, аватар и описание.",
+    profileSaved: "Профиль сохранён.",
     sessions: "Сессии",
     scanQr: "Сканировать QR",
     sessionsHint: "Наведите камеру на QR-код нового устройства.",
@@ -613,7 +621,9 @@ const translations = {
     errWrongCode: "The code does not match.",
     errConfirmCodeFirst: "Confirm the code first.",
     errName: "Enter a name.",
-    errUsername: "Username will be generated automatically.",
+    errUsername: "Username: 3-24 characters, Latin letters, digits, or underscore.",
+    errUsernameTaken: "This username is already taken.",
+    usernameChecking: "Checking username...",
     errBio: "Description must be no longer than 140 characters.",
     errAvatar: "Could not open the image.",
     errPhoneDigits: "Enter a phone number: {count} digits.",
@@ -672,6 +682,9 @@ const translations = {
     openChat: "Open chat",
     callsEmpty: "No call history yet. The screen is ready for the future voice module.",
     profileAndSettings: "Profile and settings",
+    editProfile: "Edit profile",
+    profileEditHint: "Click the profile to change name, username, avatar, and description.",
+    profileSaved: "Profile saved.",
     sessions: "Sessions",
     scanQr: "Scan QR",
     sessionsHint: "Point the camera at the QR code on the new device.",
@@ -752,6 +765,7 @@ const serverMessageKeys = new Map([
   ["Введите имя.", "errName"],
   ["Имя должно быть длиннее одного символа.", "errName"],
   ["Ник: 3-24 символа, латиница, цифры или подчёркивание.", "errUsername"],
+  ["Этот ник уже занят.", "errUsernameTaken"],
   ["Описание не должно быть длиннее 140 символов.", "errBio"],
   ["Не удалось открыть изображение.", "errAvatar"],
   ["Enter a phone number.", "errEnterPhone"],
@@ -762,6 +776,7 @@ const serverMessageKeys = new Map([
   ["Enter a name.", "errName"],
   ["Name must be longer than one character.", "errName"],
   ["Username: 3-24 characters, Latin letters, digits, or underscore.", "errUsername"],
+  ["Username is already taken.", "errUsernameTaken"],
   ["Description must be no longer than 140 characters.", "errBio"],
   ["Could not open the image.", "errAvatar"],
   ["Users database is unavailable.", "errDatabaseUnavailable"],
@@ -2611,9 +2626,91 @@ function accountAvatarHtml(sizeClass = "panel-avatar") {
   return `<div class="${sizeClass}">${escapeHtml(initial)}</div>`;
 }
 
+function profileEditAvatarData(account = state.account || {}) {
+  return state.profileEditAvatarDataUrl === null
+    ? cleanDisplayText(account.avatarDataUrl, "")
+    : cleanDisplayText(state.profileEditAvatarDataUrl, "");
+}
+
+function profileEditAvatarHtml(account = state.account || {}) {
+  const dataUrl = profileEditAvatarData(account);
+  const initial = String(cleanDisplayText(account.displayName, account.username || "Я")).trim().slice(0, 1).toUpperCase() || "Я";
+  return dataUrl
+    ? `<button class="profile-edit-avatar-preview" type="button" data-panel-action="pick-profile-avatar"><img src="${escapeHtml(dataUrl)}" alt="" /></button>`
+    : `<button class="profile-edit-avatar-preview" type="button" data-panel-action="pick-profile-avatar">${escapeHtml(initial)}</button>`;
+}
+
+function renderProfileEditor(account = state.account || {}) {
+  if (!state.editingProfile) {
+    return "";
+  }
+
+  const username = normalizeUsername(account.username) || "user";
+  const avatarDataUrl = profileEditAvatarData(account);
+
+  return `
+    <section class="panel-section profile-edit-section">
+      <h3>${t("editProfile")}</h3>
+      <div class="profile-edit-avatar">
+        ${profileEditAvatarHtml(account)}
+        <div class="panel-actions">
+          <button type="button" data-panel-action="pick-profile-avatar">${iconSvg("image")}<span>${t("changeAvatar")}</span></button>
+          <button type="button" data-panel-action="remove-profile-avatar" ${avatarDataUrl ? "" : "disabled"}>${iconSvg("x")}<span>${t("removeAvatar")}</span></button>
+        </div>
+        <input class="visually-hidden" type="file" accept="image/*" data-profile-avatar-input />
+      </div>
+      <label class="panel-field">
+        <span>${t("name")}</span>
+        <input type="text" maxlength="60" value="${escapeHtml(cleanDisplayText(account.displayName, ""))}" data-profile-display-name />
+      </label>
+      <label class="panel-field">
+        <span>${t("username")}</span>
+        <div class="username-input-shell is-panel">
+          <b aria-hidden="true">@</b>
+          <input type="text" maxlength="24" autocomplete="username" value="${escapeHtml(username)}" data-profile-username />
+        </div>
+      </label>
+      <label class="panel-field">
+        <span>${t("bio")}</span>
+        <textarea rows="3" maxlength="140" placeholder="${escapeHtml(t("bioPlaceholder"))}" data-profile-bio>${escapeHtml(cleanDisplayText(account.bio, ""))}</textarea>
+      </label>
+      <div class="session-message" data-profile-edit-message>${escapeHtml(state.profileEditMessage || "")}</div>
+      <div class="panel-actions">
+        <button class="panel-primary" type="button" data-panel-action="save-profile">${iconSvg("check", "button-icon")}<span>${t("saveChat")}</span></button>
+        <button type="button" data-panel-action="cancel-profile-edit">${iconSvg("x")}<span>${t("cancel")}</span></button>
+      </div>
+    </section>
+  `;
+}
+
+function openProfileEditor() {
+  state.editingProfile = true;
+  state.profileEditAvatarDataUrl = null;
+  state.profileEditMessage = "";
+  renderPanel();
+}
+
+function closeProfileEditor() {
+  state.editingProfile = false;
+  state.profileEditAvatarDataUrl = null;
+  state.profileEditMessage = "";
+  renderPanel();
+}
+
+function setProfileEditMessage(text) {
+  state.profileEditMessage = text || "";
+  const target = panelBody?.querySelector("[data-profile-edit-message]");
+  if (target) {
+    target.textContent = state.profileEditMessage;
+  }
+}
+
 function closePanel() {
   state.activePanel = null;
   state.pendingChatAvatarDataUrl = null;
+  state.editingProfile = false;
+  state.profileEditAvatarDataUrl = null;
+  state.profileEditMessage = "";
   stopQrScanner();
   if (sidePanel) {
     sidePanel.hidden = true;
@@ -2929,14 +3026,15 @@ function renderPanel() {
   }
 
   panelBody.innerHTML = `
-    <section class="profile-card">
+    <button class="profile-card profile-edit-trigger" type="button" data-panel-action="edit-profile">
       ${accountAvatarHtml()}
       <div>
         <h3>${escapeHtml(cleanDisplayText(account.displayName, account.username || "ЯЧат"))}</h3>
         <p>@${escapeHtml(cleanDisplayText(account.username, "user"))}</p>
-        <small>${escapeHtml(cleanDisplayText(account.bio, "Без описания"))}</small>
+        <small>${escapeHtml(cleanDisplayText(account.bio, t("profileEditHint")))}</small>
       </div>
-    </section>
+    </button>
+    ${renderProfileEditor(account)}
     <section class="panel-section">
       <h3>${t("settings")}</h3>
       <div class="panel-actions">
@@ -2966,11 +3064,15 @@ function renderPanel() {
       <button class="panel-primary is-danger" type="button" data-panel-action="delete-profile">${iconSvg("trash", "button-icon")}<span>${t("deleteProfile")}</span></button>
     </section>
   `;
+  hydrateIcons(panelBody);
 }
 
 function openPanel(type) {
   state.activePanel = type || "settings";
   state.pendingChatAvatarDataUrl = null;
+  state.editingProfile = false;
+  state.profileEditAvatarDataUrl = null;
+  state.profileEditMessage = "";
   if (sidePanel) {
     sidePanel.hidden = false;
   }
@@ -3273,6 +3375,63 @@ async function saveActiveChat(submitButton) {
     renderPanel();
   } catch (error) {
     alert(translatedServerMessage(error.message, "errSendMessage"));
+  } finally {
+    setLoading(submitButton, false);
+  }
+}
+
+async function saveProfileFromPanel(submitButton) {
+  if (!state.account || !yachatApi.account?.update) {
+    return;
+  }
+
+  const displayName = String(panelBody?.querySelector("[data-profile-display-name]")?.value || "").trim();
+  const usernameInput = panelBody?.querySelector("[data-profile-username]");
+  const username = normalizeUsernameInput(usernameInput);
+  const bio = String(panelBody?.querySelector("[data-profile-bio]")?.value || "").trim();
+  const avatarDataUrl = profileEditAvatarData(state.account);
+
+  if (!displayName) {
+    setProfileEditMessage(t("errName"));
+    return;
+  }
+
+  if (!username || username.length < 3) {
+    setProfileEditMessage(t("errUsername"));
+    return;
+  }
+
+  setLoading(submitButton, true);
+  setProfileEditMessage(t("usernameChecking"));
+
+  try {
+    const usernameStatus = await ensureUsernameAvailable(username);
+    if (!usernameStatus.available) {
+      setProfileEditMessage(t("errUsernameTaken"));
+      return;
+    }
+
+    const account = await yachatApi.account.update({
+      displayName,
+      username,
+      bio,
+      avatarDataUrl,
+      avatarAccent: state.account.avatarAccent || "#471AFF"
+    });
+    state.account = normalizeAccount(account);
+    state.editingProfile = false;
+    state.profileEditAvatarDataUrl = null;
+    state.profileEditMessage = t("profileSaved");
+    state.chats = await yachatApi.messenger.chats();
+    if (state.activeChatId) {
+      state.messages = await yachatApi.messenger.messages(state.activeChatId);
+    }
+    renderChatList();
+    renderActiveChat();
+    renderMessages();
+    renderPanel();
+  } catch (error) {
+    setProfileEditMessage(translatedServerMessage(error.message, "errAccountCreate"));
   } finally {
     setLoading(submitButton, false);
   }
@@ -3679,6 +3838,10 @@ function createHttpYachatApi(fallbackApi = null) {
         () => post("/api/account", payload).then(saveSession),
         () => fallbackApi?.account?.create?.(payload)
       ),
+      update: (payload) => withFallback(
+        () => post("/api/account/update", payload),
+        () => fallbackApi?.account?.update?.(payload)
+      ),
       deleteProfile: async () => {
         return withFallback(async () => {
           const result = await post("/api/account/delete", {});
@@ -3728,6 +3891,10 @@ function createHttpYachatApi(fallbackApi = null) {
       search: (query) => withFallback(
         () => request(`/api/users/search?q=${encodeURIComponent(query || "")}`),
         () => fallbackApi?.users?.search?.(query) || fallbackApi?.users?.list?.() || []
+      ),
+      checkUsername: (username) => withFallback(
+        () => request(`/api/users/check-username?username=${encodeURIComponent(username || "")}`),
+        () => fallbackApi?.users?.checkUsername?.(username) || { username: normalizeUsername(username), available: true }
       )
     },
     contacts: {
@@ -4192,6 +4359,41 @@ function createLocalYachatApi() {
         challenge = null;
         return account;
       },
+      update: async (payload) => {
+        const stored = readAccount();
+        const account = stored?.account || null;
+        if (!account?.id) {
+          throw new Error(t("errConfirmCodeFirst"));
+        }
+
+        const displayName = String(payload?.displayName || "").trim();
+        const username = normalizeUsername(payload?.username);
+        const bio = String(payload?.bio || "").trim();
+
+        if (!displayName) {
+          throw new Error(t("errName"));
+        }
+
+        if (!username) {
+          throw new Error(t("errUsername"));
+        }
+
+        if (bio.length > 140) {
+          throw new Error(t("errBio"));
+        }
+
+        const next = {
+          ...account,
+          displayName,
+          username,
+          bio,
+          avatarDataUrl: String(payload?.avatarDataUrl || ""),
+          avatarAccent: String(payload?.avatarAccent || account.avatarAccent || "#471AFF"),
+          updatedAt: new Date().toISOString()
+        };
+        localStorage.setItem(accountKey, JSON.stringify({ account: next }));
+        return next;
+      },
       logout: async () => {
         localStorage.removeItem(accountKey);
         return { ok: true };
@@ -4267,6 +4469,14 @@ function createLocalYachatApi() {
         }
 
         return userSearchText(account).includes(value) ? [account] : [];
+      },
+      checkUsername: async (username) => {
+        const normalized = normalizeUsername(username);
+        const account = readAccount()?.account || null;
+        return {
+          username: normalized,
+          available: Boolean(normalized) && (!account?.username || normalizeUsername(account.username) === normalized)
+        };
       }
     },
     contacts: {
@@ -5101,9 +5311,22 @@ function normalizeUsername(value) {
   return String(value || "")
     .trim()
     .toLowerCase()
+    .replace(/^@+/, "")
     .replace(/[^a-z0-9_]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 24);
+}
+
+function normalizeUsernameInput(input) {
+  if (!input) {
+    return "";
+  }
+
+  const normalized = normalizeUsername(input.value);
+  if (input.value !== normalized) {
+    input.value = normalized;
+  }
+  return normalized;
 }
 
 function createProfileUsername(displayName, preferredUsername) {
@@ -5114,6 +5337,19 @@ function createProfileUsername(displayName, preferredUsername) {
   }
 
   return username.slice(0, 24);
+}
+
+async function ensureUsernameAvailable(username) {
+  const normalized = normalizeUsername(username);
+  if (!normalized || normalized.length < 3) {
+    return { username: normalized, available: false };
+  }
+
+  if (!yachatApi.users?.checkUsername) {
+    return { username: normalized, available: true };
+  }
+
+  return yachatApi.users.checkUsername(normalized);
 }
 
 async function createChallenge(submitButton) {
@@ -5203,9 +5439,10 @@ async function verifyChallenge(submitButton) {
 async function createAccount(submitButton) {
   const formData = new FormData(profileForm);
   const displayName = String(formData.get("displayName") || "").trim();
+  const username = createProfileUsername(displayName, formData.get("username"));
   const payload = {
     displayName,
-    username: createProfileUsername(displayName, formData.get("username")),
+    username,
     bio: String(formData.get("bio") || "").trim(),
     avatarDataUrl: state.avatarDataUrl,
     registrationToken: state.challenge?.registrationToken || "",
@@ -5217,6 +5454,13 @@ async function createAccount(submitButton) {
   setMessage("profile", "");
 
   try {
+    setMessage("profile", t("usernameChecking"), "success");
+    const usernameStatus = await ensureUsernameAvailable(username);
+    if (!usernameStatus.available) {
+      setMessage("profile", t("errUsernameTaken"));
+      return;
+    }
+    setMessage("profile", "");
     const account = await yachatApi.account.create(payload);
     state.account = normalizeAccount(account);
     state.accountTextMode = "created";
@@ -5272,6 +5516,10 @@ codeInputs.forEach((input, index) => {
 profileForm.addEventListener("input", (event) => {
   if (event.target.name === "displayName" && !profileForm.elements.username.value.trim()) {
     profileForm.elements.username.value = suggestUsername(event.target.value);
+  }
+
+  if (event.target.name === "username") {
+    normalizeUsernameInput(event.target);
   }
 
   if (event.target.name === "displayName" && !state.avatarDataUrl && avatarInitial) {
@@ -5628,6 +5876,14 @@ document.querySelectorAll("[data-rail]").forEach((button) => {
 
 document.querySelector('[data-action="close-panel"]')?.addEventListener("click", closePanel);
 
+panelBody?.addEventListener("input", (event) => {
+  const profileUsernameInput = event.target.closest("[data-profile-username]");
+  if (profileUsernameInput) {
+    normalizeUsernameInput(profileUsernameInput);
+    state.profileEditMessage = "";
+  }
+});
+
 panelBody?.addEventListener("click", async (event) => {
   const chatButton = event.target.closest("[data-panel-chat]");
   if (chatButton) {
@@ -5648,6 +5904,32 @@ panelBody?.addEventListener("click", async (event) => {
   }
 
   const action = actionButton.dataset.panelAction;
+  if (action === "edit-profile") {
+    openProfileEditor();
+    return;
+  }
+
+  if (action === "cancel-profile-edit") {
+    closeProfileEditor();
+    return;
+  }
+
+  if (action === "pick-profile-avatar") {
+    panelBody.querySelector("[data-profile-avatar-input]")?.click();
+    return;
+  }
+
+  if (action === "remove-profile-avatar") {
+    state.profileEditAvatarDataUrl = "";
+    renderPanel();
+    return;
+  }
+
+  if (action === "save-profile") {
+    saveProfileFromPanel(actionButton);
+    return;
+  }
+
   if (action === "toggle-theme") {
     setTheme(nextTheme(state.theme));
     return;
@@ -5724,6 +6006,26 @@ panelBody?.addEventListener("change", async (event) => {
   if (sessionCapture) {
     await scanCapturedSessionImage(sessionCapture.files?.[0]);
     sessionCapture.value = "";
+    return;
+  }
+
+  const profileAvatarInput = event.target.closest("[data-profile-avatar-input]");
+  if (profileAvatarInput) {
+    const file = profileAvatarInput.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      state.profileEditAvatarDataUrl = await readAvatarFile(file);
+      state.profileEditMessage = "";
+      renderPanel();
+    } catch (error) {
+      state.profileEditMessage = translatedServerMessage(error.message, "errAvatar");
+      renderPanel();
+    } finally {
+      profileAvatarInput.value = "";
+    }
     return;
   }
 
