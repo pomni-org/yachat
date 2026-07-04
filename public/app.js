@@ -772,6 +772,7 @@ const DELETE_PROFILE_CONFIRMATIONS = new Set([
   "remove my profile",
   "remove my account"
 ]);
+const REMOVED_TEST_MESSAGE_TEXTS = new Set(["Приыет?"]);
 
 function t(key, params = {}) {
   const dictionary = translations[state.language] || translations.ru;
@@ -3587,10 +3588,17 @@ function createHttpYachatApi(fallbackApi = null) {
         ...(options.headers || {})
       }
     });
-    const payload = await response.json().catch(() => null);
+    const contentType = response.headers.get("content-type") || "";
+    const isJson = contentType.toLowerCase().includes("application/json");
+    const payload = isJson ? await response.json().catch(() => null) : null;
 
     if (!response.ok) {
-      throw new Error(payload?.detail || payload?.error || "Request failed.");
+      const text = isJson ? "" : await response.text().catch(() => "");
+      throw new Error(payload?.detail || payload?.error || cleanDisplayText(text, "Request failed."));
+    }
+
+    if (!isJson) {
+      throw new Error("Сервер вернул не JSON. Проверьте, что Vercel Deployment Protection выключен для публичного сайта.");
     }
 
     return payload;
@@ -3607,7 +3615,7 @@ function createHttpYachatApi(fallbackApi = null) {
     try {
       return await action();
     } catch (error) {
-      if (typeof fallback === "function") {
+      if (isLoopbackHost && typeof fallback === "function") {
         return fallback(error);
       }
 
@@ -3888,6 +3896,12 @@ function createLocalYachatApi() {
 
       if (!Array.isArray(messages[systemChat.id])) {
         messages[systemChat.id] = fallback.messages[systemChat.id] || [];
+      }
+    });
+
+    Object.entries(messages).forEach(([chatId, list]) => {
+      if (Array.isArray(list)) {
+        messages[chatId] = list.filter((message) => !REMOVED_TEST_MESSAGE_TEXTS.has(String(message?.text || "").trim()));
       }
     });
 

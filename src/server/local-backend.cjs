@@ -4,6 +4,7 @@ const crypto = require("crypto");
 
 const CIPHER = "aes-256-gcm";
 const KDF = "scrypt";
+const REMOVED_TEST_MESSAGE_TEXTS = new Set(["Приыет?"]);
 
 function safeSegment(value) {
   return String(value || "")
@@ -1005,6 +1006,12 @@ function createLocalBackend(app, appTitle) {
 
       if (!Array.isArray(messages[systemChat.id]) || messages[systemChat.id].length === 0) {
         messages[systemChat.id] = fallback.messages[systemChat.id];
+      }
+    }
+
+    for (const [chatId, list] of Object.entries(messages)) {
+      if (Array.isArray(list)) {
+        messages[chatId] = list.filter((message) => !REMOVED_TEST_MESSAGE_TEXTS.has(String(message?.text || "").trim()));
       }
     }
 

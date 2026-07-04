@@ -18,7 +18,7 @@ This repository is prepared for a Vercel deployment of the YaChat web UI and Pyt
 
 Set these in Vercel Project Settings:
 
-- `YACHAT_USERS_DB_URL`: hosted Postgres connection string. `DATABASE_URL` is also accepted.
+- `YACHAT_USERS_DB_URL`: hosted Postgres connection string. The API also accepts `DATABASE_URL`, `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL_NON_POOLING`, `NEON_DATABASE_URL`, and `SUPABASE_DB_URL`.
 - `YACHAT_AUTH_SECRET`: secret used to hash sessions, confirmation codes, and registration tokens.
 - `YACHAT_PUBLIC_USER_LIMIT`: optional, defaults to `100`.
 - `YACHAT_PUBLIC_CONTACTS`: optional, defaults to `false`.
@@ -63,6 +63,11 @@ Browser push notifications work through the service worker at `/sw.js`.
 They require HTTPS, granted browser notification permission, a saved push subscription, and valid VAPID keys in Vercel environment variables.
 
 When a user sends a message, the API stores it in Postgres and sends Web Push to the other chat members that have subscribed on their phone or device.
+
+## Deployment Protection
+
+The public chat site must not be behind Vercel Deployment Protection/SSO.
+If Vercel returns an HTML login page from `/api/*`, the app will now show a server error instead of silently falling back to local browser storage.
 
 ## Local checks
 

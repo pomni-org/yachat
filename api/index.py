@@ -28,6 +28,17 @@ PUBLIC_USER_FIELDS = (
     "public_key_type",
 )
 
+DATABASE_ENV_NAMES = (
+    "YACHAT_USERS_DB_URL",
+    "DATABASE_URL",
+    "POSTGRES_URL",
+    "POSTGRES_PRISMA_URL",
+    "POSTGRES_URL_NON_POOLING",
+    "NEON_DATABASE_URL",
+    "SUPABASE_DB_URL",
+)
+REMOVED_TEST_MESSAGE_TEXTS = ("Приыет?",)
+
 _schema_ready = False
 
 
@@ -50,7 +61,18 @@ def public_limit() -> int:
 
 
 def database_url() -> str:
-    return (os.getenv("YACHAT_USERS_DB_URL") or os.getenv("DATABASE_URL") or "").strip()
+    for name in DATABASE_ENV_NAMES:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def database_env_name() -> str:
+    for name in DATABASE_ENV_NAMES:
+        if os.getenv(name, "").strip():
+            return name
+    return ""
 
 
 def auth_secret() -> str:
@@ -62,6 +84,18 @@ def connect_db():
     if not url:
         raise HTTPException(status_code=503, detail="Users database is unavailable.")
     return psycopg.connect(url, autocommit=True)
+
+
+def require_database() -> None:
+    if not database_url():
+        raise HTTPException(status_code=503, detail="Server database is not configured.")
+
+
+def cleanup_removed_test_messages(cursor) -> None:
+    cursor.execute(
+        "delete from yachat_messages where trim(coalesce(text, '')) = any(%s)",
+        (list(REMOVED_TEST_MESSAGE_TEXTS),),
+    )
 
 
 def ensure_schema() -> None:
@@ -190,6 +224,7 @@ def ensure_schema() -> None:
             with connection.cursor() as cursor:
                 for statement in statements:
                     cursor.execute(statement)
+                cleanup_removed_test_messages(cursor)
         _schema_ready = True
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Users database is unavailable.") from error
@@ -373,8 +408,7 @@ def find_user_by_contact(key: str) -> dict[str, Any] | None:
 
 
 def fetch_public_users() -> list[dict[str, Any]]:
-    if not database_url():
-        return []
+    require_database()
     ensure_schema()
 
     columns = ", ".join(PUBLIC_USER_FIELDS)
@@ -399,7 +433,8 @@ def fetch_user_search(value: str) -> list[dict[str, Any]]:
     term = str(value or "").strip()
     digits = re.sub(r"\D+", "", term)
 
-    if not term or (len(term) < 2 and len(digits) < 3) or not database_url():
+    require_database()
+    if not term or (len(term) < 2 and len(digits) < 3):
         return []
     ensure_schema()
 
@@ -437,7 +472,8 @@ def fetch_user_search(value: str) -> list[dict[str, Any]]:
 
 
 def fetch_contact_matches(contacts: list[str]) -> list[dict[str, Any]]:
-    if not contacts or not database_url():
+    require_database()
+    if not contacts:
         return []
     ensure_schema()
 
@@ -802,6 +838,7 @@ def status():
     return {
         "storage": "vercel-postgres" if database_url() else "not-configured",
         "users": "database-public-directory" if database_url() else "not-configured",
+        "databaseEnv": database_env_name(),
         "webUrl": None,
         "lanUrl": None,
         "notifications": bool(os.getenv("YACHAT_VAPID_PUBLIC_KEY") and os.getenv("YACHAT_VAPID_PRIVATE_KEY")),
