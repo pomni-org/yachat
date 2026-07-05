@@ -2,6 +2,7 @@ const THEME_SEQUENCE = ["dark", "light"];
 const DEFAULT_THEME = "dark";
 const THEME_STORAGE_KEY = "yachat-theme";
 const THEME_SOURCE_STORAGE_KEY = "yachat-theme-source";
+const CHAT_MUTE_STORAGE_KEY = "yachat-muted-chat-ids";
 const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
 
 function systemTheme() {
@@ -33,6 +34,15 @@ function initialTheme() {
 function nextTheme(theme) {
   const index = THEME_SEQUENCE.indexOf(normalizeTheme(theme));
   return THEME_SEQUENCE[(index + 1) % THEME_SEQUENCE.length];
+}
+
+function loadMutedChatIds() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(CHAT_MUTE_STORAGE_KEY) || "[]");
+    return new Set(Array.isArray(ids) ? ids.map((id) => String(id || "").trim()).filter(Boolean) : []);
+  } catch {
+    return new Set();
+  }
 }
 
 function themeIconName(theme = state.theme) {
@@ -75,6 +85,7 @@ const state = {
   editingProfile: false,
   profileEditAvatarDataUrl: null,
   profileEditMessage: "",
+  mutedChatIds: loadMutedChatIds(),
   pendingCreateChatAvatarDataUrl: "",
   pendingChatAvatarDataUrl: null,
   pendingAttachments: [],
@@ -268,6 +279,9 @@ const ICONS = {
   plus: '<path d="M5 12h14" /><path d="M12 5v14" />',
   search: '<path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" />',
   "ellipsis-vertical": '<circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" />',
+  ellipsis: '<circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" />',
+  bell: '<path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8a6 6 0 0 0-12 0c0 4.499-1.411 5.956-2.738 7.326" />',
+  "bell-off": '<path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.587 13.956 6 12.499 6 8a6 6 0 0 1 .713-2.837" /><path d="M8.668 2.973A6 6 0 0 1 18 8c0 1.568.172 2.775.446 3.74" /><path d="m2 2 20 20" />',
   paperclip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />',
   smile: '<circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" x2="9.01" y1="9" y2="9" /><line x1="15" x2="15.01" y1="9" y2="9" />',
   "send-horizontal": '<path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z" /><path d="M6 12h16" />',
@@ -282,6 +296,7 @@ const ICONS = {
   sun: '<circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" />',
   help: '<circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 1 1 5.82 1c0 2-3 2-3 4" /><path d="M12 17h.01" />',
   "chevron-left": '<path d="m15 18-6-6 6-6" />',
+  "chevron-right": '<path d="m9 18 6-6-6-6" />',
   "chevron-down": '<path d="m6 9 6 6 6-6" />',
   "shield-check": '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" />',
   "file-text": '<path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" /><path d="M14 2v5a1 1 0 0 0 1 1h5" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" />',
@@ -295,6 +310,7 @@ const ICONS = {
   check: '<path d="M20 6 9 17l-5-5" />',
   "monitor-smartphone": '<path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" /><path d="M10 19v-3.96 3.15" /><path d="M7 19h5" /><rect width="6" height="10" x="16" y="12" rx="2" />',
   "scan-line": '<path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" />',
+  "share-2": '<circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.59 13.51 6.83 3.98" /><path d="m15.41 6.51-6.82 3.98" />',
   copy: '<rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />',
   "log-out": '<path d="m16 17 5-5-5-5" /><path d="M21 12H9" /><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />',
   palette: '<path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" /><circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />'
@@ -543,6 +559,23 @@ const translations = {
     qrExpired: "QR-код устарел. Создайте новый.",
     qrCreate: "Создаём код входа для нового устройства",
     attachments: "Вложения",
+    chatActionChat: "Чат",
+    chatActionSound: "Звук",
+    chatActionMuted: "Без звука",
+    chatActionMore: "Ещё",
+    chatProfileLinkTitle: "Ссылка на профиль",
+    chatProfileLinkField: "Ссылка",
+    chatProfileAboutBot: "Об этом боте",
+    chatProfileAboutChannel: "О канале",
+    chatProfileAboutGroup: "О группе",
+    chatProfileAboutUser: "О пользователе",
+    chatProfileAboutChat: "О чате",
+    chatProfileAttachmentsHint: "Фото, видео, файлы и ссылки",
+    chatProfileLinkCopied: "Ссылка скопирована",
+    chatProfileLinkUnavailable: "Ссылка пока недоступна.",
+    chatProfileQrTitle: "QR профиля",
+    chatProfileMoreEmpty: "Дополнительных действий пока нет.",
+    chatProfileAttachmentsEmpty: "В этом чате пока нет вложений.",
     attachLimit: "Файл слишком большой. Лимит 8 МБ.",
     stickersSoon: "Стикеры добавим отдельной витриной. Сейчас работают файлы, фото и видео.",
     messagePlaceholder: "Сообщение",
@@ -766,6 +799,23 @@ const translations = {
     qrExpired: "QR code has expired. Create a new one.",
     qrCreate: "Creating a sign-in code for the new device",
     attachments: "Attachments",
+    chatActionChat: "Chat",
+    chatActionSound: "Sound",
+    chatActionMuted: "Muted",
+    chatActionMore: "More",
+    chatProfileLinkTitle: "Profile link",
+    chatProfileLinkField: "Link",
+    chatProfileAboutBot: "About this bot",
+    chatProfileAboutChannel: "About this channel",
+    chatProfileAboutGroup: "About this group",
+    chatProfileAboutUser: "About this user",
+    chatProfileAboutChat: "About this chat",
+    chatProfileAttachmentsHint: "Photos, videos, files, and links",
+    chatProfileLinkCopied: "Link copied",
+    chatProfileLinkUnavailable: "The link is not available yet.",
+    chatProfileQrTitle: "Profile QR",
+    chatProfileMoreEmpty: "No extra actions yet.",
+    chatProfileAttachmentsEmpty: "This chat has no attachments yet.",
     attachLimit: "The file is too large. Limit is 8 MB.",
     stickersSoon: "Stickers will get their own tray. Files, photos, and videos work now.",
     messagePlaceholder: "Message",
@@ -1092,6 +1142,191 @@ function renderChatAvatar(chat, className = "chat-avatar") {
     ? `<img src="${escapeHtml(chat.avatarDataUrl)}" alt="" />`
     : escapeHtml(getChatAvatarText(chat));
   return `<div class="${className}${modifier}">${avatar}</div>`;
+}
+
+function chatProfileUsername(chat) {
+  const explicit = cleanDisplayText(chat?.profileUsername, "");
+  if (explicit) {
+    return explicit.replace(/^@+/, "");
+  }
+
+  if (chat?.id === "yachat-codes") {
+    return "verificationcodes_bot";
+  }
+
+  if (chat?.id === "yachat-channel") {
+    return "yachat_channel";
+  }
+
+  if (chat?.kind === "private") {
+    const fromSubtitle = String(chat?.subtitle || "").match(/@([a-zA-Z0-9_]{3,24})/);
+    if (fromSubtitle?.[1]) {
+      return fromSubtitle[1];
+    }
+
+    const otherId = getPrivateChatParticipantId(chat);
+    return cleanDisplayText(chat?.participantProfiles?.[otherId]?.username, "");
+  }
+
+  return "";
+}
+
+function chatProfileKindLabel(chat) {
+  if (chat?.profileKindLabel) {
+    return cleanDisplayText(chat.profileKindLabel, "");
+  }
+
+  if (chat?.kind === "bot") {
+    return t("botChat");
+  }
+
+  if (chat?.kind === "channel") {
+    return t("channelChat");
+  }
+
+  if (chat?.kind === "group") {
+    return t("groupChat");
+  }
+
+  if (chat?.kind === "private") {
+    return t("privateChat");
+  }
+
+  return t("chatProfileAboutChat");
+}
+
+function chatProfileUrl(chat) {
+  const explicit = cleanDisplayText(chat?.profileUrl, "");
+  if (explicit) {
+    return explicit;
+  }
+
+  if (chat?.id === "yachat-codes") {
+    return "https://max.ru/verificationcodes_bot";
+  }
+
+  if (chat?.id === "yachat-channel") {
+    return "https://max.ru/yachat_channel";
+  }
+
+  const username = chatProfileUsername(chat);
+  return username ? `https://max.ru/${encodeURIComponent(username)}` : cleanDisplayText(chat?.inviteUrl || chat?.inviteCode, "");
+}
+
+function chatProfileAboutTitle(chat) {
+  if (chat?.kind === "bot") {
+    return t("chatProfileAboutBot");
+  }
+
+  if (chat?.kind === "channel") {
+    return t("chatProfileAboutChannel");
+  }
+
+  if (chat?.kind === "group") {
+    return t("chatProfileAboutGroup");
+  }
+
+  if (chat?.kind === "private") {
+    return t("chatProfileAboutUser");
+  }
+
+  return t("chatProfileAboutChat");
+}
+
+function chatProfileAboutText(chat) {
+  return cleanDisplayText(chat?.profileAbout || chat?.description || getChatSubtitle(chat), getChatSubtitle(chat));
+}
+
+function isChatMuted(chatId) {
+  return state.mutedChatIds.has(String(chatId || ""));
+}
+
+function persistMutedChatIds() {
+  localStorage.setItem(CHAT_MUTE_STORAGE_KEY, JSON.stringify([...state.mutedChatIds]));
+}
+
+function renderChatProfilePanel(chat, displayChat, sections = {}) {
+  const title = getChatTitle(chat);
+  const username = chatProfileUsername(chat);
+  const profileUrl = chatProfileUrl(chat);
+  const kindLabel = chatProfileKindLabel(chat);
+  const muted = isChatMuted(chat?.id);
+  const hasMore = Boolean(sections.editSection || sections.groupSection || sections.leaveSection);
+  const meta = [
+    username ? `<span class="chat-profile-handle">@${escapeHtml(username)}</span>` : "",
+    kindLabel ? escapeHtml(kindLabel) : ""
+  ].filter(Boolean).join(" <span class=\"chat-profile-dot\">•</span> ");
+
+  return `
+    <section class="chat-profile-view">
+      <button class="chat-profile-back" type="button" data-panel-action="chat-profile-back" aria-label="${escapeHtml(t("cancel"))}">
+        ${iconSvg("chevron-left")}
+      </button>
+      <div class="chat-profile-hero">
+        ${renderChatAvatar(displayChat, "chat-profile-avatar")}
+        <h1 class="chat-profile-title">${escapeHtml(title)} ${renderVerified(chat)}</h1>
+        ${meta ? `<p class="chat-profile-meta">${meta}</p>` : ""}
+      </div>
+      <div class="chat-profile-actions">
+        <button type="button" data-panel-action="chat-profile-back">
+          ${iconSvg("message-circle-more")}
+          <span>${t("chatActionChat")}</span>
+        </button>
+        <button type="button" data-panel-action="toggle-chat-sound" class="${muted ? "is-muted" : ""}">
+          ${iconSvg(muted ? "bell-off" : "bell")}
+          <span>${t(muted ? "chatActionMuted" : "chatActionSound")}</span>
+        </button>
+        <button type="button" data-panel-action="chat-profile-more">
+          ${iconSvg("ellipsis")}
+          <span>${t("chatActionMore")}</span>
+        </button>
+      </div>
+      ${profileUrl ? `
+        <section class="chat-profile-section">
+          <h2>${t("chatProfileLinkTitle")}</h2>
+          <div class="chat-profile-card chat-profile-link-card">
+            <div class="chat-profile-link-text">
+              <span>${t("chatProfileLinkField")}</span>
+              <a href="${escapeHtml(profileUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(profileUrl)}</a>
+            </div>
+            <div class="chat-profile-link-actions">
+              <button type="button" data-panel-action="share-profile-link" data-profile-link="${escapeHtml(profileUrl)}" aria-label="${escapeHtml(t("chatProfileLinkTitle"))}">
+                ${iconSvg("share-2")}
+              </button>
+              <button type="button" data-panel-action="show-profile-qr" aria-label="${escapeHtml(t("chatProfileQrTitle"))}">
+                ${iconSvg("qr-code")}
+              </button>
+            </div>
+            <div class="chat-profile-qr" data-chat-profile-qr hidden>
+              ${renderQrSvg(profileUrl)}
+            </div>
+          </div>
+        </section>
+      ` : ""}
+      <section class="chat-profile-section">
+        <div class="chat-profile-card chat-profile-about-card">
+          <span>${chatProfileAboutTitle(chat)}</span>
+          <p>${escapeHtml(chatProfileAboutText(chat))}</p>
+        </div>
+      </section>
+      <section class="chat-profile-section">
+        <button class="chat-profile-card chat-profile-attachments" type="button" data-panel-action="chat-profile-attachments">
+          <span class="chat-profile-attachments-icon">${iconSvg("image")}</span>
+          <span>
+            <strong>${t("attachments")}</strong>
+            <small>${t("chatProfileAttachmentsHint")}</small>
+          </span>
+          ${iconSvg("chevron-right")}
+        </button>
+      </section>
+      <div class="chat-profile-more-stack" data-chat-profile-more ${hasMore ? "hidden" : "hidden"}>
+        ${sections.editSection || ""}
+        ${sections.groupSection || ""}
+        ${sections.leaveSection || ""}
+        ${hasMore ? "" : `<section class="panel-section"><p>${t("chatProfileMoreEmpty")}</p></section>`}
+      </div>
+    </section>
+  `;
 }
 
 function getPrivateChatParticipantId(chat) {
@@ -2836,6 +3071,8 @@ function closePanel() {
   state.profileEditAvatarDataUrl = null;
   state.profileEditMessage = "";
   stopQrScanner();
+  sidePanel?.classList.remove("is-chat-profile");
+  panelBody?.classList.remove("is-chat-profile-body");
   if (sidePanel) {
     sidePanel.hidden = true;
   }
@@ -3050,6 +3287,8 @@ function renderPanel() {
   panelTitle.textContent = title;
   panelKicker.textContent = "";
   panelKicker.hidden = true;
+  sidePanel.classList.toggle("is-chat-profile", state.activePanel === "chat");
+  panelBody.classList.toggle("is-chat-profile-body", state.activePanel === "chat");
 
   if (state.activePanel === "chat") {
     const chat = getActiveChat();
@@ -3089,31 +3328,29 @@ function renderPanel() {
       </section>
     ` : "";
 
-    panelBody.innerHTML = `
-      <section class="profile-card chat-profile-card">
-        ${renderChatAvatar(displayChat, "panel-avatar")}
-        <div>
-          <h3>${escapeHtml(getChatTitle(chat))} ${renderVerified(chat)}</h3>
-          <p>${escapeHtml(getChatSubtitle(chat))}</p>
-          <small>${chat.locked ? t("cannotLeave") : privateProfileManaged ? t("privateManagedByProfiles") : ownsGroup ? t("groupOwner") : t("ownerOnly")}</small>
-        </div>
+    const groupSection = chat.kind === "group" ? `
+      <section class="panel-section">
+        <h3>${t("invitePeople")}</h3>
+        <p>${ownsGroup ? t("groupOwner") : t("ownerOnly")}</p>
+        ${invite ? `<div class="invite-box"><span>${t("inviteCode")}</span><strong>${escapeHtml(invite)}</strong></div>` : ""}
+        <button class="panel-primary is-secondary" type="button" data-panel-action="invite-chat" ${ownsGroup ? "" : "disabled"}>${iconSvg("users", "button-icon")}<span>${t("invitePeople")}</span></button>
+        ${invite ? `<button class="panel-primary is-secondary" type="button" data-panel-action="copy-invite">${iconSvg("copy", "button-icon")}<span>${t("copyInvite")}</span></button>` : ""}
       </section>
-      ${editSection}
-      ${chat.kind === "group" ? `
-        <section class="panel-section">
-          <h3>${t("invitePeople")}</h3>
-          <p>${ownsGroup ? t("groupOwner") : t("ownerOnly")}</p>
-          ${invite ? `<div class="invite-box"><span>${t("inviteCode")}</span><strong>${escapeHtml(invite)}</strong></div>` : ""}
-          <button class="panel-primary is-secondary" type="button" data-panel-action="invite-chat" ${ownsGroup ? "" : "disabled"}>${iconSvg("users", "button-icon")}<span>${t("invitePeople")}</span></button>
-          ${invite ? `<button class="panel-primary is-secondary" type="button" data-panel-action="copy-invite">${iconSvg("copy", "button-icon")}<span>${t("copyInvite")}</span></button>` : ""}
-        </section>
-      ` : ""}
+    ` : "";
+
+    const leaveSection = chat.locked ? "" : `
       <section class="panel-section">
         <h3>${t("leaveChat")}</h3>
-        <p>${chat.locked ? t("cannotLeave") : getChatTitle(chat)}</p>
-        <button class="panel-primary is-danger" type="button" data-panel-action="leave-chat" ${chat.locked ? "disabled" : ""}>${iconSvg("log-out", "button-icon")}<span>${t("leaveChat")}</span></button>
+        <p>${privateProfileManaged ? t("privateManagedByProfiles") : getChatTitle(chat)}</p>
+        <button class="panel-primary is-danger" type="button" data-panel-action="leave-chat">${iconSvg("log-out", "button-icon")}<span>${t("leaveChat")}</span></button>
       </section>
     `;
+
+    panelBody.innerHTML = renderChatProfilePanel(chat, displayChat, {
+      editSection,
+      groupSection,
+      leaveSection
+    });
     hydrateIcons(panelBody);
     return;
   }
@@ -3642,6 +3879,77 @@ async function copyActiveInvite() {
   } catch {
     // Clipboard may be unavailable in some desktop shells.
   }
+}
+
+function toggleChatSound() {
+  const chat = getActiveChat();
+  const chatId = String(chat?.id || "");
+  if (!chatId) {
+    return;
+  }
+
+  if (state.mutedChatIds.has(chatId)) {
+    state.mutedChatIds.delete(chatId);
+  } else {
+    state.mutedChatIds.add(chatId);
+  }
+
+  persistMutedChatIds();
+  renderPanel();
+}
+
+async function shareChatProfileLink(button) {
+  const url = cleanDisplayText(button?.dataset.profileLink || chatProfileUrl(getActiveChat()), "");
+  if (!url) {
+    alert(t("chatProfileLinkUnavailable"));
+    return;
+  }
+
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: getChatTitle(getActiveChat()), url });
+      return;
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
+    }
+  }
+
+  await copyTextToClipboard(url);
+  alert(t("chatProfileLinkCopied"));
+}
+
+function toggleChatProfileQr(button) {
+  const qr = button?.closest(".chat-profile-link-card")?.querySelector("[data-chat-profile-qr]");
+  if (!qr) {
+    return;
+  }
+
+  qr.hidden = !qr.hidden;
+}
+
+function toggleChatProfileMore() {
+  const stack = panelBody?.querySelector("[data-chat-profile-more]");
+  if (!stack) {
+    alert(t("chatProfileMoreEmpty"));
+    return;
+  }
+
+  stack.hidden = !stack.hidden;
+  if (!stack.hidden) {
+    stack.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+}
+
+function showChatProfileAttachments() {
+  const attachments = state.messages.flatMap((message) => Array.isArray(message?.attachments) ? message.attachments : []);
+  if (attachments.length === 0) {
+    alert(t("chatProfileAttachmentsEmpty"));
+    return;
+  }
+
+  closePanel();
 }
 
 async function leaveActiveChat(button) {
@@ -4224,10 +4532,14 @@ function createLocalYachatApi() {
           title: "Коды подтверждения",
           subtitle: "Ваши одноразовые коды от банков, магазинов и сервисов",
           description: "Ваши одноразовые коды от банков, магазинов и сервисов",
+          profileUsername: "verificationcodes_bot",
+          profileUrl: "https://max.ru/verificationcodes_bot",
+          profileAbout: "Ваши одноразовые коды от банков, магазинов и сервисов",
+          profileKindLabel: "Бот",
           locked: true,
           verified: true,
           pinned: true,
-          canSend: true,
+          canSend: false,
           avatar: "codes",
           avatarDataUrl: "./assets/yachat-codes-avatar.webp",
           createdAt
@@ -4237,6 +4549,10 @@ function createLocalYachatApi() {
           kind: "channel",
           title: "Канал ЯЧата",
           subtitle: "Канал",
+          profileUsername: "yachat_channel",
+          profileUrl: "https://max.ru/yachat_channel",
+          profileAbout: "Новости приложения, изменения и служебные объявления.",
+          profileKindLabel: "Канал",
           locked: true,
           verified: true,
           pinned: true,
@@ -6160,6 +6476,36 @@ panelBody?.addEventListener("click", async (event) => {
   }
 
   const action = actionButton.dataset.panelAction;
+  if (action === "chat-profile-back") {
+    closePanel();
+    return;
+  }
+
+  if (action === "toggle-chat-sound") {
+    toggleChatSound();
+    return;
+  }
+
+  if (action === "chat-profile-more") {
+    toggleChatProfileMore();
+    return;
+  }
+
+  if (action === "share-profile-link") {
+    await shareChatProfileLink(actionButton);
+    return;
+  }
+
+  if (action === "show-profile-qr") {
+    toggleChatProfileQr(actionButton);
+    return;
+  }
+
+  if (action === "chat-profile-attachments") {
+    showChatProfileAttachments();
+    return;
+  }
+
   if (action === "edit-profile") {
     openProfileEditor();
     return;

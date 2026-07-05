@@ -1010,6 +1010,11 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
             "kind": "bot",
             "title": "Коды подтверждения",
             "subtitle": "Ваши одноразовые коды",
+            "description": "Ваши одноразовые коды от банков, магазинов и сервисов",
+            "profileUsername": "verificationcodes_bot",
+            "profileUrl": "https://max.ru/verificationcodes_bot",
+            "profileAbout": "Ваши одноразовые коды от банков, магазинов и сервисов",
+            "profileKindLabel": "Бот",
             "locked": True,
             "verified": True,
             "pinned": True,
@@ -1026,6 +1031,11 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
             "kind": "channel",
             "title": "Канал ЯЧата",
             "subtitle": "Канал",
+            "description": channel_intro,
+            "profileUsername": "yachat_channel",
+            "profileUrl": "https://max.ru/yachat_channel",
+            "profileAbout": "Новости приложения, изменения и служебные объявления.",
+            "profileKindLabel": "Канал",
             "locked": True,
             "verified": True,
             "pinned": True,
@@ -1168,13 +1178,22 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
     title = str(row_value(chat, "title"))
     subtitle = str(row_value(chat, "description"))
     avatar_data_url = str(row_value(chat, "avatar_url"))
+    profile_username = ""
+    profile_url = ""
+    profile_about = str(row_value(chat, "description"))
+    profile_kind_label = "Группа" if chat["kind"] == "group" else "Личный"
     if chat["kind"] == "private" and other:
         title = str(row_value(other, "display_name", "preview_name", "username"))
         username = str(row_value(other, "username"))
         subtitle = f"@{username}" if username else "Личный чат"
         avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
+        profile_username = username
+        profile_url = f"https://max.ru/{username}" if username else ""
+        profile_about = str(row_value(other, "bio")) or subtitle
+        profile_kind_label = "Личный"
     elif chat["kind"] == "group":
         subtitle = subtitle or f"{max(len(members), 1)} участников"
+        profile_about = profile_about or subtitle
 
     return {
         "id": chat_id,
@@ -1192,6 +1211,10 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         "avatar": str(chat["kind"]),
         "avatarDataUrl": avatar_data_url,
         "avatarAccent": str(row_value(chat, "avatar_accent")) or "#471AFF",
+        "profileUsername": profile_username,
+        "profileUrl": profile_url,
+        "profileAbout": profile_about,
+        "profileKindLabel": profile_kind_label,
         "inviteCode": str(row_value(chat, "invite_code")),
         "createdAt": row_value(chat, "created_at"),
         "lastAt": row_value(last, "created_at") or row_value(chat, "created_at"),

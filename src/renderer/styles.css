@@ -3091,6 +3091,331 @@ body.messenger-mode .app-shell {
   object-fit: cover;
 }
 
+.side-panel.is-chat-profile {
+  border-left: 0;
+  background: #eef0f5;
+  box-shadow: none;
+  color: #060608;
+}
+
+.side-panel.is-chat-profile .side-panel-head {
+  display: none;
+}
+
+.side-panel.is-chat-profile .side-panel-body {
+  display: block;
+  padding: 28px 30px 44px;
+  background: #eef0f5;
+  color: #060608;
+}
+
+.side-panel.is-chat-profile .side-panel-body > * {
+  width: min(880px, 100%);
+  margin: 0 auto;
+}
+
+.chat-profile-view {
+  position: relative;
+  display: grid;
+  gap: 24px;
+  min-height: 100%;
+  padding-top: 8px;
+}
+
+.chat-profile-back {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background: transparent;
+  color: #060608;
+  cursor: pointer;
+}
+
+.chat-profile-back .lucide-icon {
+  width: 34px;
+  height: 34px;
+  stroke-width: 2.5;
+}
+
+.chat-profile-hero {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding-top: 0;
+  text-align: center;
+}
+
+.chat-profile-avatar {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  width: 132px;
+  height: 132px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--max-comet), var(--max-blue) 48%, var(--max-purple));
+  color: #fff;
+  font-size: 58px;
+  font-weight: 600;
+}
+
+.chat-profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-profile-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  max-width: min(680px, 100%);
+  margin: 8px 0 0;
+  color: #050507;
+  font-size: 36px;
+  line-height: 1.08;
+  font-weight: 600;
+  text-align: center;
+}
+
+.chat-profile-title .verified-mark {
+  width: 25px;
+  height: 25px;
+  margin-left: 2px;
+  vertical-align: 0;
+}
+
+.chat-profile-meta {
+  margin: 0;
+  color: #5f6068;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.chat-profile-handle {
+  color: #2f83d7;
+}
+
+.chat-profile-dot {
+  color: #6a6b73;
+}
+
+.chat-profile-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.chat-profile-actions button {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 96px;
+  border-radius: 22px;
+  background: #fff;
+  color: #111114;
+  cursor: pointer;
+  font-size: 17px;
+  font-weight: 500;
+  box-shadow: 0 1px 0 rgba(5, 8, 15, 0.02);
+}
+
+.chat-profile-actions button.is-muted {
+  color: #71727a;
+}
+
+.chat-profile-actions .lucide-icon {
+  width: 31px;
+  height: 31px;
+  stroke-width: 2.1;
+}
+
+.chat-profile-section {
+  display: grid;
+  gap: 8px;
+}
+
+.chat-profile-section h2 {
+  margin: 0 0 2px;
+  color: #5f6068;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.chat-profile-card {
+  width: 100%;
+  border: 0;
+  border-radius: 18px;
+  background: #fff;
+  color: #111114;
+  box-shadow: 0 1px 0 rgba(5, 8, 15, 0.02);
+}
+
+.chat-profile-link-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 18px 18px 18px 22px;
+}
+
+.chat-profile-link-text {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.chat-profile-link-text span,
+.chat-profile-about-card span {
+  color: #5f6068;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.chat-profile-link-text a {
+  overflow: hidden;
+  color: #247bd3;
+  font-size: 20px;
+  line-height: 1.25;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-profile-link-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.chat-profile-link-actions button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: transparent;
+  color: #247bd3;
+  cursor: pointer;
+}
+
+.chat-profile-link-actions .lucide-icon {
+  width: 34px;
+  height: 34px;
+  stroke-width: 2.1;
+}
+
+.chat-profile-qr {
+  grid-column: 1 / -1;
+  justify-self: start;
+  width: 176px;
+  height: 176px;
+  padding: 12px;
+  border-radius: 18px;
+  background: #f4f5f8;
+}
+
+.chat-profile-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.chat-profile-about-card {
+  display: grid;
+  gap: 8px;
+  padding: 20px 22px;
+}
+
+.chat-profile-about-card p {
+  margin: 0;
+  color: #050507;
+  font-size: 22px;
+  line-height: 1.35;
+}
+
+.chat-profile-attachments {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) 28px;
+  gap: 14px;
+  align-items: center;
+  min-height: 92px;
+  padding: 16px 18px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-profile-attachments-icon {
+  display: grid;
+  place-items: center;
+  color: #1f2026;
+}
+
+.chat-profile-attachments-icon .lucide-icon {
+  width: 38px;
+  height: 38px;
+  stroke-width: 1.9;
+}
+
+.chat-profile-attachments strong,
+.chat-profile-attachments small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-profile-attachments strong {
+  color: #050507;
+  font-size: 22px;
+  line-height: 1.15;
+  font-weight: 600;
+}
+
+.chat-profile-attachments small {
+  margin-top: 5px;
+  color: #5f6068;
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.chat-profile-attachments > .lucide-icon {
+  width: 28px;
+  height: 28px;
+  color: #7b7c84;
+}
+
+.chat-profile-more-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.side-panel.is-chat-profile .panel-section {
+  border: 0;
+  background: #fff;
+  color: #060608;
+}
+
+.side-panel.is-chat-profile .panel-section p,
+.side-panel.is-chat-profile .panel-field span,
+.side-panel.is-chat-profile .invite-box span {
+  color: #5f6068;
+}
+
+.side-panel.is-chat-profile .panel-field input,
+.side-panel.is-chat-profile .panel-field textarea,
+.side-panel.is-chat-profile .panel-field .username-input-shell,
+.side-panel.is-chat-profile .invite-box {
+  background: #f2f3f7;
+  color: #060608;
+}
+
 .session-message {
   min-height: 18px;
   margin: -4px 0 2px;
@@ -3868,6 +4193,118 @@ body.messenger-mode .app-shell {
 
   .side-panel-body {
     padding: 12px;
+  }
+
+  .side-panel.is-chat-profile {
+    bottom: 0;
+    z-index: 30;
+    background: #eef0f5;
+  }
+
+  .side-panel.is-chat-profile .side-panel-body {
+    padding: max(22px, env(safe-area-inset-top)) 30px max(28px, env(safe-area-inset-bottom));
+  }
+
+  .chat-profile-view {
+    gap: 22px;
+    padding-top: 6px;
+  }
+
+  .chat-profile-back {
+    top: 2px;
+    left: -16px;
+    width: 44px;
+    height: 44px;
+  }
+
+  .chat-profile-avatar {
+    width: 132px;
+    height: 132px;
+    font-size: 56px;
+  }
+
+  .chat-profile-title {
+    max-width: 100%;
+    font-size: 30px;
+  }
+
+  .chat-profile-title .verified-mark {
+    width: 22px;
+    height: 22px;
+  }
+
+  .chat-profile-meta {
+    font-size: 17px;
+  }
+
+  .chat-profile-actions {
+    gap: 10px;
+  }
+
+  .chat-profile-actions button {
+    min-height: 78px;
+    border-radius: 18px;
+    font-size: 15px;
+  }
+
+  .chat-profile-actions .lucide-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .chat-profile-link-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 15px 14px 15px 18px;
+  }
+
+  .chat-profile-link-text span,
+  .chat-profile-about-card span {
+    font-size: 16px;
+  }
+
+  .chat-profile-link-text a {
+    font-size: 18px;
+  }
+
+  .chat-profile-link-actions {
+    gap: 6px;
+  }
+
+  .chat-profile-link-actions button {
+    width: 38px;
+    height: 38px;
+  }
+
+  .chat-profile-link-actions .lucide-icon {
+    width: 31px;
+    height: 31px;
+  }
+
+  .chat-profile-about-card {
+    padding: 18px;
+  }
+
+  .chat-profile-about-card p {
+    font-size: 20px;
+  }
+
+  .chat-profile-attachments {
+    grid-template-columns: 54px minmax(0, 1fr) 24px;
+    min-height: 84px;
+    padding: 14px 15px;
+  }
+
+  .chat-profile-attachments-icon .lucide-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .chat-profile-attachments strong {
+    font-size: 20px;
+  }
+
+  .chat-profile-attachments small {
+    font-size: 16px;
   }
 
   .profile-card {
