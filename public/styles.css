@@ -3159,6 +3159,10 @@ body.messenger-mode .app-shell {
   -webkit-app-region: no-drag;
 }
 
+.app-shell > [data-delivery-modal].modal-layer {
+  inset: 0;
+}
+
 .modal-card {
   display: grid;
   gap: 14px;
