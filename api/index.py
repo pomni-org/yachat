@@ -447,6 +447,25 @@ def verification_code_text(contact: str, code: str) -> str:
     return f"Код подтверждения ЯЧата для {contact}: {code}. Он действует 10 минут. Никому его не сообщайте."
 
 
+def telegram_md_code(value: Any) -> str:
+    text = str(value or "").replace("\\", "\\\\").replace("`", "\\`")
+    return f"`{text}`"
+
+
+def telegram_verification_code_text(contact: str, code: str) -> str:
+    return "\n".join(
+        [
+            "🔐 *Код подтверждения ЯЧата*",
+            "",
+            f"Номер: {telegram_md_code(contact)}",
+            f"Код: {telegram_md_code(code)}",
+            "",
+            "⏳ Действует 10 минут\\.",
+            "⚠️ Никому его не сообщайте\\.",
+        ]
+    )
+
+
 def telegram_request(method: str, payload: dict[str, Any]) -> bool:
     token = telegram_bot_token()
     if not token:
@@ -469,20 +488,31 @@ def telegram_request(method: str, payload: dict[str, Any]) -> bool:
         return False
 
 
-def send_telegram_message(chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> bool:
+def send_telegram_message(
+    chat_id: str,
+    text: str,
+    reply_markup: dict[str, Any] | None = None,
+    parse_mode: str = "",
+) -> bool:
     payload: dict[str, Any] = {
         "chat_id": chat_id,
         "text": text,
         "disable_web_page_preview": True,
     }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     if reply_markup is not None:
         payload["reply_markup"] = reply_markup
     return telegram_request("sendMessage", payload)
 
 
+def send_telegram_markdown_message(chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> bool:
+    return send_telegram_message(chat_id, text, reply_markup, "MarkdownV2")
+
+
 def telegram_contact_keyboard() -> dict[str, Any]:
     return {
-        "keyboard": [[{"text": "Поделиться номером", "request_contact": True}]],
+        "keyboard": [[{"text": "📱 Поделиться номером", "request_contact": True}]],
         "resize_keyboard": True,
         "one_time_keyboard": True,
     }
@@ -677,11 +707,11 @@ def telegram_links_for_contact(cursor, contact: str) -> list[dict[str, Any]]:
 
 
 def send_telegram_verification_code(links: list[dict[str, Any]], contact: str, code: str) -> int:
-    text = verification_code_text(contact, code)
+    text = telegram_verification_code_text(contact, code)
     sent = 0
     for link in links:
         chat_id = str(row_value(link, "chat_id"))
-        if chat_id and send_telegram_message(chat_id, text):
+        if chat_id and send_telegram_markdown_message(chat_id, text):
             sent += 1
     return sent
 
@@ -1345,7 +1375,11 @@ async def telegram_webhook(request: Request):
         with connect_db() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("delete from yachat_telegram_links where telegram_user_id = %s", (telegram_user_id,))
-        send_telegram_message(chat_id, "Привязка удалена. Коды ЯЧата сюда больше не придут.", telegram_remove_keyboard())
+        send_telegram_markdown_message(
+            chat_id,
+            "🧹 *Привязка удалена*\n\nКоды ЯЧата сюда больше не придут\\.",
+            telegram_remove_keyboard(),
+        )
         return {"ok": True}
 
     contact = message.get("contact") if isinstance(message.get("contact"), dict) else None
@@ -1355,9 +1389,9 @@ async def telegram_webhook(request: Request):
         key = contact_key(phone)
 
         if not contact_user_id or contact_user_id != telegram_user_id or not key:
-            send_telegram_message(
+            send_telegram_markdown_message(
                 chat_id,
-                "Нужен именно ваш Telegram-номер. Нажмите кнопку ниже и отправьте свой контакт.",
+                "⚠️ *Нужен ваш Telegram\\-номер*\n\nНажмите кнопку ниже и отправьте свой контакт\\.",
                 telegram_contact_keyboard(),
             )
             return {"ok": True}
@@ -1388,16 +1422,16 @@ async def telegram_webhook(request: Request):
                     ),
                 )
 
-        send_telegram_message(
+        send_telegram_markdown_message(
             chat_id,
-            "Готово. Теперь коды входа ЯЧата для этого номера будут приходить сюда. Если передумаете, отправьте /stop.",
+            f"✅ *Готово*\n\nКоды входа ЯЧата для номера {telegram_md_code(phone)} будут приходить сюда\\.\n\nЕсли передумаете, отправьте {telegram_md_code('/stop')}\\.",
             telegram_remove_keyboard(),
         )
         return {"ok": True}
 
-    send_telegram_message(
+    send_telegram_markdown_message(
         chat_id,
-        "Это бот кодов ЯЧата. Нажмите кнопку и поделитесь своим номером, чтобы привязать Telegram к подтверждению входа.",
+        "👋 *Бот кодов ЯЧата*\n\nНажмите кнопку ниже и поделитесь номером, чтобы привязать Telegram к подтверждению входа\\.",
         telegram_contact_keyboard(),
     )
     return {"ok": True}

@@ -1980,6 +1980,22 @@ body.messenger-mode .app-shell {
   font-weight: 500;
 }
 
+.delivery-screen .back-button {
+  margin-bottom: 30px;
+}
+
+.delivery-screen [data-delivery-contact] {
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.delivery-screen .delivery-choice {
+  margin-top: 28px;
+}
+
 .auth-form {
   position: relative;
   flex: 0 0 auto;
@@ -3157,10 +3173,6 @@ body.messenger-mode .app-shell {
   background: rgba(0, 0, 0, 0.28);
   backdrop-filter: none;
   -webkit-app-region: no-drag;
-}
-
-.app-shell > [data-delivery-modal].modal-layer {
-  inset: 0;
 }
 
 .modal-card {

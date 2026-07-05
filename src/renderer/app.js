@@ -144,6 +144,7 @@ const panelBody = document.querySelector("[data-panel-body]");
 const createChatModal = document.querySelector("[data-create-chat-modal]");
 const createChatForm = document.querySelector('[data-form="create-chat"]');
 const deliveryModal = document.querySelector("[data-delivery-modal]");
+const deliveryContact = document.querySelector("[data-delivery-contact]");
 const deleteProfileModal = document.querySelector("[data-delete-profile-modal]");
 const deleteProfileForm = document.querySelector('[data-form="delete-profile"]');
 const deleteProfileInput = document.querySelector("[data-delete-profile-input]");
@@ -5207,6 +5208,10 @@ function setScreen(nextScreen, options = {}) {
     requestAnimationFrame(() => profileForm.elements.displayName?.focus());
   }
 
+  if (nextScreen === "delivery") {
+    requestAnimationFrame(() => deliveryButtons[0]?.focus());
+  }
+
   if (options.focusPhone) {
     requestAnimationFrame(() => phoneInput.focus());
   }
@@ -5431,12 +5436,12 @@ function validLoginContact() {
   return `${state.countryCode} ${phoneInput.value}`;
 }
 
-function closeDeliveryModal() {
-  if (deliveryModal) {
-    deliveryModal.hidden = true;
-  }
+function closeDeliveryModal(returnToPhone = true) {
   state.deliveryActionButton = null;
   setDeliveryButtonsLoading(null, false);
+  if (returnToPhone) {
+    setScreen("phone", { focusPhone: true });
+  }
 }
 
 function openDeliveryModal(actionButton) {
@@ -5448,10 +5453,10 @@ function openDeliveryModal(actionButton) {
   state.deliveryActionButton = actionButton || null;
   setMessage("phone", "");
   setDeliveryMethod("");
-  if (deliveryModal) {
-    deliveryModal.hidden = false;
-    requestAnimationFrame(() => deliveryButtons[0]?.focus());
+  if (deliveryContact) {
+    deliveryContact.textContent = contact;
   }
+  setScreen("delivery");
 }
 
 async function createChallenge(deliveryMethod, sourceButton) {
@@ -5479,7 +5484,7 @@ async function createChallenge(deliveryMethod, sourceButton) {
       phonePreview.textContent = challenge.contact;
     }
     fillCode("");
-    closeDeliveryModal();
+    closeDeliveryModal(false);
     setScreen("code");
     const delivery = challenge.delivery || {};
     const deliveryKey = delivery.yachat && delivery.telegram
@@ -5492,9 +5497,7 @@ async function createChallenge(deliveryMethod, sourceButton) {
     setMessage("code", t(deliveryKey), "success");
   } catch (error) {
     setMessage("phone", translatedServerMessage(error.message, "errCreateCode"));
-    if (deliveryModal) {
-      deliveryModal.hidden = true;
-    }
+    setScreen("phone", { focusPhone: true });
   } finally {
     setDeliveryButtonsLoading(sourceButton, false);
     setLoading(actionButton, false);
@@ -6239,13 +6242,7 @@ createChatModal?.addEventListener("click", (event) => {
 });
 
 document.querySelectorAll('[data-action="close-delivery"]').forEach((button) => {
-  button.addEventListener("click", closeDeliveryModal);
-});
-
-deliveryModal?.addEventListener("click", (event) => {
-  if (event.target === deliveryModal) {
-    closeDeliveryModal();
-  }
+  button.addEventListener("click", () => closeDeliveryModal());
 });
 
 deleteProfileForm?.addEventListener("submit", (event) => {

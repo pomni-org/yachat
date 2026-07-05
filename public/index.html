@@ -83,6 +83,32 @@
           <button class="link-button" type="button" data-action="open-qr">Войти по QR-коду</button>
         </section>
 
+        <section class="screen delivery-screen" data-screen="delivery" data-delivery-modal>
+          <button class="back-button" type="button" data-action="close-delivery">
+            <span class="css-icon gg-chevron-left"></span>
+            Назад
+          </button>
+
+          <div class="screen-copy">
+            <h1 data-delivery-title>Куда отправить код</h1>
+            <p>
+              <span data-delivery-text>Выберите способ подтверждения для указанного номера.</span>
+              <strong data-delivery-contact></strong>
+            </p>
+          </div>
+
+          <div class="delivery-choice" data-delivery-choice>
+            <button class="delivery-option" type="button" data-delivery-method="yachat" aria-pressed="false">
+              <strong data-delivery-yachat>ЯЧат</strong>
+              <span data-delivery-yachat-hint>Бот «Коды подтверждения» на другом устройстве</span>
+            </button>
+            <button class="delivery-option" type="button" data-delivery-method="telegram" aria-pressed="false">
+              <strong data-delivery-telegram>Telegram</strong>
+              <span data-delivery-telegram-hint>Привязанный бот кодов</span>
+            </button>
+          </div>
+        </section>
+
         <section class="screen" data-screen="code">
           <div class="screen-copy">
             <h1>Введите код подтверждения</h1>
@@ -382,28 +408,6 @@
           </form>
         </div>
       </section>
-
-      <div class="modal-layer confirm-modal-layer" data-delivery-modal hidden>
-        <section class="modal-card confirm-modal-card delivery-modal-card" role="dialog" aria-modal="true" aria-labelledby="delivery-modal-title">
-          <header>
-            <h2 id="delivery-modal-title" data-delivery-title>Куда отправить код</h2>
-            <button class="icon-button" type="button" data-action="close-delivery" aria-label="Закрыть">
-              <span class="css-icon gg-x"></span>
-            </button>
-          </header>
-          <p data-delivery-text>Выберите способ подтверждения для указанного номера.</p>
-          <div class="delivery-choice" data-delivery-choice>
-            <button class="delivery-option" type="button" data-delivery-method="yachat" aria-pressed="false">
-              <strong data-delivery-yachat>ЯЧат</strong>
-              <span data-delivery-yachat-hint>Бот «Коды подтверждения» на другом устройстве</span>
-            </button>
-            <button class="delivery-option" type="button" data-delivery-method="telegram" aria-pressed="false">
-              <strong data-delivery-telegram>Telegram</strong>
-              <span data-delivery-telegram-hint>Привязанный бот кодов</span>
-            </button>
-          </div>
-        </section>
-      </div>
     </main>
 
     <script src="./app.js"></script>
