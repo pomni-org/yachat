@@ -1,6 +1,6 @@
 (() => {
   const sharedPageData = {
-    revisionNote: "Редакция от 03.07.2026 для текущей локальной desktop-версии ЯЧата.",
+    revisionNote: "Редакция от 05.07.2026 для текущей версии ЯЧата.",
     contacts: {
       telegram: "@murochko_com",
       whatsapp: "@murochko"

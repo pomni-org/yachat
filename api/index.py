@@ -55,7 +55,7 @@ DATABASE_ENV_NAMES = (
     "NEON_DATABASE_URL_UNPOOLED",
     "SUPABASE_DB_URL",
 )
-REMOVED_TEST_MESSAGE_TEXTS = ("Приыет?",)
+REMOVED_TEST_MESSAGE_TEXTS = ("Приыет?", "Привет?")
 DEFAULT_SETTINGS = {
     "language": "ru",
     "theme": "dark",
@@ -412,21 +412,35 @@ def contact_lookup_keys(value: Any) -> set[str]:
     digits = re.sub(r"\D+", "", str(value or ""))
     keys: set[str] = set()
 
-    if normalized:
-        keys.add(normalized)
+    def add_key(key: str) -> None:
+        clean = str(key or "").strip().lower()
+        if not clean:
+            return
+        keys.add(clean)
+        if clean.startswith("+"):
+            keys.add(clean[1:])
+
+    add_key(normalized)
 
     if not digits:
         return keys
 
-    keys.add(digits)
+    add_key(digits)
+    add_key(f"+{digits}")
     if len(digits) == 11 and digits.startswith("8"):
-        keys.add(f"7{digits[1:]}")
+        add_key(f"7{digits[1:]}")
+        add_key(f"+7{digits[1:]}")
     if len(digits) == 11 and digits.startswith("7"):
-        keys.add(digits[1:])
+        add_key(digits[1:])
     if len(digits) == 10:
-        keys.add(f"7{digits}")
+        add_key(f"7{digits}")
+        add_key(f"+7{digits}")
 
     return keys
+
+
+def sql_like_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def normalize_username(value: Any) -> str:
@@ -661,10 +675,11 @@ def find_user_by_contact_cursor(cursor, value: Any) -> dict[str, Any] | None:
         from public_users
         where lower(coalesce(contact_key::text, '')) = any(%s)
            or regexp_replace(coalesce(contact::text, ''), '\\D+', '', 'g') = any(%s)
+           or regexp_replace(coalesce(contact_key::text, ''), '\\D+', '', 'g') = any(%s)
         order by created_at desc nulls last
         limit 1
         """,
-        (keys, keys),
+        (keys, keys, keys),
     )
     row = cursor.fetchone()
     return dict(row) if row else None
@@ -760,24 +775,44 @@ def fetch_user_search(value: str) -> list[dict[str, Any]]:
         return []
     ensure_schema()
 
-    text = term.lower().lstrip("@")
+    text = sql_like_escape(term.lower().lstrip("@"))
     text_like = f"%{text}%"
-    contact_like = f"%{contact_key(term).lstrip('@')}%"
-    digits_like = f"%{digits}%" if digits else "__no_digits_match__"
+    normalized_contact = sql_like_escape(contact_key(term).lstrip("@+"))
+    contact_like = f"%{normalized_contact}%" if normalized_contact else "__no_contact_match__"
+    digits_like = f"%{sql_like_escape(digits)}%" if digits else "__no_digits_match__"
+    exact_keys = sorted(contact_lookup_keys(term))
+    username_exact = term.lower().lstrip("@")
+    username_prefix = f"{sql_like_escape(username_exact)}%"
     columns = ", ".join((*PUBLIC_USER_FIELDS, "contact", "contact_key"))
     query = f"""
         select {columns}
         from public_users
         where coalesce(is_public, true) = true
           and (
-            lower(coalesce(username::text, '')) like %s
-            or lower(coalesce(preview_name::text, '')) like %s
-            or lower(coalesce(display_name::text, '')) like %s
-            or lower(coalesce(contact::text, '')) like %s
-            or lower(coalesce(contact_key::text, '')) like %s
-            or regexp_replace(coalesce(contact::text, ''), '\\D+', '', 'g') like %s
+            lower(coalesce(username::text, '')) like %s escape '\\'
+            or lower(coalesce(preview_name::text, '')) like %s escape '\\'
+            or lower(coalesce(display_name::text, '')) like %s escape '\\'
+            or lower(coalesce(contact::text, '')) like %s escape '\\'
+            or lower(coalesce(contact_key::text, '')) like %s escape '\\'
+            or regexp_replace(coalesce(contact::text, ''), '\\D+', '', 'g') like %s escape '\\'
+            or regexp_replace(coalesce(contact_key::text, ''), '\\D+', '', 'g') like %s escape '\\'
+            or lower(coalesce(contact_key::text, '')) = any(%s)
+            or regexp_replace(coalesce(contact::text, ''), '\\D+', '', 'g') = any(%s)
+            or regexp_replace(coalesce(contact_key::text, ''), '\\D+', '', 'g') = any(%s)
           )
-        order by created_at desc nulls last
+        order by
+          case
+            when lower(coalesce(username::text, '')) = %s then 0
+            when lower(coalesce(username::text, '')) like %s escape '\\' then 1
+            when lower(coalesce(display_name::text, '')) like %s escape '\\'
+              or lower(coalesce(preview_name::text, '')) like %s escape '\\' then 2
+            when lower(coalesce(contact_key::text, '')) = any(%s)
+              or regexp_replace(coalesce(contact::text, ''), '\\D+', '', 'g') = any(%s)
+              or regexp_replace(coalesce(contact_key::text, ''), '\\D+', '', 'g') = any(%s) then 3
+            else 4
+          end,
+          updated_at desc nulls last,
+          created_at desc nulls last
         limit %s
     """
 
@@ -786,7 +821,26 @@ def fetch_user_search(value: str) -> list[dict[str, Any]]:
             with connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(
                     query,
-                    (text_like, text_like, text_like, text_like, contact_like, digits_like, min(public_limit(), 25)),
+                    (
+                        text_like,
+                        text_like,
+                        text_like,
+                        text_like,
+                        contact_like,
+                        digits_like,
+                        digits_like,
+                        exact_keys,
+                        exact_keys,
+                        exact_keys,
+                        username_exact,
+                        username_prefix,
+                        username_prefix,
+                        username_prefix,
+                        exact_keys,
+                        exact_keys,
+                        exact_keys,
+                        min(public_limit(), 25),
+                    ),
                 )
                 return [public_user(dict(row)) for row in cursor.fetchall()]
     except psycopg.Error as error:
@@ -822,11 +876,12 @@ def fetch_contact_matches(contacts: list[str]) -> list[dict[str, Any]]:
                       and (
                         lower(coalesce(contact_key::text, '')) = any(%s)
                         or regexp_replace(coalesce(contact::text, ''), '\\D+', '', 'g') = any(%s)
+                        or regexp_replace(coalesce(contact_key::text, ''), '\\D+', '', 'g') = any(%s)
                       )
                     order by created_at desc nulls last
                     limit %s
                     """,
-                    (requested_keys, requested_keys, public_limit()),
+                    (requested_keys, requested_keys, requested_keys, public_limit()),
                 )
                 rows = [dict(row) for row in cursor.fetchall()]
     except psycopg.Error as error:

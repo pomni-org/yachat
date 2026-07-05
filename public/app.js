@@ -67,6 +67,9 @@ const state = {
   contactMatches: [],
   contactLookupMessage: "",
   contactLookupLoading: false,
+  createChatSearchLoading: false,
+  createChatSearchError: "",
+  createChatSearchRequestId: 0,
   deleteProfileActionButton: null,
   deliveryActionButton: null,
   editingProfile: false,
@@ -1128,10 +1131,10 @@ function getChatSearchMatches(query = chatSearchValue().toLowerCase()) {
   return state.chats.filter((chat) => !query || chatSearchText(chat).includes(query));
 }
 
-function shouldSearchUserDirectory(query, chats) {
+function shouldSearchUserDirectory(query) {
   const value = String(query || "").trim();
 
-  if (!value || chats.length > 0) {
+  if (!value) {
     return false;
   }
 
@@ -1235,7 +1238,7 @@ function renderChatList() {
       </button>
     `;
   }).join("");
-  const directoryRows = shouldSearchUserDirectory(rawQuery, chats)
+  const directoryRows = shouldSearchUserDirectory(rawQuery)
     ? renderChatSearchUsers()
     : "";
 
@@ -2151,6 +2154,43 @@ function userSearchText(user) {
   ].join(" ").toLowerCase();
 }
 
+function mergeUsers(...collections) {
+  const byId = new Map();
+
+  collections.flat().forEach((item) => {
+    const user = normalizeUser(item);
+    if (!user?.id || user.id === state.account?.id || byId.has(user.id)) {
+      return;
+    }
+
+    byId.set(user.id, user);
+  });
+
+  return [...byId.values()];
+}
+
+function historicalChatUsers(query = "") {
+  const value = String(query || "").trim().toLowerCase();
+  const users = [];
+
+  state.chats.forEach((chat) => {
+    Object.values(chat?.participantProfiles || {}).forEach((profile) => {
+      const user = normalizeUser(profile);
+      if (!user?.id || user.id === state.account?.id) {
+        return;
+      }
+
+      if (value && !userSearchText(user).includes(value)) {
+        return;
+      }
+
+      users.push(user);
+    });
+  });
+
+  return mergeUsers(users);
+}
+
 function renderUserAvatar(user, className = "panel-row-avatar") {
   const initial = String(user?.displayName || user?.username || "Я").trim().slice(0, 1).toUpperCase() || "Я";
   const content = user?.avatarDataUrl
@@ -2265,9 +2305,56 @@ async function importDeviceContacts(sourceButton) {
   }
 }
 
+async function searchContactsDirectory(query, sourceButton = null) {
+  const value = String(query || "").trim();
+
+  if (!value || (value.length < 2 && digitsOnly(value).length < 3)) {
+    state.contactLookupMessage = t("contactsInputEmpty");
+    renderPanel();
+    return [];
+  }
+
+  state.contactLookupLoading = true;
+  state.contactLookupMessage = "";
+  renderPanel();
+
+  if (sourceButton) {
+    setLoading(sourceButton, true);
+  }
+
+  try {
+    const users = yachatApi.users?.search
+      ? await yachatApi.users.search(value)
+      : await yachatApi.users.list();
+    state.contactMatches = mergeUsers(users);
+    state.contactLookupMessage = state.contactMatches.length
+      ? t("contactsFoundCount", { count: state.contactMatches.length })
+      : t("contactsNoMatches");
+    return state.contactMatches;
+  } catch (error) {
+    state.contactLookupMessage = error.message || t("contactsUnavailable");
+    return [];
+  } finally {
+    state.contactLookupLoading = false;
+    if (sourceButton) {
+      setLoading(sourceButton, false);
+    }
+    renderPanel();
+  }
+}
+
 async function checkManualContacts(sourceButton) {
   const text = panelBody?.querySelector("[data-contact-input]")?.value || "";
-  await lookupContacts(extractContactPhones(text), sourceButton);
+  const phones = extractContactPhones(text);
+  const compactText = String(text || "").trim();
+  const onlyPhoneList = phones.length > 1 || (phones.length === 1 && digitsOnly(compactText).length >= 6 && !compactText.replace(phones[0], "").trim());
+
+  if (onlyPhoneList) {
+    await lookupContacts(phones, sourceButton);
+    return;
+  }
+
+  await searchContactsDirectory(text, sourceButton);
 }
 
 function contactProfilePayload(user) {
@@ -3121,16 +3208,18 @@ function openCreateChat() {
     return;
   }
 
-  state.newChatKind = "private";
+  state.newChatKind = "group";
   state.createChatSelectedIds = [];
   state.pendingCreateChatAvatarDataUrl = "";
+  state.createChatSearchError = "";
+  state.createChatSearchLoading = false;
+  state.createChatSearchRequestId += 1;
   createChatModal.hidden = false;
   createChatForm.reset();
   setMessage("create-chat", "");
-  loadCreateChatUsers().finally(() => {
-    renderCreateChatForm();
-    requestAnimationFrame(() => createChatForm.elements.peopleSearch?.focus());
-  });
+  loadCreateChatUsers();
+  renderCreateChatForm();
+  requestAnimationFrame(() => createChatForm.elements.peopleSearch?.focus());
 }
 
 function closeCreateChat() {
@@ -3139,17 +3228,59 @@ function closeCreateChat() {
   }
   state.createChatSelectedIds = [];
   state.pendingCreateChatAvatarDataUrl = "";
+  state.createChatSearchLoading = false;
+  state.createChatSearchError = "";
+  state.createChatSearchRequestId += 1;
 }
 
-async function loadCreateChatUsers() {
+function loadCreateChatUsers(query = "") {
+  state.createChatUsers = historicalChatUsers(query);
+}
+
+async function searchCreateChatUsers(query, requestId) {
+  state.createChatSearchLoading = true;
+  state.createChatSearchError = "";
+  renderCreateChatForm();
+
   try {
-    const users = await yachatApi.users.list();
-    state.createChatUsers = (users || [])
-      .map(normalizeUser)
-      .filter((user) => user && user.id !== state.account?.id);
-  } catch {
-    state.createChatUsers = [];
+    const users = yachatApi.users?.search
+      ? await yachatApi.users.search(query)
+      : await yachatApi.users.list();
+
+    if (requestId !== state.createChatSearchRequestId) {
+      return;
+    }
+
+    state.createChatUsers = mergeUsers(getCreateChatSelectedUsers(), historicalChatUsers(query), users);
+  } catch (error) {
+    if (requestId !== state.createChatSearchRequestId) {
+      return;
+    }
+
+    state.createChatSearchError = error.message || t("contactsUnavailable");
+    state.createChatUsers = mergeUsers(getCreateChatSelectedUsers(), historicalChatUsers(query));
+  } finally {
+    if (requestId === state.createChatSearchRequestId) {
+      state.createChatSearchLoading = false;
+      renderCreateChatForm();
+    }
   }
+}
+
+function refreshCreateChatSearch() {
+  const query = String(createChatForm?.elements.peopleSearch?.value || "").trim();
+  const requestId = state.createChatSearchRequestId + 1;
+  state.createChatSearchRequestId = requestId;
+  state.createChatSearchError = "";
+
+  if (!shouldSearchUserDirectory(query)) {
+    state.createChatSearchLoading = false;
+    state.createChatUsers = mergeUsers(getCreateChatSelectedUsers(), historicalChatUsers(query));
+    renderCreateChatForm();
+    return;
+  }
+
+  searchCreateChatUsers(query, requestId);
 }
 
 function normalizeChatSearchUsers(users) {
@@ -3157,7 +3288,7 @@ function normalizeChatSearchUsers(users) {
   return (users || [])
     .map(normalizeUser)
     .filter((user) => {
-      if (!user?.id || user.id === state.account?.id || seen.has(user.id) || findPrivateChatForUser(user.id)) {
+      if (!user?.id || user.id === state.account?.id || seen.has(user.id)) {
         return false;
       }
 
@@ -3200,13 +3331,12 @@ async function searchChatUserDirectory(query, requestId) {
 
 function refreshChatSearch() {
   const query = chatSearchValue();
-  const chats = getChatSearchMatches(query.toLowerCase());
   const requestId = state.chatSearchRequestId + 1;
 
   state.chatSearchRequestId = requestId;
   state.chatSearchError = "";
 
-  if (!shouldSearchUserDirectory(query, chats)) {
+  if (!shouldSearchUserDirectory(query)) {
     state.chatSearchLoading = false;
     state.chatSearchUsers = [];
     renderChatList();
@@ -3248,10 +3378,10 @@ function renderCreateChatForm() {
     return;
   }
 
-  const isGroup = state.newChatKind === "group";
+  const isGroup = true;
+  state.newChatKind = "group";
   const selectedUsers = getCreateChatSelectedUsers();
   const searchInput = createChatForm.elements.peopleSearch;
-  const query = String(searchInput?.value || "").trim().toLowerCase();
   const resultsTarget = createChatForm.querySelector("[data-create-user-results]");
   const selectedTarget = createChatForm.querySelector("[data-create-selected-users]");
   const submit = createChatForm.querySelector(".main-button");
@@ -3302,10 +3432,13 @@ function renderCreateChatForm() {
   const selected = new Set(state.createChatSelectedIds);
   const candidates = state.createChatUsers
     .filter((user) => !selected.has(user.id))
-    .filter((user) => !query || userSearchText(user).includes(query))
     .slice(0, 8);
 
-  if (resultsTarget) {
+  if (resultsTarget && state.createChatSearchLoading) {
+    resultsTarget.innerHTML = `<p class="empty-users">${escapeHtml(t("search"))}...</p>`;
+  } else if (resultsTarget && state.createChatSearchError) {
+    resultsTarget.innerHTML = `<p class="empty-users">${escapeHtml(state.createChatSearchError)}</p>`;
+  } else if (resultsTarget) {
     resultsTarget.innerHTML = candidates.length
       ? candidates.map((user) => `
           <button class="user-choice-row" type="button" data-create-user-id="${escapeHtml(user.id)}">
@@ -3339,7 +3472,8 @@ function renderCreateChatForm() {
 }
 
 async function createChatFromForm(submitButton) {
-  const isGroup = state.newChatKind === "group";
+  const isGroup = true;
+  state.newChatKind = "group";
   const title = String(createChatForm.elements.title?.value || "").trim();
   const participantIds = [...state.createChatSelectedIds];
 
@@ -3363,7 +3497,7 @@ async function createChatFromForm(submitButton) {
 
   try {
     const result = await yachatApi.messenger.createChat({
-      kind: state.newChatKind,
+      kind: "group",
       participantIds,
       title: isGroup ? title : "",
       description: isGroup ? String(createChatForm.elements.description?.value || "").trim() : "",
@@ -6181,7 +6315,12 @@ createChatForm?.querySelectorAll("[data-chat-kind]").forEach((button) => {
 });
 
 createChatForm?.addEventListener("input", (event) => {
-  if (event.target.matches("[data-create-people-search], [name='title']")) {
+  if (event.target.matches("[data-create-people-search]")) {
+    refreshCreateChatSearch();
+    return;
+  }
+
+  if (event.target.matches("[name='title']")) {
     renderCreateChatForm();
   }
 });
@@ -6196,10 +6335,12 @@ createChatForm?.addEventListener("click", (event) => {
   const userButton = event.target.closest("[data-create-user-id]");
   if (userButton) {
     const id = userButton.dataset.createUserId;
-    state.createChatSelectedIds = state.newChatKind === "private"
-      ? [id]
-      : [...new Set([...state.createChatSelectedIds, id])];
+    state.createChatSelectedIds = [...new Set([...state.createChatSelectedIds, id])];
     createChatForm.elements.peopleSearch.value = "";
+    state.createChatSearchLoading = false;
+    state.createChatSearchError = "";
+    state.createChatSearchRequestId += 1;
+    loadCreateChatUsers();
     setMessage("create-chat", "");
     renderCreateChatForm();
     return;
