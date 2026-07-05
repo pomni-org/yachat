@@ -38,6 +38,32 @@ create table if not exists yachat_auth_challenges (
 create index if not exists yachat_auth_challenges_contact_idx
   on yachat_auth_challenges(contact_key, created_at desc);
 
+create table if not exists yachat_system_messages (
+  id text primary key,
+  user_id text not null references public_users(id) on delete cascade,
+  chat_id text not null,
+  text text default '',
+  system_kind text default '',
+  created_at timestamptz default now(),
+  expires_at timestamptz
+);
+
+create index if not exists yachat_system_messages_user_chat_idx
+  on yachat_system_messages(user_id, chat_id, created_at);
+
+create table if not exists yachat_telegram_links (
+  telegram_user_id text primary key,
+  chat_id text not null,
+  contact text not null,
+  contact_key text not null,
+  username text default '',
+  first_name text default '',
+  updated_at timestamptz default now()
+);
+
+create index if not exists yachat_telegram_links_contact_idx
+  on yachat_telegram_links(contact_key);
+
 create table if not exists yachat_sessions (
   token_hash text primary key,
   user_id text not null references public_users(id) on delete cascade,

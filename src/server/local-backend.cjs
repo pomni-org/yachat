@@ -1509,7 +1509,7 @@ function createLocalBackend(app, appTitle) {
   async function recordVerificationCode(contact, code) {
     return addSystemMessage(
       "yachat-codes",
-      `Код подтверждения для ${contact}: ${code}. Никому его не сообщайте.`,
+      `Код подтверждения ЯЧата для ${contact}: ${code}. Он действует 10 минут. Никому его не сообщайте.`,
       "bot",
       { systemKind: "verification-code" }
     );

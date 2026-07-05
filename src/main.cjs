@@ -36,6 +36,14 @@ function normalizeContact(contact) {
   return String(contact || "").trim().replace(/\s+/g, " ");
 }
 
+function envFlag(name, fallback = false) {
+  const value = process.env[name];
+  if (value === undefined) {
+    return fallback;
+  }
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
 function normalizeUsername(value) {
   return String(value || "")
     .trim()
@@ -176,9 +184,14 @@ function readRequestJson(request) {
 async function createChallenge(payload) {
   const method = payload?.method === "phone" ? "phone" : "email";
   const contact = normalizeContact(payload?.contact);
+  const deliveryMethod = payload?.deliveryMethod === "telegram" ? "telegram" : "yachat";
 
   if (!contact) {
     throw new Error("Введите почту или телефон.");
+  }
+
+  if (deliveryMethod === "telegram") {
+    throw new Error("Telegram is not linked for this number. Start the YaChat code bot and share your phone number first.");
   }
 
   const code = createCode();
@@ -192,12 +205,18 @@ async function createChallenge(payload) {
 
   await localBackend.recordVerificationCode(contact, code);
 
-  return {
+  const result = {
     method,
     contact,
     expiresAt: sessionChallenge.expiresAt,
-    devCode: code
+    deliveryMethod,
+    delivery: { yachat: true, telegram: false, dev: false }
   };
+  if (envFlag("YACHAT_RETURN_DEV_CODE", false)) {
+    result.devCode = code;
+    result.delivery.dev = true;
+  }
+  return result;
 }
 
 async function verifyChallenge(payload) {

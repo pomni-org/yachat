@@ -23,7 +23,9 @@ Set these in Vercel Project Settings:
 - `YACHAT_AUTH_SECRET`: secret used to hash sessions, confirmation codes, and registration tokens.
 - `YACHAT_PUBLIC_USER_LIMIT`: optional, defaults to `100`.
 - `YACHAT_PUBLIC_CONTACTS`: optional, defaults to `false`.
-- `YACHAT_RETURN_DEV_CODE`: optional, defaults to `true`. Keep it enabled for test builds without an SMS provider.
+- `YACHAT_RETURN_DEV_CODE`: optional, defaults to `false`. Enable only for isolated test builds.
+- `YACHAT_TELEGRAM_BOT_TOKEN`: optional Telegram bot token for confirmation-code delivery.
+- `YACHAT_TELEGRAM_WEBHOOK_SECRET`: optional secret passed to Telegram `setWebhook` as `secret_token`.
 - `YACHAT_VAPID_PUBLIC_KEY`: public VAPID key for browser push notifications.
 - `YACHAT_VAPID_PRIVATE_KEY`: private VAPID key for browser push notifications.
 - `YACHAT_VAPID_SUBJECT`: optional VAPID subject, for example `mailto:admin@example.com`.
@@ -63,7 +65,26 @@ Current public account columns:
 Only safe profile fields are returned to the browser. The raw contact is returned only when `YACHAT_PUBLIC_CONTACTS=true`.
 
 Chat and push tables are created with the `yachat_` prefix.
-Settings and QR login state are also stored server-side in `yachat_user_settings` and `yachat_qr_sessions`.
+Settings, QR login state, Telegram links, and private system-code messages are also stored server-side in `yachat_user_settings`, `yachat_qr_sessions`, `yachat_telegram_links`, and `yachat_system_messages`.
+
+## Confirmation codes
+
+Production confirmation codes are not returned to the browser unless `YACHAT_RETURN_DEV_CODE=true`.
+When a code is requested, the user chooses one secure channel that is already tied to the phone number:
+
+- the built-in YaChat chat `Коды подтверждения` on an existing signed-in device;
+- the Telegram bot after the user starts it and shares their own Telegram contact.
+
+The API does not silently switch channels. If the selected channel is not available, it returns a clear error so the user can choose the other method or link the bot first.
+
+Configure the Telegram webhook after setting the env values:
+
+```powershell
+$token = "<YACHAT_TELEGRAM_BOT_TOKEN>"
+$secret = "<YACHAT_TELEGRAM_WEBHOOK_SECRET>"
+$url = "https://your-domain.example/api/telegram/webhook"
+Invoke-RestMethod -Method Post -Uri "https://api.telegram.org/bot$token/setWebhook" -Body @{ url = $url; secret_token = $secret }
+```
 
 See `docs/vercel-users-db.sql` for a starter public-user schema if you want to prepare the database manually.
 

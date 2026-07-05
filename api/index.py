@@ -4,6 +4,8 @@ import json
 import os
 import re
 import secrets
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -25,7 +27,7 @@ app.add_middleware(
     ]
     or ["*"],
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Telegram-Bot-Api-Secret-Token"],
 )
 
 PUBLIC_USER_FIELDS = (
@@ -101,6 +103,14 @@ def database_env_name() -> str:
 
 def auth_secret() -> str:
     return os.getenv("YACHAT_AUTH_SECRET") or database_url() or "yachat-dev-secret"
+
+
+def telegram_bot_token() -> str:
+    return os.getenv("YACHAT_TELEGRAM_BOT_TOKEN", "").strip()
+
+
+def telegram_webhook_secret() -> str:
+    return os.getenv("YACHAT_TELEGRAM_WEBHOOK_SECRET", "").strip()
 
 
 def connect_db():
@@ -249,6 +259,30 @@ def ensure_schema() -> None:
         )
         """,
         "create index if not exists yachat_auth_challenges_contact_idx on yachat_auth_challenges(contact_key, created_at desc)",
+        """
+        create table if not exists yachat_system_messages (
+            id text primary key,
+            user_id text not null references public_users(id) on delete cascade,
+            chat_id text not null,
+            text text default '',
+            system_kind text default '',
+            created_at timestamptz default now(),
+            expires_at timestamptz
+        )
+        """,
+        "create index if not exists yachat_system_messages_user_chat_idx on yachat_system_messages(user_id, chat_id, created_at)",
+        """
+        create table if not exists yachat_telegram_links (
+            telegram_user_id text primary key,
+            chat_id text not null,
+            contact text not null,
+            contact_key text not null,
+            username text default '',
+            first_name text default '',
+            updated_at timestamptz default now()
+        )
+        """,
+        "create index if not exists yachat_telegram_links_contact_idx on yachat_telegram_links(contact_key)",
         """
         create table if not exists yachat_sessions (
             token_hash text primary key,
@@ -409,6 +443,59 @@ def generate_token() -> str:
     return secrets.token_urlsafe(36)
 
 
+def verification_code_text(contact: str, code: str) -> str:
+    return f"Код подтверждения ЯЧата для {contact}: {code}. Он действует 10 минут. Никому его не сообщайте."
+
+
+def telegram_request(method: str, payload: dict[str, Any]) -> bool:
+    token = telegram_bot_token()
+    if not token:
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/{method}"
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            body = json.loads(response.read().decode("utf-8"))
+            return bool(body.get("ok"))
+    except (OSError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        return False
+
+
+def send_telegram_message(chat_id: str, text: str, reply_markup: dict[str, Any] | None = None) -> bool:
+    payload: dict[str, Any] = {
+        "chat_id": chat_id,
+        "text": text,
+        "disable_web_page_preview": True,
+    }
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+    return telegram_request("sendMessage", payload)
+
+
+def telegram_contact_keyboard() -> dict[str, Any]:
+    return {
+        "keyboard": [[{"text": "Поделиться номером", "request_contact": True}]],
+        "resize_keyboard": True,
+        "one_time_keyboard": True,
+    }
+
+
+def telegram_remove_keyboard() -> dict[str, Any]:
+    return {"remove_keyboard": True}
+
+
+def delivery_method(value: Any) -> str:
+    return "telegram" if str(value or "").strip().lower() == "telegram" else "yachat"
+
+
 def public_user(row: dict[str, Any], matched_contact: str = "") -> dict[str, Any]:
     display_name = row_value(row, "display_name", "preview_name", "username")
     user = {
@@ -531,6 +618,72 @@ def find_user_by_contact(key: str) -> dict[str, Any] | None:
             cursor.execute("select * from public_users where contact_key = %s limit 1", (key,))
             row = cursor.fetchone()
             return dict(row) if row else None
+
+
+def find_user_by_contact_cursor(cursor, value: Any) -> dict[str, Any] | None:
+    keys = sorted(contact_lookup_keys(value))
+    if not keys:
+        return None
+
+    cursor.execute(
+        """
+        select *
+        from public_users
+        where lower(coalesce(contact_key::text, '')) = any(%s)
+           or regexp_replace(coalesce(contact::text, ''), '\\D+', '', 'g') = any(%s)
+        order by created_at desc nulls last
+        limit 1
+        """,
+        (keys, keys),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def add_system_delivery_message(cursor, user_id: str, chat_id: str, text: str, expires_at: datetime | None = None) -> None:
+    cursor.execute(
+        """
+        insert into yachat_system_messages(id, user_id, chat_id, text, system_kind, expires_at)
+        values (%s, %s, %s, %s, 'verification-code', %s)
+        """,
+        (str(uuid.uuid4()), user_id, chat_id, text, expires_at),
+    )
+
+
+def telegram_links_for_contact(cursor, contact: str) -> list[dict[str, Any]]:
+    keys = sorted(contact_lookup_keys(contact))
+    if not keys:
+        return []
+
+    cursor.execute(
+        """
+        select *
+        from yachat_telegram_links
+        where contact_key = any(%s)
+        order by updated_at desc
+        limit 5
+        """,
+        (keys,),
+    )
+    rows = [dict(row) for row in cursor.fetchall()]
+    seen: set[str] = set()
+    links: list[dict[str, Any]] = []
+    for row in rows:
+        chat_id = str(row_value(row, "chat_id"))
+        if chat_id and chat_id not in seen:
+            seen.add(chat_id)
+            links.append(row)
+    return links
+
+
+def send_telegram_verification_code(links: list[dict[str, Any]], contact: str, code: str) -> int:
+    text = verification_code_text(contact, code)
+    sent = 0
+    for link in links:
+        chat_id = str(row_value(link, "chat_id"))
+        if chat_id and send_telegram_message(chat_id, text):
+            sent += 1
+    return sent
 
 
 def username_taken(cursor, username: str, exclude_user_id: str = "") -> bool:
@@ -745,8 +898,10 @@ def save_user_settings(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return settings
 
 
-def system_chats(now_value: datetime | None = None) -> list[dict[str, Any]]:
+def system_chats(now_value: datetime | None = None, latest_messages: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     created_at = now_value or utc_now()
+    latest_messages = latest_messages or {}
+    codes_latest = latest_messages.get("yachat-codes") or {}
     codes_intro = "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов."
     channel_intro = "Канал ЯЧата запущен. Здесь будут новости приложения, изменения и служебные объявления."
     return [
@@ -777,8 +932,8 @@ def system_chats(now_value: datetime | None = None) -> list[dict[str, Any]]:
             "avatar": "codes",
             "avatarDataUrl": "./assets/yachat-codes-avatar.webp",
             "createdAt": created_at,
-            "lastAt": created_at,
-            "lastMessage": codes_intro,
+            "lastAt": row_value(codes_latest, "created_at") or created_at,
+            "lastMessage": str(row_value(codes_latest, "text")) or codes_intro,
             "unread": 0,
         },
         {
@@ -829,6 +984,49 @@ def system_chat_messages(chat_id: str) -> list[dict[str, Any]]:
             "editedAt": None,
         }
     ]
+
+
+def system_message_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row_value(row, "id")),
+        "chatId": str(row_value(row, "chat_id")),
+        "author": "bot",
+        "authorId": "yachat",
+        "text": str(row_value(row, "text")),
+        "attachments": [],
+        "replyToMessageId": None,
+        "forwardedFrom": "",
+        "createdAt": row_value(row, "created_at"),
+        "editedAt": None,
+    }
+
+
+def latest_system_messages(cursor, user_id: str) -> dict[str, dict[str, Any]]:
+    cursor.execute(
+        """
+        select distinct on (chat_id) *
+        from yachat_system_messages
+        where user_id = %s
+        order by chat_id, created_at desc
+        """,
+        (user_id,),
+    )
+    return {str(row["chat_id"]): dict(row) for row in cursor.fetchall()}
+
+
+def system_messages_for_user(cursor, chat_id: str, user_id: str) -> list[dict[str, Any]]:
+    cursor.execute(
+        """
+        select *
+        from yachat_system_messages
+        where user_id = %s
+          and chat_id = %s
+        order by created_at asc
+        limit 500
+        """,
+        (user_id, chat_id),
+    )
+    return [system_message_payload(dict(row)) for row in cursor.fetchall()]
 
 
 def chat_members(cursor, chat_id: str) -> list[dict[str, Any]]:
@@ -933,8 +1131,9 @@ def list_user_chats(user_id: str) -> list[dict[str, Any]]:
                 (user_id,),
             )
             chats = [chat_summary(cursor, dict(row), user_id) for row in cursor.fetchall()]
+            latest_messages = latest_system_messages(cursor, user_id)
 
-    return [*system_chats(), *chats]
+    return [*system_chats(latest_messages=latest_messages), *chats]
 
 
 def require_chat_member(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
@@ -973,7 +1172,12 @@ def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
     if chat_id == "yachat-favorites":
         chat_id = saved_chat_id(user_id)
     elif chat_id.startswith("yachat-"):
-        return system_chat_messages(chat_id)
+        with connect_db() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                return [
+                    *system_chat_messages(chat_id),
+                    *system_messages_for_user(cursor, chat_id, user_id),
+                ]
 
     ensure_schema()
     with connect_db() as connection:
@@ -1111,6 +1315,94 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(request: Request):
+    if not telegram_bot_token():
+        raise HTTPException(status_code=404, detail="Telegram bot is not configured.")
+
+    secret = telegram_webhook_secret()
+    if secret:
+        supplied = request.headers.get("x-telegram-bot-api-secret-token") or ""
+        if not hmac.compare_digest(supplied, secret):
+            raise HTTPException(status_code=403, detail="Forbidden.")
+
+    ensure_schema()
+    update = await request.json()
+    message = update.get("message") or update.get("edited_message") or {}
+    if not isinstance(message, dict):
+        return {"ok": True}
+
+    chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+    sender = message.get("from") if isinstance(message.get("from"), dict) else {}
+    chat_id = str(chat.get("id") or "")
+    telegram_user_id = str(sender.get("id") or "")
+    text = str(message.get("text") or "").strip()
+
+    if not chat_id or not telegram_user_id:
+        return {"ok": True}
+
+    if text.startswith("/stop"):
+        with connect_db() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("delete from yachat_telegram_links where telegram_user_id = %s", (telegram_user_id,))
+        send_telegram_message(chat_id, "Привязка удалена. Коды ЯЧата сюда больше не придут.", telegram_remove_keyboard())
+        return {"ok": True}
+
+    contact = message.get("contact") if isinstance(message.get("contact"), dict) else None
+    if contact:
+        contact_user_id = str(contact.get("user_id") or "")
+        phone = normalize_contact(contact.get("phone_number"))
+        key = contact_key(phone)
+
+        if not contact_user_id or contact_user_id != telegram_user_id or not key:
+            send_telegram_message(
+                chat_id,
+                "Нужен именно ваш Telegram-номер. Нажмите кнопку ниже и отправьте свой контакт.",
+                telegram_contact_keyboard(),
+            )
+            return {"ok": True}
+
+        with connect_db() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    insert into yachat_telegram_links(
+                        telegram_user_id, chat_id, contact, contact_key, username, first_name, updated_at
+                    )
+                    values (%s, %s, %s, %s, %s, %s, now())
+                    on conflict (telegram_user_id) do update
+                    set chat_id = excluded.chat_id,
+                        contact = excluded.contact,
+                        contact_key = excluded.contact_key,
+                        username = excluded.username,
+                        first_name = excluded.first_name,
+                        updated_at = now()
+                    """,
+                    (
+                        telegram_user_id,
+                        chat_id,
+                        phone,
+                        key,
+                        clean_text(sender.get("username"), 64),
+                        clean_text(sender.get("first_name"), 64),
+                    ),
+                )
+
+        send_telegram_message(
+            chat_id,
+            "Готово. Теперь коды входа ЯЧата для этого номера будут приходить сюда. Если передумаете, отправьте /stop.",
+            telegram_remove_keyboard(),
+        )
+        return {"ok": True}
+
+    send_telegram_message(
+        chat_id,
+        "Это бот кодов ЯЧата. Нажмите кнопку и поделитесь своим номером, чтобы привязать Telegram к подтверждению входа.",
+        telegram_contact_keyboard(),
+    )
+    return {"ok": True}
+
+
 @app.get("/api/status")
 def status():
     return {
@@ -1120,6 +1412,7 @@ def status():
         "webUrl": None,
         "lanUrl": None,
         "notifications": bool(os.getenv("YACHAT_VAPID_PUBLIC_KEY") and os.getenv("YACHAT_VAPID_PRIVATE_KEY")),
+        "telegram": bool(telegram_bot_token()),
         "encryption": {
             "storage": "external-database",
             "kdf": "provider-managed",
@@ -1163,6 +1456,7 @@ async def create_challenge(request: Request):
     payload = await request.json()
     contact = normalize_contact(payload.get("contact"))
     method = "phone" if payload.get("method") == "phone" else "email"
+    selected_delivery = delivery_method(payload.get("deliveryMethod") or payload.get("delivery"))
     key = contact_key(contact)
     if not key:
         raise HTTPException(status_code=400, detail="Enter a phone number.")
@@ -1170,8 +1464,27 @@ async def create_challenge(request: Request):
     code = f"{secrets.randbelow(900000) + 100000}"
     challenge_id = str(uuid.uuid4())
     expires_at = utc_now() + timedelta(minutes=10)
+    delivery = {"yachat": False, "telegram": False, "dev": False}
+    return_dev_code = env_flag("YACHAT_RETURN_DEV_CODE", False)
+
     with connect_db() as connection:
-        with connection.cursor() as cursor:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            existing_user = find_user_by_contact_cursor(cursor, contact)
+            telegram_links = telegram_links_for_contact(cursor, contact)
+
+            if selected_delivery == "yachat" and not existing_user and not return_dev_code:
+                raise HTTPException(
+                    status_code=409,
+                    detail="No signed-in YaChat device is available for this number. Choose Telegram or open YaChat on another device.",
+                )
+            if selected_delivery == "telegram" and not telegram_links and not return_dev_code:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Telegram is not linked for this number. Start the YaChat code bot and share your phone number first.",
+                )
+            if selected_delivery == "telegram" and not telegram_bot_token() and not return_dev_code:
+                raise HTTPException(status_code=503, detail="Telegram code bot is not configured.")
+
             cursor.execute(
                 """
                 insert into yachat_auth_challenges(id, contact, contact_key, method, code_hash, expires_at)
@@ -1180,9 +1493,28 @@ async def create_challenge(request: Request):
                 (challenge_id, contact, key, method, hash_secret(code), expires_at),
             )
 
-    result = {"id": challenge_id, "method": method, "contact": contact, "expiresAt": expires_at}
-    if env_flag("YACHAT_RETURN_DEV_CODE", True):
+            if selected_delivery == "yachat" and existing_user:
+                add_system_delivery_message(
+                    cursor,
+                    str(existing_user["id"]),
+                    "yachat-codes",
+                    verification_code_text(contact, code),
+                    expires_at,
+                )
+                delivery["yachat"] = True
+
+            if selected_delivery == "telegram":
+                telegram_sent = send_telegram_verification_code(telegram_links, contact, code)
+                delivery["telegram"] = telegram_sent > 0
+
+            if not delivery["yachat"] and not delivery["telegram"] and not return_dev_code:
+                raise HTTPException(status_code=503, detail="The code could not be delivered. Try again later.")
+
+    result = {"id": challenge_id, "method": method, "contact": contact, "expiresAt": expires_at, "deliveryMethod": selected_delivery}
+    if return_dev_code:
         result["devCode"] = code
+        delivery["dev"] = True
+    result["delivery"] = delivery
     return result
 
 
@@ -1212,7 +1544,7 @@ async def verify_challenge(request: Request):
             if not challenge or not hmac.compare_digest(str(challenge["code_hash"]), hash_secret(code)):
                 return {"ok": False, "reason": "Wrong code."}
 
-            existing = find_user_by_contact(key)
+            existing = find_user_by_contact_cursor(cursor, contact)
             if existing:
                 token = insert_session(cursor, str(existing["id"]))
                 cursor.execute("update yachat_auth_challenges set verified_at = now() where id = %s", (challenge["id"],))
@@ -1274,7 +1606,7 @@ async def create_account(request: Request):
             if not challenge:
                 raise HTTPException(status_code=401, detail="Confirm the code first.")
 
-            existing = find_user_by_contact(str(challenge["contact_key"]))
+            existing = find_user_by_contact_cursor(cursor, str(challenge["contact"]))
             if existing:
                 token = insert_session(cursor, str(existing["id"]))
                 return public_account(existing, token)

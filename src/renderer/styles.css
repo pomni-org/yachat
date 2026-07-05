@@ -3194,6 +3194,63 @@ body.messenger-mode .app-shell {
   line-height: 1.45;
 }
 
+.delivery-modal-card {
+  width: min(440px, calc(100vw - 48px));
+}
+
+.delivery-choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.delivery-option {
+  display: grid;
+  gap: 5px;
+  min-height: 86px;
+  padding: 13px;
+  border: 1px solid var(--card-edge);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms var(--ease), background 180ms var(--ease), box-shadow 180ms var(--ease), transform 180ms var(--ease);
+}
+
+.delivery-option:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.delivery-option:focus-visible {
+  border-color: rgba(71, 26, 255, 0.8);
+  box-shadow: 0 0 0 2px rgba(71, 26, 255, 0.22);
+}
+
+.delivery-option.is-loading {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.delivery-option strong {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.delivery-option span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+:root[data-theme="light"] .delivery-option {
+  background: rgba(15, 23, 42, 0.03);
+}
+
+:root[data-theme="light"] .delivery-option:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
 .confirm-modal-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3821,6 +3878,10 @@ body.messenger-mode .app-shell {
     inset: 0 0 64px 0;
     align-items: end;
     padding: 12px;
+  }
+
+  .delivery-choice {
+    grid-template-columns: 1fr;
   }
 
   .modal-card {

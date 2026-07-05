@@ -47,7 +47,7 @@ const state = {
   screen: "phone",
   previousScreen: "phone",
   challenge: null,
-  autoCodeTimer: null,
+  verificationDeliveryMethod: "yachat",
   avatarDataUrl: "",
   account: null,
   accountTextMode: "default",
@@ -68,6 +68,7 @@ const state = {
   contactLookupMessage: "",
   contactLookupLoading: false,
   deleteProfileActionButton: null,
+  deliveryActionButton: null,
   editingProfile: false,
   profileEditAvatarDataUrl: null,
   profileEditMessage: "",
@@ -108,6 +109,7 @@ const codeGrid = document.querySelector(".code-grid");
 const countryChoice = document.querySelector("[data-country-choice]");
 const countrySearch = document.querySelector("[data-country-search]");
 const countryList = document.querySelector("[data-country-list]");
+const deliveryButtons = [...document.querySelectorAll("[data-delivery-method]")];
 const languageChoice = document.querySelector("[data-language-choice]");
 const languageCurrent = document.querySelector("[data-language-current]");
 const avatarInput = document.querySelector("[data-avatar-input]");
@@ -141,6 +143,7 @@ const panelKicker = document.querySelector("[data-panel-kicker]");
 const panelBody = document.querySelector("[data-panel-body]");
 const createChatModal = document.querySelector("[data-create-chat-modal]");
 const createChatForm = document.querySelector('[data-form="create-chat"]');
+const deliveryModal = document.querySelector("[data-delivery-modal]");
 const deleteProfileModal = document.querySelector("[data-delete-profile-modal]");
 const deleteProfileForm = document.querySelector('[data-form="delete-profile"]');
 const deleteProfileInput = document.querySelector("[data-delete-profile-input]");
@@ -342,7 +345,7 @@ const translations = {
     themeAria: "Переключить тему",
     helpAria: "Помощь",
     phoneTitle: "С каким номером телефона хотите войти?",
-    phoneSubtitle: "На него придёт СМС с кодом",
+    phoneSubtitle: "Код придёт в ЯЧат или Telegram",
     phoneFieldAria: "Номер телефона",
     phonePlaceholder: "123 456 78 90",
     fieldNote: "Для входа нужен номер из России или страны из списка — нажмите на флаг, чтобы выбрать",
@@ -352,8 +355,8 @@ const translations = {
     legalAnd: "и",
     termsLink: "пользовательское соглашение",
     qrLogin: "Войти по QR-коду",
-    codeTitle: "Введите код из СМС",
-    codeSentPrefix: "Мы отправили код на",
+    codeTitle: "Введите код подтверждения",
+    codeSentPrefix: "Код отправлен для",
     phoneFallback: "номер",
     codeGridAria: "Код проверки",
     continue: "Продолжить",
@@ -383,9 +386,15 @@ const translations = {
     helpSection: "Справка",
     helpTitle: "Помощь по входу",
     helpPhoneTitle: "Номер телефона",
-    helpPhoneText: "Введите номер из 10 цифр. Сейчас код создаётся локально, настоящая СМС-отправка появится вместе с сервером.",
+    helpPhoneText: "Введите номер из списка стран. Код придёт в чат «Коды подтверждения» на другом устройстве или в привязанный Telegram-бот.",
     helpCodeTitle: "Код проверки",
-    helpCodeText: "Код вставится автоматически через пару секунд. Если код неверный, поля подсветятся красным.",
+    helpCodeText: "Откройте код в ЯЧате или Telegram и введите 6 цифр вручную. Если код неверный, поля подсветятся красным.",
+    deliveryTitle: "Куда отправить код",
+    deliveryText: "Выберите способ подтверждения для указанного номера.",
+    deliveryYachat: "ЯЧат",
+    deliveryYachatHint: "Бот «Коды подтверждения» на другом устройстве",
+    deliveryTelegram: "Telegram",
+    deliveryTelegramHint: "Привязанный бот кодов",
     helpQrTitle: "QR-вход",
     helpQrText: "Экран уже готов визуально. Реальное подтверждение через телефон подключим после авторизации на сервере.",
     localServer: "Хранилище",
@@ -419,13 +428,21 @@ const translations = {
     errAvatar: "Не удалось открыть изображение.",
     errPhoneDigits: "Введите номер: {count} цифр.",
     errCreateCode: "Не удалось создать код.",
+    errNoDelivery: "Для этого номера нет безопасного канала доставки. Откройте ЯЧат на другом устройстве или привяжите Telegram-бот.",
+    errNoYachatDelivery: "На другом устройстве нет вошедшего ЯЧата для этого номера. Выберите Telegram или откройте ЯЧат на другом устройстве.",
+    errNoTelegramDelivery: "Telegram не привязан к этому номеру. Откройте бот кодов ЯЧата и поделитесь своим номером.",
+    errTelegramBotMissing: "Telegram-бот кодов не настроен на сервере.",
+    errDeliveryFailed: "Код не удалось доставить. Попробуйте ещё раз.",
     errCodeDigits: "Нужны все 6 цифр.",
     errVerify: "Проверка сорвалась.",
     errCodeFailed: "Код не прошёл проверку.",
     errAccountCreate: "Аккаунт не создан.",
     errDatabaseUnavailable: "База пользователей на сервере недоступна. Проверьте Postgres/Neon в Vercel.",
     errDatabaseMissing: "База пользователей не настроена. Добавьте YACHAT_USERS_DB_URL или DATABASE_URL в Vercel.",
-    codeAutoFilled: "Код вставлен автоматически.",
+    codeDeliveryHint: "Проверьте чат «Коды подтверждения» на другом устройстве или Telegram-бот.",
+    codeDeliveryYachat: "Код отправлен в чат «Коды подтверждения» на другом устройстве.",
+    codeDeliveryTelegram: "Код отправлен в Telegram-бот ЯЧата.",
+    codeDeliveryBoth: "Код отправлен в ЯЧат и Telegram-бот.",
     accountReady: "{name}, профиль @{username} готов.",
     accountAlready: "{name}, профиль @{username} уже создан.",
     alertAccount: "ЯЧат\n\nИмя: {name}\nНик: @{username}\nОписание: {bio}\nТелефон: {contact}\nСоздан: {createdAt}",
@@ -551,7 +568,7 @@ const translations = {
     themeAria: "Toggle theme",
     helpAria: "Help",
     phoneTitle: "Which phone number do you want to use?",
-    phoneSubtitle: "A verification code will be sent to it",
+    phoneSubtitle: "A code will arrive in YaChat or Telegram",
     phoneFieldAria: "Phone number",
     phonePlaceholder: "123 456 78 90",
     fieldNote: "Press the country code and choose from the list.",
@@ -561,8 +578,8 @@ const translations = {
     legalAnd: "and",
     termsLink: "user agreement",
     qrLogin: "Sign in with QR code",
-    codeTitle: "Enter the SMS code",
-    codeSentPrefix: "We sent a code to",
+    codeTitle: "Enter the verification code",
+    codeSentPrefix: "Code sent for",
     phoneFallback: "phone number",
     codeGridAria: "Verification code",
     continue: "Continue",
@@ -592,9 +609,15 @@ const translations = {
     helpSection: "Help",
     helpTitle: "Sign-in help",
     helpPhoneTitle: "Phone number",
-    helpPhoneText: "Enter the required number of digits. For now the code is generated locally; real SMS delivery will come with the server.",
+    helpPhoneText: "Enter a supported phone number. The code arrives in Verification Codes on another device or in the linked Telegram bot.",
     helpCodeTitle: "Verification code",
-    helpCodeText: "The code is inserted automatically after a couple of seconds. If it is wrong, the fields turn red.",
+    helpCodeText: "Open the code in YaChat or Telegram and enter the 6 digits manually. If it is wrong, the fields turn red.",
+    deliveryTitle: "Where to send the code",
+    deliveryText: "Choose how to confirm this phone number.",
+    deliveryYachat: "YaChat",
+    deliveryYachatHint: "Verification Codes bot on another device",
+    deliveryTelegram: "Telegram",
+    deliveryTelegramHint: "Linked code bot",
     helpQrTitle: "QR sign-in",
     helpQrText: "The screen is visually ready. Real phone confirmation will be connected after server authorization.",
     localServer: "Storage",
@@ -628,13 +651,21 @@ const translations = {
     errAvatar: "Could not open the image.",
     errPhoneDigits: "Enter a phone number: {count} digits.",
     errCreateCode: "Could not create the code.",
+    errNoDelivery: "No secure delivery channel is connected for this number. Open YaChat on another device or link the Telegram bot.",
+    errNoYachatDelivery: "No signed-in YaChat device is available for this number. Choose Telegram or open YaChat on another device.",
+    errNoTelegramDelivery: "Telegram is not linked for this number. Start the YaChat code bot and share your phone number.",
+    errTelegramBotMissing: "The Telegram code bot is not configured on the server.",
+    errDeliveryFailed: "The code could not be delivered. Try again.",
     errCodeDigits: "All 6 digits are required.",
     errVerify: "Verification failed.",
     errCodeFailed: "The code did not pass verification.",
     errAccountCreate: "Account was not created.",
     errDatabaseUnavailable: "The server user database is unavailable. Check Postgres/Neon in Vercel.",
     errDatabaseMissing: "The user database is not configured. Add YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.",
-    codeAutoFilled: "Code inserted automatically.",
+    codeDeliveryHint: "Check Verification Codes on another device or the Telegram bot.",
+    codeDeliveryYachat: "Code sent to Verification Codes on another device.",
+    codeDeliveryTelegram: "Code sent to the YaChat Telegram bot.",
+    codeDeliveryBoth: "Code sent to YaChat and the Telegram bot.",
     accountReady: "{name}, profile @{username} is ready.",
     accountAlready: "{name}, profile @{username} already exists.",
     alertAccount: "ЯЧат\n\nName: {name}\nUsername: @{username}\nDescription: {bio}\nPhone: {contact}\nCreated: {createdAt}",
@@ -781,7 +812,12 @@ const serverMessageKeys = new Map([
   ["Could not open the image.", "errAvatar"],
   ["Users database is unavailable.", "errDatabaseUnavailable"],
   ["Users database is not configured. Set YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.", "errDatabaseMissing"],
-  ["Server database is not configured.", "errDatabaseMissing"]
+  ["Server database is not configured.", "errDatabaseMissing"],
+  ["No secure delivery channel is connected for this number. Open YaChat on another device or link the Telegram bot first.", "errNoDelivery"],
+  ["No signed-in YaChat device is available for this number. Choose Telegram or open YaChat on another device.", "errNoYachatDelivery"],
+  ["Telegram is not linked for this number. Start the YaChat code bot and share your phone number first.", "errNoTelegramDelivery"],
+  ["Telegram code bot is not configured.", "errTelegramBotMissing"],
+  ["The code could not be delivered. Try again later.", "errDeliveryFailed"]
 ]);
 
 const DELETE_PROFILE_CONFIRMATIONS = new Set([
@@ -3620,6 +3656,12 @@ function applyTranslations() {
   setAttr(".phone-field", "aria-label", "phoneFieldAria");
   setAttr('[name="phone"]', "placeholder", "phonePlaceholder");
   setText(".field-note", "fieldNote");
+  setText("[data-delivery-title]", "deliveryTitle");
+  setText("[data-delivery-text]", "deliveryText");
+  setText("[data-delivery-yachat]", "deliveryYachat");
+  setText("[data-delivery-yachat-hint]", "deliveryYachatHint");
+  setText("[data-delivery-telegram]", "deliveryTelegram");
+  setText("[data-delivery-telegram-hint]", "deliveryTelegramHint");
   setText('[data-form="phone"] .main-button', "login");
   setText("[data-legal-prefix]", "legalPrefix");
   setText('[data-action="open-policy"]', "policyLink");
@@ -4261,6 +4303,10 @@ function createLocalYachatApi() {
     account: {
       get: async () => readAccount()?.account || null,
       createChallenge: async (payload) => {
+        if (payload?.deliveryMethod === "telegram") {
+          throw new Error("Telegram is not linked for this number. Start the YaChat code bot and share your phone number first.");
+        }
+
         const code = createCode();
         challenge = {
           method: payload?.method === "phone" ? "phone" : "email",
@@ -4276,16 +4322,22 @@ function createLocalYachatApi() {
         const messenger = readMessenger();
         messenger.messages["yachat-codes"] = [
           ...(messenger.messages["yachat-codes"] || []),
-          createLocalMessage("yachat-codes", `Код подтверждения для ${challenge.contact}: ${code}. Никому его не сообщайте.`, "bot")
+          createLocalMessage("yachat-codes", `Код подтверждения ЯЧата для ${challenge.contact}: ${code}. Он действует 10 минут. Никому его не сообщайте.`, "bot")
         ];
         writeMessenger(messenger);
 
-        return {
+        const result = {
           method: challenge.method,
           contact: challenge.contact,
           expiresAt: challenge.expiresAt,
-          devCode: code
+          deliveryMethod: "yachat",
+          delivery: { yachat: true, telegram: false, dev: false }
         };
+        if (localStorage.getItem("yachat-dev-return-code") === "true") {
+          result.devCode = code;
+          result.delivery.dev = true;
+        }
+        return result;
       },
       verifyChallenge: async (payload) => {
         if (!challenge) {
@@ -5352,38 +5404,100 @@ async function ensureUsernameAvailable(username) {
   return yachatApi.users.checkUsername(normalized);
 }
 
-async function createChallenge(submitButton) {
+function setDeliveryMethod(method) {
+  state.verificationDeliveryMethod = method === "telegram" ? "telegram" : "yachat";
+  deliveryButtons.forEach((button) => {
+    const selected = button.dataset.deliveryMethod === state.verificationDeliveryMethod;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+}
+
+function setDeliveryButtonsLoading(activeButton, isLoading) {
+  deliveryButtons.forEach((button) => {
+    button.disabled = isLoading;
+    button.classList.toggle("is-loading", isLoading && button === activeButton);
+  });
+}
+
+function validLoginContact() {
   const phone = digitsOnly(phoneInput.value);
   const option = getCountryOption();
   if (!isValidPhoneLength(phone.length, option)) {
     setMessage("phone", t("errPhoneDigits", { count: phoneLengthLabel(option) }));
+    return "";
+  }
+
+  return `${state.countryCode} ${phoneInput.value}`;
+}
+
+function closeDeliveryModal() {
+  if (deliveryModal) {
+    deliveryModal.hidden = true;
+  }
+  state.deliveryActionButton = null;
+  setDeliveryButtonsLoading(null, false);
+}
+
+function openDeliveryModal(actionButton) {
+  const contact = validLoginContact();
+  if (!contact) {
     return;
   }
 
-  window.clearTimeout(state.autoCodeTimer);
-  setLoading(submitButton, true);
+  state.deliveryActionButton = actionButton || null;
+  setMessage("phone", "");
+  setDeliveryMethod("");
+  if (deliveryModal) {
+    deliveryModal.hidden = false;
+    requestAnimationFrame(() => deliveryButtons[0]?.focus());
+  }
+}
+
+async function createChallenge(deliveryMethod, sourceButton) {
+  const contact = validLoginContact();
+  if (!contact) {
+    closeDeliveryModal();
+    return;
+  }
+
+  const actionButton = state.deliveryActionButton;
+  setDeliveryMethod(deliveryMethod);
+  setDeliveryButtonsLoading(sourceButton, true);
+  setLoading(actionButton, true);
   setMessage("phone", "");
 
   try {
-    const contact = `${state.countryCode} ${phoneInput.value}`;
-    const challenge = await yachatApi.account.createChallenge({ method: "phone", contact });
+    const challenge = await yachatApi.account.createChallenge({
+      method: "phone",
+      contact,
+      deliveryMethod: state.verificationDeliveryMethod
+    });
     state.challenge = challenge;
     const phonePreview = document.querySelector("[data-phone-preview]");
     if (phonePreview) {
       phonePreview.textContent = challenge.contact;
     }
     fillCode("");
+    closeDeliveryModal();
     setScreen("code");
-    state.autoCodeTimer = window.setTimeout(() => {
-      if (state.screen === "code" && state.challenge?.devCode === challenge.devCode && readCode().length === 0) {
-        fillCode(challenge.devCode);
-        setMessage("code", t("codeAutoFilled"), "success");
-      }
-    }, 1800);
+    const delivery = challenge.delivery || {};
+    const deliveryKey = delivery.yachat && delivery.telegram
+      ? "codeDeliveryBoth"
+      : delivery.yachat
+        ? "codeDeliveryYachat"
+        : delivery.telegram
+          ? "codeDeliveryTelegram"
+          : "codeDeliveryHint";
+    setMessage("code", t(deliveryKey), "success");
   } catch (error) {
     setMessage("phone", translatedServerMessage(error.message, "errCreateCode"));
+    if (deliveryModal) {
+      deliveryModal.hidden = true;
+    }
   } finally {
-    setLoading(submitButton, false);
+    setDeliveryButtonsLoading(sourceButton, false);
+    setLoading(actionButton, false);
     normalizePhone();
   }
 }
@@ -5411,7 +5525,6 @@ async function verifyChallenge(submitButton) {
       return;
     }
     setCodeState("success");
-    window.clearTimeout(state.autoCodeTimer);
     await new Promise((resolve) => window.setTimeout(resolve, 650));
     if (result.accountExists && result.account) {
       state.account = normalizeAccount(result.account);
@@ -5478,7 +5591,13 @@ phoneInput.addEventListener("input", normalizePhone);
 
 phoneForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  createChallenge(event.submitter);
+  openDeliveryModal(event.submitter);
+});
+
+deliveryButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    createChallenge(button.dataset.deliveryMethod, button);
+  });
 });
 
 codeForm.addEventListener("submit", (event) => {
@@ -5551,7 +5670,6 @@ avatarInput?.addEventListener("change", async () => {
 
 document.querySelectorAll('[data-action="back-phone"]').forEach((button) => {
   button.addEventListener("click", () => {
-    window.clearTimeout(state.autoCodeTimer);
     setScreen("phone", { focusPhone: true });
   });
 });
@@ -5561,7 +5679,8 @@ document.querySelectorAll('[data-action="back-home"]').forEach((button) => {
 });
 
 document.querySelector('[data-action="resend-code"]').addEventListener("click", (event) => {
-  createChallenge(event.currentTarget);
+  state.deliveryActionButton = event.currentTarget;
+  createChallenge(state.verificationDeliveryMethod, event.currentTarget);
 });
 
 document.querySelector('[data-action="open-qr"]').addEventListener("click", () => setScreen("qr"));
@@ -6119,6 +6238,16 @@ createChatModal?.addEventListener("click", (event) => {
   }
 });
 
+document.querySelectorAll('[data-action="close-delivery"]').forEach((button) => {
+  button.addEventListener("click", closeDeliveryModal);
+});
+
+deliveryModal?.addEventListener("click", (event) => {
+  if (event.target === deliveryModal) {
+    closeDeliveryModal();
+  }
+});
+
 deleteProfileForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   submitDeleteProfileConfirm();
@@ -6168,6 +6297,7 @@ if (systemThemeQuery?.addEventListener) {
 }
 
 setTheme(state.theme, false, state.themeSource);
+setDeliveryMethod(state.verificationDeliveryMethod);
 applyTranslations();
 loadServerState();
 normalizePhone();

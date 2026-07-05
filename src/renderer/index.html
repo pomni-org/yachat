@@ -43,7 +43,7 @@
         <section class="screen is-active" data-screen="phone">
           <div class="screen-copy">
             <h1>С каким номером телефона хотите войти?</h1>
-            <p>На него придёт СМС с кодом</p>
+            <p>Код придёт в ЯЧат или Telegram</p>
           </div>
 
           <form class="auth-form" data-form="phone">
@@ -85,8 +85,8 @@
 
         <section class="screen" data-screen="code">
           <div class="screen-copy">
-            <h1>Введите код из СМС</h1>
-            <p><span data-code-sent-prefix>Мы отправили код на</span> <span data-phone-preview>номер</span></p>
+            <h1>Введите код подтверждения</h1>
+            <p><span data-code-sent-prefix>Код отправлен для</span> <span data-phone-preview>номер</span></p>
           </div>
 
           <form class="auth-form" data-form="code">
@@ -357,6 +357,28 @@
             <div class="form-message" data-message="create-chat"></div>
             <button class="main-button" type="submit">Создать</button>
           </form>
+        </div>
+
+        <div class="modal-layer confirm-modal-layer" data-delivery-modal hidden>
+          <section class="modal-card confirm-modal-card delivery-modal-card" role="dialog" aria-modal="true" aria-labelledby="delivery-modal-title">
+            <header>
+              <h2 id="delivery-modal-title" data-delivery-title>Куда отправить код</h2>
+              <button class="icon-button" type="button" data-action="close-delivery" aria-label="Закрыть">
+                <span class="css-icon gg-x"></span>
+              </button>
+            </header>
+            <p data-delivery-text>Выберите способ подтверждения для указанного номера.</p>
+            <div class="delivery-choice" data-delivery-choice>
+              <button class="delivery-option" type="button" data-delivery-method="yachat" aria-pressed="false">
+                <strong data-delivery-yachat>ЯЧат</strong>
+                <span data-delivery-yachat-hint>Бот «Коды подтверждения» на другом устройстве</span>
+              </button>
+              <button class="delivery-option" type="button" data-delivery-method="telegram" aria-pressed="false">
+                <strong data-delivery-telegram>Telegram</strong>
+                <span data-delivery-telegram-hint>Привязанный бот кодов</span>
+              </button>
+            </div>
+          </section>
         </div>
 
         <div class="modal-layer confirm-modal-layer" data-delete-profile-modal hidden>
