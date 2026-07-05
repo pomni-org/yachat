@@ -1172,8 +1172,9 @@ function chatProfileUsername(chat) {
 }
 
 function chatProfileKindLabel(chat) {
-  if (chat?.profileKindLabel) {
-    return cleanDisplayText(chat.profileKindLabel, "");
+  const explicit = cleanDisplayText(chat?.profileKindLabel, "");
+  if (explicit) {
+    return explicit;
   }
 
   if (chat?.kind === "bot") {
@@ -1255,7 +1256,7 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
   const meta = [
     username ? `<span class="chat-profile-handle">@${escapeHtml(username)}</span>` : "",
     kindLabel ? escapeHtml(kindLabel) : ""
-  ].filter(Boolean).join(" <span class=\"chat-profile-dot\">•</span> ");
+  ].filter(Boolean).join(" <span class=\"chat-profile-dot\">&bull;</span> ");
 
   return `
     <section class="chat-profile-view">
