@@ -3098,10 +3098,26 @@ body.messenger-mode .app-shell {
 }
 
 .side-panel.is-chat-profile {
+  --chat-profile-page: color-mix(in srgb, var(--page), var(--max-white) 6%);
+  --chat-profile-card: color-mix(in srgb, var(--surface), var(--max-white) 4%);
+  --chat-profile-card-hover: color-mix(in srgb, var(--surface-hover), var(--max-white) 6%);
+  --chat-profile-field: color-mix(in srgb, var(--field), var(--max-white) 3%);
+  --chat-profile-text: var(--text);
+  --chat-profile-muted: var(--muted);
+  --chat-profile-soft: var(--soft);
+  --chat-profile-link: var(--max-comet);
   border-left: 0;
-  background: #eef0f5;
+  background: var(--chat-profile-page);
   box-shadow: none;
-  color: #060608;
+  color: var(--chat-profile-text);
+}
+
+:root[data-theme="light"] .side-panel.is-chat-profile {
+  --chat-profile-page: #eef0f5;
+  --chat-profile-card: #ffffff;
+  --chat-profile-card-hover: #f8f9fc;
+  --chat-profile-field: #f2f3f7;
+  --chat-profile-link: #247bd3;
 }
 
 .side-panel.is-chat-profile .side-panel-head {
@@ -3111,8 +3127,8 @@ body.messenger-mode .app-shell {
 .side-panel.is-chat-profile .side-panel-body {
   display: block;
   padding: 28px 30px 44px;
-  background: #eef0f5;
-  color: #060608;
+  background: var(--chat-profile-page);
+  color: var(--chat-profile-text);
 }
 
 .side-panel.is-chat-profile .side-panel-body > * {
@@ -3138,7 +3154,7 @@ body.messenger-mode .app-shell {
   height: 46px;
   border-radius: 999px;
   background: transparent;
-  color: #060608;
+  color: var(--chat-profile-text);
   cursor: pointer;
 }
 
@@ -3182,7 +3198,7 @@ body.messenger-mode .app-shell {
   gap: 6px;
   max-width: min(680px, 100%);
   margin: 8px 0 0;
-  color: #050507;
+  color: var(--chat-profile-text);
   font-size: 36px;
   line-height: 1.08;
   font-weight: 600;
@@ -3198,17 +3214,17 @@ body.messenger-mode .app-shell {
 
 .chat-profile-meta {
   margin: 0;
-  color: #5f6068;
+  color: var(--chat-profile-muted);
   font-size: 18px;
   line-height: 1.3;
 }
 
 .chat-profile-handle {
-  color: #2f83d7;
+  color: var(--chat-profile-link);
 }
 
 .chat-profile-dot {
-  color: #6a6b73;
+  color: var(--chat-profile-soft);
 }
 
 .chat-profile-actions {
@@ -3222,9 +3238,10 @@ body.messenger-mode .app-shell {
   place-items: center;
   gap: 8px;
   min-height: 96px;
+  border: 1px solid var(--card-edge);
   border-radius: 22px;
-  background: #fff;
-  color: #111114;
+  background: var(--chat-profile-card);
+  color: var(--chat-profile-text);
   cursor: pointer;
   font-size: 17px;
   font-weight: 500;
@@ -3232,7 +3249,7 @@ body.messenger-mode .app-shell {
 }
 
 .chat-profile-actions button.is-muted {
-  color: #71727a;
+  color: var(--chat-profile-muted);
 }
 
 .chat-profile-actions .lucide-icon {
@@ -3248,7 +3265,7 @@ body.messenger-mode .app-shell {
 
 .chat-profile-section h2 {
   margin: 0 0 2px;
-  color: #5f6068;
+  color: var(--chat-profile-muted);
   font-size: 13px;
   line-height: 1.2;
   font-weight: 600;
@@ -3257,10 +3274,10 @@ body.messenger-mode .app-shell {
 
 .chat-profile-card {
   width: 100%;
-  border: 0;
+  border: 1px solid var(--card-edge);
   border-radius: 18px;
-  background: #fff;
-  color: #111114;
+  background: var(--chat-profile-card);
+  color: var(--chat-profile-text);
   box-shadow: 0 1px 0 rgba(5, 8, 15, 0.02);
 }
 
@@ -3280,14 +3297,14 @@ body.messenger-mode .app-shell {
 
 .chat-profile-link-text span,
 .chat-profile-about-card span {
-  color: #5f6068;
+  color: var(--chat-profile-muted);
   font-size: 18px;
   line-height: 1.2;
 }
 
 .chat-profile-link-text a {
   overflow: hidden;
-  color: #247bd3;
+  color: var(--chat-profile-link);
   font-size: 20px;
   line-height: 1.25;
   text-decoration: none;
@@ -3307,7 +3324,7 @@ body.messenger-mode .app-shell {
   height: 42px;
   border-radius: 12px;
   background: transparent;
-  color: #247bd3;
+  color: var(--chat-profile-link);
   cursor: pointer;
 }
 
@@ -3324,7 +3341,7 @@ body.messenger-mode .app-shell {
   height: 176px;
   padding: 12px;
   border-radius: 18px;
-  background: #f4f5f8;
+  background: var(--chat-profile-field);
 }
 
 .chat-profile-qr svg {
@@ -3341,7 +3358,7 @@ body.messenger-mode .app-shell {
 
 .chat-profile-about-card p {
   margin: 0;
-  color: #050507;
+  color: var(--chat-profile-text);
   font-size: 22px;
   line-height: 1.35;
 }
@@ -3360,7 +3377,7 @@ body.messenger-mode .app-shell {
 .chat-profile-attachments-icon {
   display: grid;
   place-items: center;
-  color: #1f2026;
+  color: var(--chat-profile-text);
 }
 
 .chat-profile-attachments-icon .lucide-icon {
@@ -3378,7 +3395,7 @@ body.messenger-mode .app-shell {
 }
 
 .chat-profile-attachments strong {
-  color: #050507;
+  color: var(--chat-profile-text);
   font-size: 22px;
   line-height: 1.15;
   font-weight: 600;
@@ -3386,7 +3403,7 @@ body.messenger-mode .app-shell {
 
 .chat-profile-attachments small {
   margin-top: 5px;
-  color: #5f6068;
+  color: var(--chat-profile-muted);
   font-size: 17px;
   line-height: 1.2;
 }
@@ -3394,7 +3411,7 @@ body.messenger-mode .app-shell {
 .chat-profile-attachments > .lucide-icon {
   width: 28px;
   height: 28px;
-  color: #7b7c84;
+  color: var(--chat-profile-soft);
 }
 
 .chat-profile-more-stack {
@@ -3403,23 +3420,23 @@ body.messenger-mode .app-shell {
 }
 
 .side-panel.is-chat-profile .panel-section {
-  border: 0;
-  background: #fff;
-  color: #060608;
+  border: 1px solid var(--card-edge);
+  background: var(--chat-profile-card);
+  color: var(--chat-profile-text);
 }
 
 .side-panel.is-chat-profile .panel-section p,
 .side-panel.is-chat-profile .panel-field span,
 .side-panel.is-chat-profile .invite-box span {
-  color: #5f6068;
+  color: var(--chat-profile-muted);
 }
 
 .side-panel.is-chat-profile .panel-field input,
 .side-panel.is-chat-profile .panel-field textarea,
 .side-panel.is-chat-profile .panel-field .username-input-shell,
 .side-panel.is-chat-profile .invite-box {
-  background: #f2f3f7;
-  color: #060608;
+  background: var(--chat-profile-field);
+  color: var(--chat-profile-text);
 }
 
 .session-message {
@@ -4204,7 +4221,7 @@ body.messenger-mode .app-shell {
   .side-panel.is-chat-profile {
     bottom: 0;
     z-index: 30;
-    background: #eef0f5;
+    background: var(--chat-profile-page);
   }
 
   .side-panel.is-chat-profile .side-panel-body {
@@ -4237,7 +4254,7 @@ body.messenger-mode .app-shell {
   .chat-profile-title {
     max-width: 100%;
     font-size: 28px;
-    white-space: nowrap;
+    white-space: normal;
   }
 
   .chat-profile-title .verified-mark {

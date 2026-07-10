@@ -1153,6 +1153,8 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
             "kind": "saved",
             "title": "Избранное",
             "subtitle": "Сообщения для себя",
+            "description": "Сообщения для себя",
+            "profileAbout": "Сообщения для себя",
             "locked": True,
             "verified": False,
             "pinned": True,
@@ -1339,7 +1341,7 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
     profile_username = ""
     profile_url = ""
     profile_about = str(row_value(chat, "description"))
-    profile_kind_label = "Группа" if chat["kind"] == "group" else "Личный"
+    profile_kind_label = "Группа" if chat["kind"] == "group" else ""
     if chat["kind"] == "private" and other:
         title = str(row_value(other, "display_name", "preview_name", "username"))
         username = str(row_value(other, "username"))
@@ -1347,11 +1349,10 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
         profile_username = username
         profile_url = f"https://yachat.vercel.app/{username}" if username else ""
-        profile_about = str(row_value(other, "bio")) or subtitle
-        profile_kind_label = "Личный"
+        profile_about = str(row_value(other, "bio"))
+        profile_kind_label = ""
     elif chat["kind"] == "group":
         subtitle = subtitle or f"{max(len(members), 1)} участников"
-        profile_about = profile_about or subtitle
 
     return {
         "id": chat_id,
@@ -1411,7 +1412,7 @@ def chat_summary_cached(
     profile_username = ""
     profile_url = ""
     profile_about = str(row_value(chat, "description"))
-    profile_kind_label = "Группа" if chat["kind"] == "group" else "Личный"
+    profile_kind_label = "Группа" if chat["kind"] == "group" else ""
 
     if chat["kind"] == "private" and other:
         title = str(row_value(other, "display_name", "preview_name", "username"))
@@ -1420,11 +1421,10 @@ def chat_summary_cached(
         avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
         profile_username = username
         profile_url = f"https://yachat.vercel.app/{username}" if username else ""
-        profile_about = str(row_value(other, "bio")) or subtitle
-        profile_kind_label = "Личный"
+        profile_about = str(row_value(other, "bio"))
+        profile_kind_label = ""
     elif chat["kind"] == "group":
         subtitle = subtitle or f"{max(len(members), 1)} участников"
-        profile_about = profile_about or subtitle
 
     return {
         "id": chat_id,
@@ -2410,6 +2410,66 @@ async def leave_chat(request: Request):
 
     chats = list_user_chats(str(user["id"]))
     return {"chats": chats, "activeChatId": chats[0]["id"] if chats else None}
+
+
+@app.post("/api/chat/delete")
+async def delete_chat(request: Request):
+    user = require_user(request)
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
+
+    if chat_id.startswith("yachat-"):
+        raise HTTPException(status_code=400, detail="System chats cannot be deleted.")
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            chat = require_chat_member(cursor, chat_id, str(user["id"]))
+            if str(row_value(chat, "kind")) != "group" or bool(row_value(chat, "locked")):
+                raise HTTPException(status_code=400, detail="Only groups can be deleted.")
+            if str(row_value(chat, "owner_id")) != str(user["id"]):
+                raise HTTPException(status_code=403, detail="Only the group owner can delete this chat.")
+
+            cursor.execute("delete from yachat_chats where id = %s", (chat_id,))
+
+    chats = list_user_chats(str(user["id"]))
+    return {"chats": chats, "activeChatId": chats[0]["id"] if chats else None}
+
+
+@app.post("/api/chat/clear-history")
+async def clear_chat_history(request: Request):
+    user = require_user(request)
+    payload = await read_json_payload(request)
+    requested_chat_id = clean_chat_id(payload.get("chatId"))
+    chat_id = requested_chat_id
+    system_chat = False
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            if requested_chat_id == "yachat-favorites":
+                chat_id = ensure_saved_chat(cursor, str(user["id"]))
+            elif requested_chat_id.startswith("yachat-"):
+                cursor.execute(
+                    "delete from yachat_system_messages where user_id = %s and chat_id = %s",
+                    (user["id"], requested_chat_id),
+                )
+                system_chat = True
+            else:
+                require_chat_member(cursor, chat_id, str(user["id"]))
+
+            if not system_chat:
+                cursor.execute(
+                    "update yachat_messages set deleted_at = now() where chat_id = %s and deleted_at is null",
+                    (chat_id,),
+                )
+                cursor.execute(
+                    "update yachat_chat_members set last_read_at = now() where chat_id = %s and user_id = %s",
+                    (chat_id, user["id"]),
+                )
+
+    return {
+        "chats": list_user_chats(str(user["id"])),
+        "messages": get_chat_messages(requested_chat_id, str(user["id"])),
+    }
 
 
 @app.post("/api/message")

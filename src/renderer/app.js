@@ -552,6 +552,10 @@ const translations = {
     leaveChat: "Выйти из чата",
     leaveChatConfirm: "Выйти из этого чата?",
     cannotLeave: "Из этого чата нельзя выйти.",
+    clearHistory: "Очистить историю",
+    clearHistoryConfirm: "Очистить историю этого чата?",
+    deleteGroup: "Удалить группу",
+    deleteGroupConfirm: "Удалить эту группу для всех участников?",
     groupOwner: "Вы владелец группы",
     ownerOnly: "Редактировать группу может только владелец.",
     privateManagedByProfiles: "Название личного чата берётся из профиля собеседника.",
@@ -573,8 +577,9 @@ const translations = {
     chatProfileLinkField: "Ссылка",
     chatProfileAboutBot: "Об этом боте",
     chatProfileAboutChannel: "О канале",
-    chatProfileAboutGroup: "О группе",
+    chatProfileAboutGroup: "Об этой группе",
     chatProfileAboutUser: "О пользователе",
+    chatProfileAboutFavorites: "Об избранном",
     chatProfileAboutChat: "О чате",
     chatProfileAttachmentsHint: "Фото, видео, файлы и ссылки",
     chatProfileLinkCopied: "Ссылка скопирована",
@@ -792,6 +797,10 @@ const translations = {
     leaveChat: "Leave chat",
     leaveChatConfirm: "Leave this chat?",
     cannotLeave: "You cannot leave this chat.",
+    clearHistory: "Clear history",
+    clearHistoryConfirm: "Clear this chat history?",
+    deleteGroup: "Delete group",
+    deleteGroupConfirm: "Delete this group for all members?",
     groupOwner: "You own this group",
     ownerOnly: "Only the group owner can edit it.",
     privateManagedByProfiles: "The private chat name comes from the other person's profile.",
@@ -815,6 +824,7 @@ const translations = {
     chatProfileAboutChannel: "About this channel",
     chatProfileAboutGroup: "About this group",
     chatProfileAboutUser: "About this user",
+    chatProfileAboutFavorites: "About saved messages",
     chatProfileAboutChat: "About this chat",
     chatProfileAttachmentsHint: "Photos, videos, files, and links",
     chatProfileLinkCopied: "Link copied",
@@ -1174,10 +1184,25 @@ function chatProfileUsername(chat) {
     return cleanDisplayText(chat?.participantProfiles?.[otherId]?.username, "");
   }
 
+  if (chat?.kind === "group") {
+    const invite = cleanDisplayText(chat?.inviteCode, "").replace(/^yachat:\/\/join\//i, "");
+    const fromInvite = normalizeUsername(invite.replace(/^YC[-_]?/i, "yc_").replace(/[^a-zA-Z0-9_]/g, "_"));
+    if (fromInvite) {
+      return fromInvite;
+    }
+
+    const fromId = normalizeUsername(String(chat?.id || "").replace(/^group[-_]?/i, "group_").replace(/[^a-zA-Z0-9_]/g, "_"));
+    return fromId || "";
+  }
+
   return "";
 }
 
 function chatProfileKindLabel(chat) {
+  if (chat?.kind === "private" || chat?.kind === "saved" || chat?.id === "yachat-favorites") {
+    return "";
+  }
+
   const explicit = cleanDisplayText(chat?.profileKindLabel, "");
   if (explicit) {
     return explicit;
@@ -1193,10 +1218,6 @@ function chatProfileKindLabel(chat) {
 
   if (chat?.kind === "group") {
     return t("groupChat");
-  }
-
-  if (chat?.kind === "private") {
-    return t("privateChat");
   }
 
   return t("chatProfileAboutChat");
@@ -1216,11 +1237,19 @@ function chatProfileUrl(chat) {
     return "https://yachat.vercel.app/yachat_channel";
   }
 
+  if (chat?.kind === "group" || chat?.id === "yachat-favorites") {
+    return cleanDisplayText(chat?.inviteUrl || chat?.inviteCode, "");
+  }
+
   const username = chatProfileUsername(chat);
   return username ? `https://yachat.vercel.app/${encodeURIComponent(username)}` : cleanDisplayText(chat?.inviteUrl || chat?.inviteCode, "");
 }
 
 function chatProfileAboutTitle(chat) {
+  if (chat?.id === "yachat-favorites" || chat?.kind === "saved") {
+    return t("chatProfileAboutFavorites");
+  }
+
   if (chat?.kind === "bot") {
     return t("chatProfileAboutBot");
   }
@@ -1241,7 +1270,15 @@ function chatProfileAboutTitle(chat) {
 }
 
 function chatProfileAboutText(chat) {
-  return cleanDisplayText(chat?.profileAbout || chat?.description || getChatSubtitle(chat), getChatSubtitle(chat));
+  if (chat?.kind === "private") {
+    return cleanDisplayText(chat?.profileAbout || chat?.description, "");
+  }
+
+  if (chat?.kind === "group") {
+    return cleanDisplayText(chat?.profileAbout || chat?.description, "");
+  }
+
+  return cleanDisplayText(chat?.profileAbout || chat?.description || getChatSubtitle(chat), "");
 }
 
 function isChatMuted(chatId) {
@@ -1257,8 +1294,9 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
   const username = chatProfileUsername(chat);
   const profileUrl = chatProfileUrl(chat);
   const kindLabel = chatProfileKindLabel(chat);
+  const aboutText = chatProfileAboutText(chat);
   const muted = isChatMuted(chat?.id);
-  const hasMore = Boolean(sections.editSection || sections.groupSection || sections.leaveSection);
+  const hasMore = Boolean(sections.editSection || sections.groupSection || sections.historySection || sections.leaveSection || sections.deleteGroupSection);
   const meta = [
     username ? `<span class="chat-profile-handle">@${escapeHtml(username)}</span>` : "",
     kindLabel ? escapeHtml(kindLabel) : ""
@@ -1270,7 +1308,7 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
         ${iconSvg("chevron-left")}
       </button>
       <div class="chat-profile-hero">
-        ${renderChatAvatar(displayChat, "chat-profile-avatar")}
+        ${renderChatAvatar(displayChat || chat, "chat-profile-avatar")}
         <h1 class="chat-profile-title">${escapeHtml(title)} ${renderVerified(chat)}</h1>
         ${meta ? `<p class="chat-profile-meta">${meta}</p>` : ""}
       </div>
@@ -1310,12 +1348,12 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
           </div>
         </section>
       ` : ""}
-      <section class="chat-profile-section">
+      ${aboutText ? `<section class="chat-profile-section">
         <div class="chat-profile-card chat-profile-about-card">
           <span>${chatProfileAboutTitle(chat)}</span>
-          <p>${escapeHtml(chatProfileAboutText(chat))}</p>
+          <p>${escapeHtml(aboutText)}</p>
         </div>
-      </section>
+      </section>` : ""}
       <section class="chat-profile-section">
         <button class="chat-profile-card chat-profile-attachments" type="button" data-panel-action="chat-profile-attachments">
           <span class="chat-profile-attachments-icon">${iconSvg("image")}</span>
@@ -1329,7 +1367,9 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
       <div class="chat-profile-more-stack" data-chat-profile-more ${hasMore ? "hidden" : "hidden"}>
         ${sections.editSection || ""}
         ${sections.groupSection || ""}
+        ${sections.historySection || ""}
         ${sections.leaveSection || ""}
+        ${sections.deleteGroupSection || ""}
         ${hasMore ? "" : `<section class="panel-section"><p>${t("chatProfileMoreEmpty")}</p></section>`}
       </div>
     </section>
@@ -2097,6 +2137,10 @@ async function openRouteUserIfNeeded(routeUser) {
   if (existing) {
     if (state.activeChatId !== existing.id) {
       await selectChat(existing.id, { preserveRoute: true });
+    } else {
+      setMobileDialogOpen(true);
+      renderActiveChat();
+      renderMessages();
     }
     return true;
   }
@@ -2114,6 +2158,10 @@ async function openRouteTargetFromLocation() {
   if (routeChatId) {
     if (state.activeChatId !== routeChatId) {
       await selectChat(routeChatId, { preserveRoute: true });
+    } else {
+      setMobileDialogOpen(true);
+      renderActiveChat();
+      renderMessages();
     }
     return;
   }
@@ -2125,7 +2173,13 @@ async function openRouteTargetFromLocation() {
 
   const existing = state.chats.find((chat) => normalizeUsername(chatProfileUsername(chat)) === routeUsername);
   if (existing) {
-    await selectChat(existing.id, { preserveRoute: true });
+    if (state.activeChatId !== existing.id) {
+      await selectChat(existing.id, { preserveRoute: true });
+    } else {
+      setMobileDialogOpen(true);
+      renderActiveChat();
+      renderMessages();
+    }
     return;
   }
 
@@ -2148,6 +2202,10 @@ async function applyMessengerSnapshot(snapshot = {}, selectedChatId = state.acti
   renderChatList();
   renderActiveChat();
   renderMessages();
+
+  if ((chatIdFromRoute() || routeUsernameFromLocation()) && state.activeChatId) {
+    setMobileDialogOpen(true);
+  }
 
   if (await openRouteUserIfNeeded(snapshot.routeUser)) {
     return;
@@ -2434,6 +2492,7 @@ function normalizeUser(user) {
     username,
     displayName,
     previewName: displayName,
+    bio: cleanDisplayText(user.bio, ""),
     contact: cleanDisplayText(user.contact, ""),
     matchedContact: cleanDisplayText(user.matchedContact, ""),
     avatarDataUrl: user.avatarDataUrl || "",
@@ -2700,6 +2759,7 @@ function contactProfilePayload(user) {
     username: user.username,
     displayName: user.displayName,
     previewName: user.previewName || user.displayName,
+    bio: cleanDisplayText(user.bio, ""),
     contact: contactLookupText(user),
     avatarDataUrl: user.avatarDataUrl || "",
     avatarAccent: user.avatarAccent || "#471AFF"
@@ -3443,6 +3503,14 @@ function renderPanel() {
       </section>
     ` : "";
 
+    const historySection = `
+      <section class="panel-section">
+        <h3>${t("clearHistory")}</h3>
+        <p>${getChatTitle(chat)}</p>
+        <button class="panel-primary is-secondary" type="button" data-panel-action="clear-chat-history">${iconSvg("trash", "button-icon")}<span>${t("clearHistory")}</span></button>
+      </section>
+    `;
+
     const leaveSection = chat.locked ? "" : `
       <section class="panel-section">
         <h3>${t("leaveChat")}</h3>
@@ -3451,10 +3519,20 @@ function renderPanel() {
       </section>
     `;
 
+    const deleteGroupSection = ownsGroup ? `
+      <section class="panel-section">
+        <h3>${t("deleteGroup")}</h3>
+        <p>${getChatTitle(chat)}</p>
+        <button class="panel-primary is-danger" type="button" data-panel-action="delete-chat">${iconSvg("trash", "button-icon")}<span>${t("deleteGroup")}</span></button>
+      </section>
+    ` : "";
+
     panelBody.innerHTML = renderChatProfilePanel(chat, displayChat, {
       editSection,
       groupSection,
-      leaveSection
+      historySection,
+      leaveSection,
+      deleteGroupSection
     });
     hydrateIcons(panelBody);
     return;
@@ -4057,6 +4135,62 @@ function showChatProfileAttachments() {
   closePanel();
 }
 
+async function clearActiveChatHistory(button) {
+  const chat = getActiveChat();
+  if (!chat || !yachatApi.messenger?.clearHistory) {
+    return;
+  }
+
+  if (!window.confirm(t("clearHistoryConfirm"))) {
+    return;
+  }
+
+  setLoading(button, true);
+
+  try {
+    const result = await yachatApi.messenger.clearHistory({ chatId: chat.id });
+    state.chats = result.chats || await yachatApi.messenger.chats();
+    state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
+    renderChatList();
+    renderActiveChat();
+    renderMessages();
+    renderPanel();
+  } catch (error) {
+    alert(translatedServerMessage(error.message, "errSendMessage"));
+  } finally {
+    setLoading(button, false);
+  }
+}
+
+async function deleteActiveChat(button) {
+  const chat = getActiveChat();
+  if (!chat || chat.kind !== "group" || !canOwnActiveGroup(chat) || !yachatApi.messenger?.deleteChat) {
+    return;
+  }
+
+  if (!window.confirm(t("deleteGroupConfirm"))) {
+    return;
+  }
+
+  setLoading(button, true);
+
+  try {
+    const result = await yachatApi.messenger.deleteChat({ chatId: chat.id });
+    state.chats = result.chats || await yachatApi.messenger.chats();
+    state.activeChatId = result.activeChatId || state.chats[0]?.id || null;
+    state.messages = state.activeChatId ? await yachatApi.messenger.messages(state.activeChatId) : [];
+    closePanel();
+    renderChatList();
+    renderActiveChat();
+    renderMessages();
+    updateChatRoute(getActiveChat(), { replace: true });
+  } catch (error) {
+    alert(translatedServerMessage(error.message, "errSendMessage"));
+  } finally {
+    setLoading(button, false);
+  }
+}
+
 async function leaveActiveChat(button) {
   const chat = getActiveChat();
   if (!chat || chat.locked || !yachatApi.messenger?.leave) {
@@ -4580,6 +4714,14 @@ function createHttpYachatApi(fallbackApi = null) {
         () => post("/api/chat/leave", payload),
         () => fallbackApi?.messenger?.leave?.(payload)
       ),
+      deleteChat: (payload) => withFallback(
+        () => post("/api/chat/delete", payload),
+        () => fallbackApi?.messenger?.deleteChat?.(payload)
+      ),
+      clearHistory: (payload) => withFallback(
+        () => post("/api/chat/clear-history", payload),
+        () => fallbackApi?.messenger?.clearHistory?.(payload)
+      ),
       send: (payload) => withFallback(
         () => post("/api/message", payload),
         () => fallbackApi?.messenger?.send?.(payload)
@@ -4675,6 +4817,8 @@ function createLocalYachatApi() {
           kind: "saved",
           title: "Избранное",
           subtitle: "Сообщения для себя",
+          description: "Сообщения для себя",
+          profileAbout: "Сообщения для себя",
           locked: true,
           verified: false,
           pinned: true,
@@ -4894,6 +5038,9 @@ function createLocalYachatApi() {
         title: chat.kind === "private" && other ? other.displayName || other.previewName || other.username || chat.title : chat.title,
         subtitle: chat.kind === "private" && other?.username ? `@${other.username}` : chat.subtitle,
         avatarDataUrl: chat.kind === "private" && other?.avatarDataUrl ? other.avatarDataUrl : chat.avatarDataUrl,
+        profileUsername: chat.kind === "private" && other?.username ? other.username : chat.profileUsername || "",
+        profileAbout: chat.kind === "private" && other ? cleanDisplayText(other.bio, "") : cleanDisplayText(chat.profileAbout || chat.description, ""),
+        profileKindLabel: chat.kind === "private" || chat.kind === "saved" ? "" : chat.profileKindLabel || (chat.kind === "group" ? t("groupChat") : ""),
         lastMessage: last?.text || attachmentText,
         lastAt: last?.createdAt || chat.createdAt,
         unread: countUnreadMessages(chat, messages)
@@ -5196,6 +5343,7 @@ function createLocalYachatApi() {
             username: account.username,
             displayName: account.displayName,
             previewName: account.displayName,
+            bio: account.bio || "",
             avatarDataUrl: account.avatarDataUrl || ""
           }
         };
@@ -5212,6 +5360,7 @@ function createLocalYachatApi() {
             username,
             displayName,
             previewName: displayName,
+            bio: cleanDisplayText(profile.bio, ""),
             contact: cleanDisplayText(profile.contact, ""),
             avatarDataUrl: profile.avatarDataUrl || "",
             avatarAccent: profile.avatarAccent || "#471AFF"
@@ -5342,6 +5491,46 @@ function createLocalYachatApi() {
         return {
           chats: summarizeLocalChats(data),
           activeChatId: data.chats[0]?.id || null
+        };
+      },
+      deleteChat: async (payload) => {
+        const data = readMessenger();
+        const account = readAccount()?.account;
+        const chat = data.chats.find((item) => item.id === payload?.chatId);
+
+        if (!chat) {
+          throw new Error("Чат не найден.");
+        }
+
+        if (chat.kind !== "group" || chat.locked || (chat.ownerId && chat.ownerId !== account?.id)) {
+          throw new Error("Удалить группу может только владелец.");
+        }
+
+        data.chats = data.chats.filter((item) => item.id !== chat.id);
+        delete data.messages[chat.id];
+        writeMessenger(data);
+        const chats = summarizeLocalChats(data);
+        return {
+          chats,
+          activeChatId: chats[0]?.id || null
+        };
+      },
+      clearHistory: async (payload) => {
+        const data = readMessenger();
+        const chat = data.chats.find((item) => item.id === payload?.chatId);
+
+        if (!chat) {
+          throw new Error("Чат не найден.");
+        }
+
+        data.messages[chat.id] = [];
+        chat.manualUnread = false;
+        chat.unreadMessageId = "";
+        chat.updatedAt = new Date().toISOString();
+        writeMessenger(data);
+        return {
+          chats: summarizeLocalChats(data),
+          messages: data.messages[chat.id] || []
         };
       },
       send: async (payload) => {
@@ -6877,6 +7066,16 @@ panelBody?.addEventListener("click", async (event) => {
 
   if (action === "copy-invite") {
     copyActiveInvite();
+    return;
+  }
+
+  if (action === "clear-chat-history") {
+    await clearActiveChatHistory(actionButton);
+    return;
+  }
+
+  if (action === "delete-chat") {
+    await deleteActiveChat(actionButton);
     return;
   }
 
