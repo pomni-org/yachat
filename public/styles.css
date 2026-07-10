@@ -189,6 +189,12 @@ body {
     var(--page);
 }
 
+body.app-booting .auth-card,
+body.app-booting .messenger-shell {
+  opacity: 0;
+  pointer-events: none;
+}
+
 button,
 input,
 textarea {
@@ -4205,6 +4211,11 @@ body.messenger-mode .app-shell {
     padding: max(22px, env(safe-area-inset-top)) 30px max(28px, env(safe-area-inset-bottom));
   }
 
+  body.chat-profile-open .messenger-rail {
+    opacity: 0;
+    pointer-events: none;
+  }
+
   .chat-profile-view {
     gap: 22px;
     padding-top: 6px;
@@ -4225,7 +4236,8 @@ body.messenger-mode .app-shell {
 
   .chat-profile-title {
     max-width: 100%;
-    font-size: 30px;
+    font-size: 28px;
+    white-space: nowrap;
   }
 
   .chat-profile-title .verified-mark {
@@ -4348,6 +4360,10 @@ body.messenger-mode .app-shell {
 }
 
 @media (max-width: 360px) {
+  .chat-profile-title {
+    font-size: 25px;
+  }
+
   .auth-card {
     padding-left: 14px;
     padding-right: 14px;

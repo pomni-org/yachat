@@ -55,6 +55,7 @@ function themeIconName(theme = state.theme) {
 
 const state = {
   screen: "phone",
+  bootstrapped: false,
   previousScreen: "phone",
   challenge: null,
   verificationDeliveryMethod: "yachat",
@@ -171,6 +172,11 @@ const standalonePagePaths = new Map([
   ["policy", "/privacy"],
   ["terms", "/terms"],
   ["help", "/help"]
+]);
+const standaloneRoutePaths = new Set(["privacy", "policy", "terms", "agreement", "help"]);
+const systemRouteChatIds = new Map([
+  ["verificationcodes_bot", "yachat-codes"],
+  ["yachat_channel", "yachat-channel"]
 ]);
 const yachatApi = createRuntimeYachatApi();
 
@@ -1203,15 +1209,15 @@ function chatProfileUrl(chat) {
   }
 
   if (chat?.id === "yachat-codes") {
-    return "https://max.ru/verificationcodes_bot";
+    return "https://yachat.vercel.app/verificationcodes_bot";
   }
 
   if (chat?.id === "yachat-channel") {
-    return "https://max.ru/yachat_channel";
+    return "https://yachat.vercel.app/yachat_channel";
   }
 
   const username = chatProfileUsername(chat);
-  return username ? `https://max.ru/${encodeURIComponent(username)}` : cleanDisplayText(chat?.inviteUrl || chat?.inviteCode, "");
+  return username ? `https://yachat.vercel.app/${encodeURIComponent(username)}` : cleanDisplayText(chat?.inviteUrl || chat?.inviteCode, "");
 }
 
 function chatProfileAboutTitle(chat) {
@@ -2058,6 +2064,15 @@ async function loadMessenger(selectedChatId = state.activeChatId) {
     return;
   }
 
+  if (yachatApi.messenger.snapshot) {
+    const snapshot = await yachatApi.messenger.snapshot({
+      chatId: selectedChatId,
+      username: routeUsernameFromLocation()
+    });
+    await applyMessengerSnapshot(snapshot, selectedChatId);
+    return;
+  }
+
   state.pendingSearchChat = null;
   state.chats = await yachatApi.messenger.chats();
   state.activeChatId = state.chats.some((chat) => chat.id === selectedChatId)
@@ -2070,11 +2085,81 @@ async function loadMessenger(selectedChatId = state.activeChatId) {
   renderMessages();
 }
 
+async function openRouteUserIfNeeded(routeUser) {
+  const user = normalizeUser(routeUser);
+  const routeUsername = routeUsernameFromLocation();
+
+  if (!user?.id || !routeUsername || user.id === state.account?.id || normalizeUsername(user.username) !== routeUsername) {
+    return false;
+  }
+
+  const existing = findPrivateChatForUser(user.id);
+  if (existing) {
+    if (state.activeChatId !== existing.id) {
+      await selectChat(existing.id, { preserveRoute: true });
+    }
+    return true;
+  }
+
+  await openPendingPrivateChat(user, { preserveRoute: true });
+  return true;
+}
+
+async function openRouteTargetFromLocation() {
+  if (!state.account) {
+    return;
+  }
+
+  const routeChatId = chatIdFromRoute();
+  if (routeChatId) {
+    if (state.activeChatId !== routeChatId) {
+      await selectChat(routeChatId, { preserveRoute: true });
+    }
+    return;
+  }
+
+  const routeUsername = routeUsernameFromLocation();
+  if (!routeUsername) {
+    return;
+  }
+
+  const existing = state.chats.find((chat) => normalizeUsername(chatProfileUsername(chat)) === routeUsername);
+  if (existing) {
+    await selectChat(existing.id, { preserveRoute: true });
+    return;
+  }
+
+  if (yachatApi.users?.byUsername) {
+    const user = await yachatApi.users.byUsername(routeUsername);
+    await openRouteUserIfNeeded(user);
+  }
+}
+
+async function applyMessengerSnapshot(snapshot = {}, selectedChatId = state.activeChatId) {
+  state.pendingSearchChat = null;
+  state.chats = Array.isArray(snapshot.chats) ? snapshot.chats : [];
+  const preferredChatId = snapshot.activeChatId || chatIdFromRoute() || selectedChatId;
+  state.activeChatId = state.chats.some((chat) => chat.id === preferredChatId)
+    ? preferredChatId
+    : state.chats[0]?.id || "yachat-codes";
+  state.messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
+
+  renderComposerContext();
+  renderChatList();
+  renderActiveChat();
+  renderMessages();
+
+  if (await openRouteUserIfNeeded(snapshot.routeUser)) {
+    return;
+  }
+
+}
+
 function chatIdFromUrl() {
   try {
-    return new URLSearchParams(window.location.search).get("chat") || "";
+    return new URLSearchParams(window.location.search).get("chat") || chatIdFromRoute() || "";
   } catch {
-    return "";
+    return chatIdFromRoute() || "";
   }
 }
 
@@ -2089,6 +2174,14 @@ async function refreshMessengerFromServer() {
   }
 
   const selectedChatId = state.activeChatId;
+  if (yachatApi.messenger.snapshot) {
+    await applyMessengerSnapshot(await yachatApi.messenger.snapshot({
+      chatId: selectedChatId,
+      username: routeUsernameFromLocation()
+    }), selectedChatId);
+    return;
+  }
+
   const chats = await yachatApi.messenger.chats();
   state.chats = chats;
   state.activeChatId = chats.some((chat) => chat.id === selectedChatId)
@@ -2120,7 +2213,7 @@ function startMessengerPolling() {
   state.messengerPollTimer = window.setTimeout(tick, 4000);
 }
 
-async function selectChat(chatId) {
+async function selectChat(chatId, options = {}) {
   closeMessageMenu();
   closeForwardPicker();
   state.editingMessageId = null;
@@ -2129,19 +2222,22 @@ async function selectChat(chatId) {
   state.selectingMessages = false;
   state.pendingSearchChat = null;
   state.activeChatId = chatId;
-  state.messages = await yachatApi.messenger.messages(chatId);
   if (yachatApi.messenger?.markRead) {
     const result = await yachatApi.messenger.markRead({ chatId });
     state.chats = result.chats || state.chats;
+    state.messages = result.messages || await yachatApi.messenger.messages(chatId);
+  } else {
+    state.messages = await yachatApi.messenger.messages(chatId);
   }
   renderComposerContext();
   setMobileDialogOpen(true);
   renderChatList();
   renderActiveChat();
   renderMessages();
+  updateChatRoute(getActiveChat(), options);
 }
 
-function showMessenger(account) {
+function showMessenger(account, options = {}) {
   state.account = normalizeAccount(account);
   document.body.classList.add("messenger-mode");
   setMobileDialogOpen(false);
@@ -2154,7 +2250,11 @@ function showMessenger(account) {
     messengerShell.hidden = false;
   }
 
-  loadMessenger(chatIdFromUrl() || state.activeChatId).catch(() => {});
+  if (options.snapshot) {
+    applyMessengerSnapshot(options.snapshot, options.snapshot.activeChatId || chatIdFromUrl() || state.activeChatId).catch(() => {});
+  } else {
+    loadMessenger(chatIdFromUrl() || state.activeChatId).catch(() => {});
+  }
   startMessengerPolling();
   enablePushNotifications().catch(() => {});
 }
@@ -2188,6 +2288,7 @@ function resetAccountSessionUi() {
     authCard.hidden = false;
   }
 
+  replaceAppRoute("/");
   setScreen("phone", { focusPhone: true });
 }
 
@@ -2671,7 +2772,7 @@ async function openPendingPrivateChat(user, options = {}) {
     if (options.closePanelOnOpen) {
       closePanel();
     }
-    await selectChat(existing.id);
+    await selectChat(existing.id, options);
     return;
   }
 
@@ -2694,6 +2795,7 @@ async function openPendingPrivateChat(user, options = {}) {
   renderChatList();
   renderActiveChat();
   renderMessages();
+  updateChatRoute(state.pendingSearchChat, options);
 }
 
 async function openPrivateChatWithContact(userId, sourceButton = null) {
@@ -3074,6 +3176,7 @@ function closePanel() {
   stopQrScanner();
   sidePanel?.classList.remove("is-chat-profile");
   panelBody?.classList.remove("is-chat-profile-body");
+  document.body.classList.remove("chat-profile-open");
   if (sidePanel) {
     sidePanel.hidden = true;
   }
@@ -3290,6 +3393,7 @@ function renderPanel() {
   panelKicker.hidden = true;
   sidePanel.classList.toggle("is-chat-profile", state.activePanel === "chat");
   panelBody.classList.toggle("is-chat-profile-body", state.activePanel === "chat");
+  document.body.classList.toggle("chat-profile-open", state.activePanel === "chat");
 
   if (state.activePanel === "chat") {
     const chat = getActiveChat();
@@ -4288,6 +4392,31 @@ function createHttpYachatApi(fallbackApi = null) {
     });
   }
 
+  function queryString(params = {}) {
+    const query = new URLSearchParams();
+    Object.entries(params || {}).forEach(([key, value]) => {
+      const text = String(value || "").trim();
+      if (text) {
+        query.set(key, text);
+      }
+    });
+    const value = query.toString();
+    return value ? `?${value}` : "";
+  }
+
+  async function fallbackSnapshot(params = {}) {
+    const chats = await fallbackApi?.messenger?.chats?.() || [];
+    const activeChatId = chats.some((chat) => chat.id === params.chatId)
+      ? params.chatId
+      : chats[0]?.id || null;
+    return {
+      chats,
+      activeChatId,
+      messages: activeChatId ? await fallbackApi?.messenger?.messages?.(activeChatId) || [] : [],
+      routeUser: null
+    };
+  }
+
   async function withFallback(action, fallback) {
     try {
       return await action();
@@ -4301,6 +4430,22 @@ function createHttpYachatApi(fallbackApi = null) {
   }
 
   return {
+    bootstrap: {
+      get: (params = {}) => withFallback(
+        () => request(`/api/bootstrap${queryString(params)}`),
+        async () => {
+          const account = await fallbackApi?.account?.get?.() || null;
+          const settings = await fallbackApi?.settings?.get?.() || {};
+          const snapshot = account ? await fallbackSnapshot(params) : { chats: [], messages: [], activeChatId: null, routeUser: null };
+          return {
+            authenticated: Boolean(account),
+            account,
+            settings,
+            ...snapshot
+          };
+        }
+      )
+    },
     account: {
       get: async () => {
         return withFallback(async () => {
@@ -4378,6 +4523,13 @@ function createHttpYachatApi(fallbackApi = null) {
         () => request(`/api/users/search?q=${encodeURIComponent(query || "")}`),
         () => fallbackApi?.users?.search?.(query) || fallbackApi?.users?.list?.() || []
       ),
+      byUsername: (username) => withFallback(
+        () => request(`/api/users/by-username?username=${encodeURIComponent(username || "")}`),
+        async () => {
+          const users = await fallbackApi?.users?.search?.(username) || fallbackApi?.users?.list?.() || [];
+          return (users || []).map(normalizeUser).find((user) => normalizeUsername(user.username) === normalizeUsername(username)) || null;
+        }
+      ),
       checkUsername: (username) => withFallback(
         () => request(`/api/users/check-username?username=${encodeURIComponent(username || "")}`),
         () => fallbackApi?.users?.checkUsername?.(username) || { username: normalizeUsername(username), available: true }
@@ -4400,6 +4552,10 @@ function createHttpYachatApi(fallbackApi = null) {
       )
     },
     messenger: {
+      snapshot: (params = {}) => withFallback(
+        () => request(`/api/messenger${queryString(params)}`),
+        () => fallbackApi?.messenger?.snapshot?.(params) || fallbackSnapshot(params)
+      ),
       chats: () => withFallback(
         () => request("/api/chats"),
         () => fallbackApi?.messenger?.chats?.()
@@ -4534,7 +4690,7 @@ function createLocalYachatApi() {
           subtitle: "Ваши одноразовые коды от банков, магазинов и сервисов",
           description: "Ваши одноразовые коды от банков, магазинов и сервисов",
           profileUsername: "verificationcodes_bot",
-          profileUrl: "https://max.ru/verificationcodes_bot",
+          profileUrl: "https://yachat.vercel.app/verificationcodes_bot",
           profileAbout: "Ваши одноразовые коды от банков, магазинов и сервисов",
           profileKindLabel: "Бот",
           locked: true,
@@ -4551,7 +4707,7 @@ function createLocalYachatApi() {
           title: "Канал ЯЧата",
           subtitle: "Канал",
           profileUsername: "yachat_channel",
-          profileUrl: "https://max.ru/yachat_channel",
+          profileUrl: "https://yachat.vercel.app/yachat_channel",
           profileAbout: "Новости приложения, изменения и служебные объявления.",
           profileKindLabel: "Канал",
           locked: true,
@@ -5560,8 +5716,7 @@ async function loadServerState() {
   try {
     const settings = await yachatApi.settings?.get();
     if (settings) {
-      setLanguage(settings.language || "ru", false);
-      setCountry(settings.country || "RU", settings.countryCode || "+7", false);
+      applyServerSettings(settings);
     }
   } catch {
     setLanguage(state.language, false);
@@ -5570,8 +5725,117 @@ async function loadServerState() {
 
 }
 
+function applyServerSettings(settings = {}) {
+  setTheme(settings.theme || state.theme, false, settings.themeSource || state.themeSource);
+  setLanguage(settings.language || "ru", false);
+  setCountry(settings.country || "RU", settings.countryCode || "+7", false);
+}
+
+function finishAppBoot() {
+  state.bootstrapped = true;
+  document.body.classList.remove("app-booting");
+}
+
+async function initializeApp() {
+  setTheme(state.theme, false, state.themeSource);
+  setDeliveryMethod(state.verificationDeliveryMethod);
+  applyTranslations();
+  normalizePhone();
+  validateProfile();
+
+  try {
+    if (yachatApi.bootstrap?.get) {
+      const boot = await yachatApi.bootstrap.get({
+        chatId: chatIdFromUrl() || state.activeChatId,
+        username: routeUsernameFromLocation()
+      });
+      applyServerSettings(boot?.settings || {});
+
+      if (boot?.account) {
+        state.account = normalizeAccount(boot.account);
+        state.accountTextMode = "existing";
+        showMessenger(boot.account, { snapshot: boot });
+      }
+      return;
+    }
+
+    await loadServerState();
+    const account = await yachatApi.account.get();
+    if (account) {
+      state.account = normalizeAccount(account);
+      state.accountTextMode = "existing";
+      showMessenger(account);
+    }
+  } catch {
+    await loadServerState();
+  } finally {
+    finishAppBoot();
+  }
+}
+
 function canUseHistoryRoutes() {
   return window.location.protocol === "http:" || window.location.protocol === "https:";
+}
+
+function routeUsernameFromLocation() {
+  if (!canUseHistoryRoutes()) {
+    return "";
+  }
+
+  const path = decodeURIComponent(window.location.pathname || "/").replace(/^\/+|\/+$/g, "");
+  if (!path || path.includes("/") || standaloneRoutePaths.has(path.toLowerCase())) {
+    return "";
+  }
+
+  return normalizeUsername(path);
+}
+
+function chatIdFromRoute() {
+  const username = routeUsernameFromLocation();
+  return username ? systemRouteChatIds.get(username) || "" : "";
+}
+
+function routeUsernameForChat(chat) {
+  if (!chat) {
+    return "";
+  }
+
+  if (chat.id === "yachat-codes") {
+    return "verificationcodes_bot";
+  }
+
+  if (chat.id === "yachat-channel") {
+    return "yachat_channel";
+  }
+
+  return chat.kind === "private" ? normalizeUsername(chatProfileUsername(chat)) : "";
+}
+
+function replaceAppRoute(path = "/") {
+  if (!canUseHistoryRoutes()) {
+    return;
+  }
+
+  const nextUrl = new URL(path, window.location.origin);
+  if (nextUrl.pathname !== window.location.pathname || nextUrl.search !== window.location.search) {
+    window.history.replaceState({}, "", nextUrl.href);
+  }
+}
+
+function updateChatRoute(chat, options = {}) {
+  if (!canUseHistoryRoutes() || options.preserveRoute) {
+    return;
+  }
+
+  const username = routeUsernameForChat(chat);
+  const nextPath = username ? `/${encodeURIComponent(username)}` : "/";
+  const nextUrl = new URL(nextPath, window.location.origin);
+  if (nextUrl.pathname === window.location.pathname && !window.location.search) {
+    return;
+  }
+
+  const method = options.replace ? "replaceState" : "pushState";
+  window.history[method]({}, "", nextUrl.href);
 }
 
 function pageFileForPath(path) {
@@ -6345,6 +6609,10 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+window.addEventListener("popstate", () => {
+  openRouteTargetFromLocation().catch(() => {});
+});
+
 attachmentButton?.addEventListener("click", () => {
   if (getActiveChat()?.canSend === false) {
     return;
@@ -6765,25 +7033,10 @@ document.querySelector('[data-action="view-account"]').addEventListener("click",
   }));
 });
 
-yachatApi.account.get().then((account) => {
-  if (!account) {
-    return;
-  }
-
-  state.account = normalizeAccount(account);
-  state.accountTextMode = "existing";
-  showMessenger(account);
-}).catch(() => {});
-
 if (systemThemeQuery?.addEventListener) {
   systemThemeQuery.addEventListener("change", syncSystemTheme);
 } else if (systemThemeQuery?.addListener) {
   systemThemeQuery.addListener(syncSystemTheme);
 }
 
-setTheme(state.theme, false, state.themeSource);
-setDeliveryMethod(state.verificationDeliveryMethod);
-applyTranslations();
-loadServerState();
-normalizePhone();
-validateProfile();
+initializeApp();

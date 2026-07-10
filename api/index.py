@@ -4,9 +4,11 @@ import json
 import os
 import re
 import secrets
+import time
 import urllib.error
 import urllib.request
 import uuid
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -17,15 +19,39 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from psycopg.rows import dict_row
 
 
+def configured_cors_origins() -> list[str]:
+    def enabled(name: str, default: bool = False) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    raw = os.getenv("YACHAT_CORS_ORIGINS", "").strip()
+    if raw:
+        origins = [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+        if "*" in origins and not enabled("YACHAT_ALLOW_ANY_ORIGIN", False):
+            origins.remove("*")
+        return origins
+
+    origins = {"https://yachat.vercel.app"}
+    if os.getenv("VERCEL_URL"):
+        origins.add(f"https://{os.getenv('VERCEL_URL', '').strip().rstrip('/')}")
+    if os.getenv("YACHAT_WEB_ORIGIN"):
+        origins.add(os.getenv("YACHAT_WEB_ORIGIN", "").strip().rstrip("/"))
+    if enabled("YACHAT_ALLOW_LOCAL_CORS", True):
+        origins.update({
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
+        })
+    return sorted(origin for origin in origins if origin)
+
+
 app = FastAPI(title="YaChat API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        origin.strip()
-        for origin in os.getenv("YACHAT_CORS_ORIGINS", "*").split(",")
-        if origin.strip()
-    ]
-    or ["*"],
+    allow_origins=configured_cors_origins(),
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Telegram-Bot-Api-Secret-Token"],
 )
@@ -64,6 +90,10 @@ DEFAULT_SETTINGS = {
     "countryCode": "+7",
 }
 QR_SESSION_TTL_MINUTES = 5
+MAX_JSON_BODY_BYTES = int(os.getenv("YACHAT_MAX_JSON_BODY_BYTES", "6000000"))
+MAX_ATTACHMENT_DATA_URL_BYTES = int(os.getenv("YACHAT_MAX_ATTACHMENT_DATA_URL_BYTES", "1200000"))
+CHAT_ID_PATTERN = re.compile(r"^(yachat-[a-z0-9-]+|private-[a-f0-9]{32}|group-[a-f0-9-]{36}|saved-[a-f0-9]{32}|search-user-[a-zA-Z0-9_-]{1,80})$")
+_rate_limits: dict[str, list[float]] = {}
 
 _schema_ready = False
 
@@ -77,6 +107,61 @@ def env_flag(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+@app.middleware("http")
+async def harden_api_responses(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if request.url.path.startswith("/api/") and content_length:
+        try:
+            if int(content_length) > MAX_JSON_BODY_BYTES:
+                return JSONResponse(status_code=413, content={"detail": "Request is too large."})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Invalid Content-Length."})
+
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    if request.url.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+async def read_json_payload(request: Request, limit: int = MAX_JSON_BODY_BYTES) -> dict[str, Any]:
+    body = await request.body()
+    if len(body) > limit:
+        raise HTTPException(status_code=413, detail="Request is too large.")
+    if not body:
+        return {}
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.") from error
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="JSON body must be an object.")
+    return payload
+
+
+def client_rate_key(request: Request, scope: str) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",", 1)[0].strip() or (request.client.host if request.client else "unknown")
+    return f"{scope}:{ip}"
+
+
+def enforce_rate_limit(request: Request, scope: str, limit: int, window_seconds: int) -> None:
+    now = time.monotonic()
+    key = client_rate_key(request, scope)
+    cutoff = now - window_seconds
+    hits = [stamp for stamp in _rate_limits.get(key, []) if stamp >= cutoff]
+    if len(hits) >= limit:
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
+    hits.append(now)
+    _rate_limits[key] = hits
+
+    if len(_rate_limits) > 4096:
+        for old_key in list(_rate_limits.keys())[:512]:
+            _rate_limits.pop(old_key, None)
 
 
 def public_limit() -> int:
@@ -259,6 +344,7 @@ def ensure_schema() -> None:
         )
         """,
         "create index if not exists yachat_auth_challenges_contact_idx on yachat_auth_challenges(contact_key, created_at desc)",
+        "create index if not exists yachat_auth_challenges_expires_idx on yachat_auth_challenges(expires_at)",
         """
         create table if not exists yachat_system_messages (
             id text primary key,
@@ -336,6 +422,7 @@ def ensure_schema() -> None:
         )
         """,
         "create index if not exists yachat_messages_chat_created_idx on yachat_messages(chat_id, created_at)",
+        "create index if not exists yachat_messages_unread_idx on yachat_messages(chat_id, created_at, sender_id) where deleted_at is null",
         """
         create table if not exists yachat_push_subscriptions (
             endpoint text primary key,
@@ -397,6 +484,50 @@ def row_value(row: dict[str, Any] | None, *keys: str) -> Any:
 
 def clean_text(value: Any, limit: int = 500) -> str:
     return str(value or "").replace("\x00", "").strip()[:limit]
+
+
+def clean_chat_id(value: Any, *, allow_empty: bool = False) -> str:
+    chat_id = str(value or "").strip()
+    if allow_empty and not chat_id:
+        return ""
+    if len(chat_id) > 96 or not CHAT_ID_PATTERN.match(chat_id):
+        raise HTTPException(status_code=400, detail="Invalid chat id.")
+    return chat_id
+
+
+def clean_attachments(value: Any) -> list[dict[str, Any]]:
+    attachments = value if isinstance(value, list) else []
+    result: list[dict[str, Any]] = []
+
+    for item in attachments[:8]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            size = int(item.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        mime = clean_text(item.get("mime"), 120) or "application/octet-stream"
+        kind = clean_text(item.get("kind"), 20)
+        if kind not in {"image", "video", "file"}:
+            kind = "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "file"
+        raw_data_url = str(item.get("dataUrl") or "")
+        if len(raw_data_url) > MAX_ATTACHMENT_DATA_URL_BYTES:
+            raise HTTPException(status_code=413, detail="Attachment is too large.")
+        data_url = clean_text(raw_data_url, MAX_ATTACHMENT_DATA_URL_BYTES)
+        if data_url and not data_url.startswith("data:"):
+            data_url = ""
+        result.append(
+            {
+                "id": clean_text(item.get("id"), 80) or str(uuid.uuid4()),
+                "name": clean_text(item.get("name"), 180) or "file",
+                "mime": mime,
+                "kind": kind,
+                "size": max(0, min(size, MAX_ATTACHMENT_DATA_URL_BYTES)),
+                "dataUrl": data_url,
+            }
+        )
+
+    return result
 
 
 def normalize_contact(contact: Any) -> str:
@@ -606,11 +737,11 @@ def request_token(request: Request) -> str:
 
 
 def current_user(request: Request) -> dict[str, Any] | None:
-    ensure_schema()
     token = request_token(request)
     if not token:
         return None
 
+    ensure_schema()
     try:
         with connect_db() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
@@ -847,6 +978,33 @@ def fetch_user_search(value: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=503, detail="Users database is unavailable.") from error
 
 
+def fetch_user_by_username(username: str) -> dict[str, Any] | None:
+    normalized = normalize_username(username)
+    if not normalized:
+        return None
+
+    require_database()
+    ensure_schema()
+    columns = ", ".join(PUBLIC_USER_FIELDS)
+    try:
+        with connect_db() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    f"""
+                    select {columns}
+                    from public_users
+                    where coalesce(is_public, true) = true
+                      and lower(username) = lower(%s)
+                    limit 1
+                    """,
+                    (normalized,),
+                )
+                row = cursor.fetchone()
+                return public_user(dict(row)) if row else None
+    except psycopg.Error as error:
+        raise HTTPException(status_code=503, detail="Users database is unavailable.") from error
+
+
 def fetch_contact_matches(contacts: list[str]) -> list[dict[str, Any]]:
     require_database()
     if not contacts:
@@ -1012,7 +1170,7 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
             "subtitle": "Ваши одноразовые коды",
             "description": "Ваши одноразовые коды от банков, магазинов и сервисов",
             "profileUsername": "verificationcodes_bot",
-            "profileUrl": "https://max.ru/verificationcodes_bot",
+            "profileUrl": "https://yachat.vercel.app/verificationcodes_bot",
             "profileAbout": "Ваши одноразовые коды от банков, магазинов и сервисов",
             "profileKindLabel": "Бот",
             "locked": True,
@@ -1033,7 +1191,7 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
             "subtitle": "Канал",
             "description": channel_intro,
             "profileUsername": "yachat_channel",
-            "profileUrl": "https://max.ru/yachat_channel",
+            "profileUrl": "https://yachat.vercel.app/yachat_channel",
             "profileAbout": "Новости приложения, изменения и служебные объявления.",
             "profileKindLabel": "Канал",
             "locked": True,
@@ -1188,7 +1346,7 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         subtitle = f"@{username}" if username else "Личный чат"
         avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
         profile_username = username
-        profile_url = f"https://max.ru/{username}" if username else ""
+        profile_url = f"https://yachat.vercel.app/{username}" if username else ""
         profile_about = str(row_value(other, "bio")) or subtitle
         profile_kind_label = "Личный"
     elif chat["kind"] == "group":
@@ -1223,6 +1381,79 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
     }
 
 
+def attachment_preview_text(attachments: Any) -> str:
+    if not isinstance(attachments, list) or not attachments:
+        return ""
+
+    kind = str(attachments[0].get("kind") or "")
+    if kind == "image":
+        return "Фото"
+    if kind == "video":
+        return "Видео"
+    return "Файл"
+
+
+def chat_summary_cached(
+    chat: dict[str, Any],
+    user_id: str,
+    members: list[dict[str, Any]],
+    last: dict[str, Any] | None,
+    unread: int = 0,
+) -> dict[str, Any]:
+    chat_id = str(chat["id"])
+    profiles = {str(row["id"]): user_profile(row) for row in members}
+    other = next((row for row in members if str(row["id"]) != user_id), members[0] if members else {})
+    attachment_text = attachment_preview_text(row_value(last, "attachments"))
+
+    title = str(row_value(chat, "title"))
+    subtitle = str(row_value(chat, "description"))
+    avatar_data_url = str(row_value(chat, "avatar_url"))
+    profile_username = ""
+    profile_url = ""
+    profile_about = str(row_value(chat, "description"))
+    profile_kind_label = "Группа" if chat["kind"] == "group" else "Личный"
+
+    if chat["kind"] == "private" and other:
+        title = str(row_value(other, "display_name", "preview_name", "username"))
+        username = str(row_value(other, "username"))
+        subtitle = f"@{username}" if username else "Личный чат"
+        avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
+        profile_username = username
+        profile_url = f"https://yachat.vercel.app/{username}" if username else ""
+        profile_about = str(row_value(other, "bio")) or subtitle
+        profile_kind_label = "Личный"
+    elif chat["kind"] == "group":
+        subtitle = subtitle or f"{max(len(members), 1)} участников"
+        profile_about = profile_about or subtitle
+
+    return {
+        "id": chat_id,
+        "kind": str(chat["kind"]),
+        "title": title or "ЯЧат",
+        "subtitle": subtitle or "",
+        "description": str(row_value(chat, "description")),
+        "participantIds": [str(row["id"]) for row in members],
+        "participantProfiles": profiles,
+        "ownerId": str(row_value(chat, "owner_id")),
+        "locked": bool(row_value(chat, "locked")),
+        "verified": bool(row_value(chat, "verified")),
+        "pinned": bool(row_value(chat, "pinned")),
+        "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True),
+        "avatar": str(chat["kind"]),
+        "avatarDataUrl": avatar_data_url,
+        "avatarAccent": str(row_value(chat, "avatar_accent")) or "#471AFF",
+        "profileUsername": profile_username,
+        "profileUrl": profile_url,
+        "profileAbout": profile_about,
+        "profileKindLabel": profile_kind_label,
+        "inviteCode": str(row_value(chat, "invite_code")),
+        "createdAt": row_value(chat, "created_at"),
+        "lastAt": row_value(last, "created_at") or row_value(chat, "created_at"),
+        "lastMessage": str(row_value(last, "text")) or attachment_text,
+        "unread": int(unread or 0),
+    }
+
+
 def list_user_chats(user_id: str) -> list[dict[str, Any]]:
     ensure_schema()
     with connect_db() as connection:
@@ -1238,8 +1469,68 @@ def list_user_chats(user_id: str) -> list[dict[str, Any]]:
                 """,
                 (user_id,),
             )
-            chats = [chat_summary(cursor, dict(row), user_id) for row in cursor.fetchall()]
+            chat_rows = [dict(row) for row in cursor.fetchall()]
             latest_messages = latest_system_messages(cursor, user_id)
+
+            if not chat_rows:
+                return system_chats(latest_messages=latest_messages)
+
+            chat_ids = [str(row["id"]) for row in chat_rows]
+            members_by_chat: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            cursor.execute(
+                """
+                select cm.chat_id as member_chat_id, u.*
+                from yachat_chat_members cm
+                join public_users u on u.id = cm.user_id
+                where cm.chat_id = any(%s)
+                order by cm.chat_id, cm.joined_at asc
+                """,
+                (chat_ids,),
+            )
+            for row in cursor.fetchall():
+                member = dict(row)
+                members_by_chat[str(member.pop("member_chat_id"))].append(member)
+
+            latest_by_chat: dict[str, dict[str, Any]] = {}
+            cursor.execute(
+                """
+                select distinct on (chat_id) chat_id, text, attachments, created_at
+                from yachat_messages
+                where chat_id = any(%s) and deleted_at is null
+                order by chat_id, created_at desc
+                """,
+                (chat_ids,),
+            )
+            for row in cursor.fetchall():
+                latest_by_chat[str(row["chat_id"])] = dict(row)
+
+            unread_by_chat: dict[str, int] = {}
+            cursor.execute(
+                """
+                select m.chat_id, count(*) as count
+                from yachat_messages m
+                join yachat_chat_members cm on cm.chat_id = m.chat_id and cm.user_id = %s
+                where m.chat_id = any(%s)
+                  and m.deleted_at is null
+                  and coalesce(m.sender_id, '') <> %s
+                  and m.created_at > coalesce(cm.last_read_at, '1970-01-01T00:00:00Z'::timestamptz)
+                group by m.chat_id
+                """,
+                (user_id, chat_ids, user_id),
+            )
+            for row in cursor.fetchall():
+                unread_by_chat[str(row["chat_id"])] = int(row["count"])
+
+            chats = [
+                chat_summary_cached(
+                    chat,
+                    user_id,
+                    members_by_chat.get(str(chat["id"]), []),
+                    latest_by_chat.get(str(chat["id"])),
+                    unread_by_chat.get(str(chat["id"]), 0),
+                )
+                for chat in chat_rows
+            ]
 
     return [*system_chats(latest_messages=latest_messages), *chats]
 
@@ -1277,6 +1568,7 @@ def message_payload(row: dict[str, Any], current_user_id: str) -> dict[str, Any]
 
 
 def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
+    chat_id = clean_chat_id(chat_id)
     if chat_id == "yachat-favorites":
         chat_id = saved_chat_id(user_id)
     elif chat_id.startswith("yachat-"):
@@ -1302,6 +1594,36 @@ def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
                 (chat_id,),
             )
             return [message_payload(dict(row), user_id) for row in cursor.fetchall()]
+
+
+def messenger_snapshot(user_id: str, chat_id: str = "", username: str = "") -> dict[str, Any]:
+    active_chat_id = clean_chat_id(chat_id, allow_empty=True)
+    route_user = fetch_user_by_username(username) if normalize_username(username) else None
+    chats = list_user_chats(user_id)
+    chat_ids = {str(chat["id"]) for chat in chats}
+
+    if route_user:
+        route_chat = next(
+            (
+                chat
+                for chat in chats
+                if chat.get("kind") == "private"
+                and str(route_user["id"]) in {str(item) for item in chat.get("participantIds", [])}
+            ),
+            None,
+        )
+        if route_chat:
+            active_chat_id = str(route_chat["id"])
+
+    if active_chat_id not in chat_ids:
+        active_chat_id = str(chats[0]["id"]) if chats else ""
+
+    return {
+        "chats": chats,
+        "activeChatId": active_chat_id or None,
+        "messages": get_chat_messages(active_chat_id, user_id) if active_chat_id else [],
+        "routeUser": route_user,
+    }
 
 
 def deterministic_private_chat_id(user_a: str, user_b: str) -> str:
@@ -1546,6 +1868,28 @@ def account(request: Request):
     return public_account(user) if user else None
 
 
+@app.get("/api/bootstrap")
+def bootstrap(request: Request, chatId: str = "", username: str = ""):
+    user = current_user(request)
+    settings = get_user_settings(str(user["id"])) if user else dict(DEFAULT_SETTINGS)
+    result: dict[str, Any] = {
+        "authenticated": bool(user),
+        "account": public_account(user) if user else None,
+        "settings": settings,
+        "chats": [],
+        "messages": [],
+        "activeChatId": None,
+        "routeUser": None,
+    }
+
+    if user:
+        result.update(messenger_snapshot(str(user["id"]), chatId, username))
+    elif normalize_username(username) and database_url():
+        result["routeUser"] = fetch_user_by_username(username)
+
+    return result
+
+
 @app.get("/api/users/check-username")
 def check_username(request: Request, username: str = ""):
     ensure_schema()
@@ -1564,8 +1908,9 @@ def check_username(request: Request, username: str = ""):
 
 @app.post("/api/challenge")
 async def create_challenge(request: Request):
+    enforce_rate_limit(request, "challenge", 8, 300)
     ensure_schema()
-    payload = await request.json()
+    payload = await read_json_payload(request)
     contact = normalize_contact(payload.get("contact"))
     method = "phone" if payload.get("method") == "phone" else "email"
     selected_delivery = delivery_method(payload.get("deliveryMethod") or payload.get("delivery"))
@@ -1632,8 +1977,9 @@ async def create_challenge(request: Request):
 
 @app.post("/api/verify")
 async def verify_challenge(request: Request):
+    enforce_rate_limit(request, "verify", 20, 300)
     ensure_schema()
-    payload = await request.json()
+    payload = await read_json_payload(request)
     code = re.sub(r"\D+", "", str(payload.get("code") or ""))[:6]
     contact = normalize_contact(payload.get("contact"))
     key = contact_key(contact)
@@ -1689,8 +2035,9 @@ async def verify_challenge(request: Request):
 
 @app.post("/api/account")
 async def create_account(request: Request):
+    enforce_rate_limit(request, "create-account", 12, 600)
     ensure_schema()
-    payload = await request.json()
+    payload = await read_json_payload(request)
     registration_token = str(payload.get("registrationToken") or "")
     display_name = clean_text(payload.get("displayName"), 60)
     username = normalize_username(payload.get("username")) or f"user_{secrets.randbelow(9000) + 1000}"
@@ -1757,7 +2104,7 @@ async def create_account(request: Request):
 @app.post("/api/account/update")
 async def update_account(request: Request):
     user = require_user(request)
-    payload = await request.json()
+    payload = await read_json_payload(request)
     display_name = clean_text(payload.get("displayName"), 60)
     username = normalize_username(payload.get("username"))
     bio = clean_text(payload.get("bio"), 140)
@@ -1833,7 +2180,7 @@ def get_settings(request: Request):
 
 @app.post("/api/settings")
 async def update_settings(request: Request):
-    payload = await request.json()
+    payload = await read_json_payload(request)
     user = current_user(request)
     if not user:
         return normalize_settings(payload)
@@ -1850,10 +2197,21 @@ def users_search(q: str = ""):
     return fetch_user_search(q)
 
 
+@app.get("/api/users/by-username")
+def user_by_username(username: str = ""):
+    return fetch_user_by_username(username)
+
+
 @app.post("/api/contacts/lookup")
 async def contacts_lookup(request: Request):
-    payload = await request.json()
+    payload = await read_json_payload(request)
     return fetch_contact_matches(payload_contacts(payload))
+
+
+@app.get("/api/messenger")
+def messenger(request: Request, chatId: str = "", username: str = ""):
+    user = require_user(request)
+    return messenger_snapshot(str(user["id"]), chatId, username)
 
 
 @app.get("/api/chats")
@@ -1871,7 +2229,7 @@ def messages(request: Request, chatId: str = ""):
 @app.post("/api/chat")
 async def create_chat(request: Request):
     user = require_user(request)
-    payload = await request.json()
+    payload = await read_json_payload(request)
     kind = "group" if payload.get("kind") == "group" else "private"
     selected_ids = [
         str(item or "").strip()
@@ -1938,8 +2296,8 @@ async def create_chat(request: Request):
 @app.post("/api/chat/update")
 async def update_chat(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    chat_id = str(payload.get("chatId") or "")
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
 
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
@@ -1988,8 +2346,8 @@ async def update_chat(request: Request):
 @app.post("/api/chat/invite")
 async def create_chat_invite(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    chat_id = str(payload.get("chatId") or "")
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
 
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
@@ -2020,8 +2378,8 @@ async def create_chat_invite(request: Request):
 @app.post("/api/chat/leave")
 async def leave_chat(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    chat_id = str(payload.get("chatId") or "")
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
 
     if chat_id.startswith("yachat-"):
         raise HTTPException(status_code=400, detail="System chats cannot be left.")
@@ -2054,10 +2412,10 @@ async def leave_chat(request: Request):
 @app.post("/api/message")
 async def send_message(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    chat_id = str(payload.get("chatId") or "")
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
     text = clean_text(payload.get("text"), 4000)
-    attachments = payload.get("attachments") if isinstance(payload.get("attachments"), list) else []
+    attachments = clean_attachments(payload.get("attachments"))
     if not text and not attachments:
         raise HTTPException(status_code=400, detail="Enter a message.")
     is_saved_chat = chat_id == "yachat-favorites"
@@ -2106,8 +2464,10 @@ async def send_message(request: Request):
 
     sender_name = str(row_value(user, "display_name", "preview_name", "username")) or "YaChat"
     body = text or "Новое вложение"
+    sender_username = str(row_value(user, "username"))
+    push_target = f"/{sender_username}" if str(row_value(chat, "kind")) == "private" and sender_username else f"/?chat={chat_id}"
     for recipient_id in recipients:
-        send_push_to_user(recipient_id, sender_name, body[:160], f"/?chat={chat_id}")
+        send_push_to_user(recipient_id, sender_name, body[:160], push_target)
 
     return {
         "chats": list_user_chats(str(user["id"])),
@@ -2119,8 +2479,8 @@ async def send_message(request: Request):
 @app.post("/api/chat/mark-read")
 async def mark_chat_read(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    chat_id = str(payload.get("chatId") or "")
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
     if not chat_id.startswith("yachat-"):
         with connect_db() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
@@ -2135,8 +2495,8 @@ async def mark_chat_read(request: Request):
 @app.post("/api/message/mark-unread")
 async def mark_message_unread(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    chat_id = str(payload.get("chatId") or "")
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
     message_id = str(payload.get("messageId") or "")
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
@@ -2154,8 +2514,8 @@ async def mark_message_unread(request: Request):
 @app.post("/api/message/delete")
 async def delete_message(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    chat_id = str(payload.get("chatId") or "")
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
     ids = payload.get("messageIds") if isinstance(payload.get("messageIds"), list) else [payload.get("messageId")]
     ids = [str(item or "") for item in ids if str(item or "")]
     with connect_db() as connection:
@@ -2171,8 +2531,8 @@ async def delete_message(request: Request):
 @app.post("/api/message/update")
 async def update_message(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    chat_id = str(payload.get("chatId") or "")
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
     message_id = str(payload.get("messageId") or "")
     text = clean_text(payload.get("text"), 4000)
     if not text:
@@ -2194,9 +2554,9 @@ async def update_message(request: Request):
 @app.post("/api/message/forward")
 async def forward_message(request: Request):
     user = require_user(request)
-    payload = await request.json()
-    from_chat_id = str(payload.get("fromChatId") or "")
-    to_chat_id = str(payload.get("toChatId") or "")
+    payload = await read_json_payload(request)
+    from_chat_id = clean_chat_id(payload.get("fromChatId"))
+    to_chat_id = clean_chat_id(payload.get("toChatId"))
     message_id = str(payload.get("messageId") or "")
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
@@ -2226,7 +2586,7 @@ async def forward_message(request: Request):
 
 @app.post("/api/qr/create")
 async def create_qr_session(request: Request):
-    await request.json()
+    await read_json_payload(request)
     ensure_schema()
     session_id = secrets.token_urlsafe(8)
     token = secrets.token_urlsafe(18)
@@ -2255,7 +2615,7 @@ async def create_qr_session(request: Request):
 @app.post("/api/qr/confirm")
 async def confirm_qr_session(request: Request):
     user = require_user(request)
-    payload = await request.json()
+    payload = await read_json_payload(request)
     parsed = parse_qr_payload(payload.get("payload"))
     if not parsed:
         raise HTTPException(status_code=400, detail="Invalid YaChat QR code.")
@@ -2286,7 +2646,7 @@ async def confirm_qr_session(request: Request):
 @app.post("/api/qr/status")
 async def qr_session_status(request: Request):
     ensure_schema()
-    payload = await request.json()
+    payload = await read_json_payload(request)
     parsed = parse_qr_payload(payload.get("payload")) or {
         "id": str(payload.get("id") or ""),
         "token": str(payload.get("token") or ""),
@@ -2332,7 +2692,7 @@ def push_public_key():
 @app.post("/api/push/subscribe")
 async def push_subscribe(request: Request):
     user = require_user(request)
-    payload = await request.json()
+    payload = await read_json_payload(request)
     endpoint = clean_text(payload.get("endpoint"), 2048)
     keys = payload.get("keys") if isinstance(payload.get("keys"), dict) else {}
     p256dh = clean_text(keys.get("p256dh"), 512)
