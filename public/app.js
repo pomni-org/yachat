@@ -5745,16 +5745,29 @@ async function initializeApp() {
 
   try {
     if (yachatApi.bootstrap?.get) {
-      const boot = await yachatApi.bootstrap.get({
-        chatId: chatIdFromUrl() || state.activeChatId,
-        username: routeUsernameFromLocation()
-      });
+      let boot = null;
+      try {
+        boot = await yachatApi.bootstrap.get({
+          chatId: chatIdFromUrl() || state.activeChatId,
+          username: routeUsernameFromLocation()
+        });
+      } catch {
+        boot = null;
+      }
+
       applyServerSettings(boot?.settings || {});
 
       if (boot?.account) {
         state.account = normalizeAccount(boot.account);
         state.accountTextMode = "existing";
         showMessenger(boot.account, { snapshot: boot });
+      } else {
+        const account = await yachatApi.account.get();
+        if (account) {
+          state.account = normalizeAccount(account);
+          state.accountTextMode = "existing";
+          showMessenger(account);
+        }
       }
       return;
     }

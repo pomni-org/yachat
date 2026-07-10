@@ -1569,7 +1569,8 @@ def message_payload(row: dict[str, Any], current_user_id: str) -> dict[str, Any]
 
 def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
     chat_id = clean_chat_id(chat_id)
-    if chat_id == "yachat-favorites":
+    is_saved_chat = chat_id == "yachat-favorites"
+    if is_saved_chat:
         chat_id = saved_chat_id(user_id)
     elif chat_id.startswith("yachat-"):
         with connect_db() as connection:
@@ -1582,6 +1583,8 @@ def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
     ensure_schema()
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
+            if is_saved_chat:
+                chat_id = ensure_saved_chat(cursor, user_id)
             require_chat_member(cursor, chat_id, user_id)
             cursor.execute(
                 """
