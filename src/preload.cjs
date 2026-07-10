@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("yachat", {
     createChallenge: (payload) => ipcRenderer.invoke("challenge:create", payload),
     verifyChallenge: (payload) => ipcRenderer.invoke("challenge:verify", payload),
     create: (payload) => ipcRenderer.invoke("account:create", payload),
+    update: (payload) => ipcRenderer.invoke("account:update", payload),
     deleteProfile: () => ipcRenderer.invoke("account:delete-profile"),
     logout: () => ipcRenderer.invoke("account:logout")
   },
@@ -26,7 +27,8 @@ contextBridge.exposeInMainWorld("yachat", {
   },
   users: {
     list: () => ipcRenderer.invoke("users:list"),
-    search: (query) => ipcRenderer.invoke("users:search", query)
+    search: (query) => ipcRenderer.invoke("users:search", query),
+    checkUsername: (username) => ipcRenderer.invoke("users:check-username", username)
   },
   contacts: {
     lookup: (payload) => ipcRenderer.invoke("contacts:lookup", payload)
@@ -38,6 +40,8 @@ contextBridge.exposeInMainWorld("yachat", {
     updateChat: (payload) => ipcRenderer.invoke("chat:update", payload),
     invite: (payload) => ipcRenderer.invoke("chat:invite", payload),
     leave: (payload) => ipcRenderer.invoke("chat:leave", payload),
+    deleteChat: (payload) => ipcRenderer.invoke("chat:delete", payload),
+    clearHistory: (payload) => ipcRenderer.invoke("chat:clear-history", payload),
     send: (payload) => ipcRenderer.invoke("message:send", payload),
     updateMessage: (payload) => ipcRenderer.invoke("message:update", payload),
     deleteMessage: (payload) => ipcRenderer.invoke("message:delete", payload),

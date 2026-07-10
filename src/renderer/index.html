@@ -9,6 +9,27 @@
   </head>
   <body class="app-booting">
     <main class="app-shell" aria-label="ячат">
+      <section class="boot-screen" data-boot-screen aria-live="polite">
+        <div class="boot-mark" aria-hidden="true"></div>
+        <div>
+          <strong>ЯЧат</strong>
+          <span>Поднимаем аккаунт</span>
+        </div>
+      </section>
+
+      <section class="error-page" data-error-page hidden aria-live="polite">
+        <div class="error-card">
+          <div class="error-brand" aria-hidden="true"></div>
+          <span class="error-code" data-error-code>404</span>
+          <h1 data-error-title>Страница не найдена</h1>
+          <p data-error-text>Такого адреса в ЯЧате нет или профиль больше недоступен.</p>
+          <div class="error-actions">
+            <button class="main-button" type="button" data-action="error-home">На главную</button>
+            <button class="link-button" type="button" data-action="error-retry">Попробовать снова</button>
+          </div>
+        </div>
+      </section>
+
       <section class="auth-card" data-auth-card aria-live="polite">
         <header class="card-tools">
           <button class="tool-button language-tool" type="button" data-action="open-language-choice" aria-label="Язык">

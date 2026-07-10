@@ -94,7 +94,11 @@ function publicAccount(account) {
     avatarAccent: account.avatarAccent || "#471AFF",
     createdAt: account.createdAt,
     status: account.status || "account-created",
-    encrypted: Boolean(account.encrypted)
+    encrypted: Boolean(account.encrypted),
+    verified: Boolean(account.verified),
+    roleLabel: account.roleLabel || "",
+    verifiedTitle: account.verifiedTitle || "",
+    verifiedDescription: account.verifiedDescription || ""
   };
 }
 
@@ -111,7 +115,11 @@ function publicUser(user) {
     avatarAccent: user.avatarAccent || "#471AFF",
     createdAt: user.createdAt,
     encrypted: Boolean(user.encrypted),
-    publicKeyType: user.publicKeyType || "x25519"
+    publicKeyType: user.publicKeyType || "x25519",
+    verified: Boolean(user.verified),
+    roleLabel: user.roleLabel || "",
+    verifiedTitle: user.verifiedTitle || "",
+    verifiedDescription: user.verifiedDescription || ""
   };
 }
 
@@ -409,6 +417,29 @@ async function handleHttpRequest(request, response) {
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/api/bootstrap") {
+        const account = await localBackend.getLastAccount().then(publicAccount);
+        const settings = await localBackend.getSettings();
+        const chats = account ? await localBackend.listChats() : [];
+        const requestedChatId = url.searchParams.get("chatId") || "";
+        const activeChatId = chats.some((chat) => chat.id === requestedChatId)
+          ? requestedChatId
+          : chats[0]?.id || null;
+        const routeUsername = normalizeUsername(url.searchParams.get("username"));
+        const routeUsers = routeUsername ? await localBackend.searchUsers(routeUsername) : [];
+        const routeUser = routeUsers.find((item) => normalizeUsername(item.username) === routeUsername) || null;
+        sendJson(response, 200, {
+          authenticated: Boolean(account),
+          account,
+          settings,
+          chats,
+          activeChatId,
+          messages: activeChatId ? await localBackend.getMessages(activeChatId) : [],
+          routeUser: routeUser ? publicUser(routeUser) : null
+        });
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/api/status") {
         sendJson(response, 200, publicStatus(await localBackend.getStatus()));
         return;
@@ -431,6 +462,19 @@ async function handleHttpRequest(request, response) {
         return;
       }
 
+      if (request.method === "GET" && url.pathname === "/api/users/by-username") {
+        const users = await localBackend.searchUsers(url.searchParams.get("username"));
+        const target = normalizeUsername(url.searchParams.get("username"));
+        const user = users.find((item) => normalizeUsername(item.username) === target) || null;
+        sendJson(response, 200, user ? publicUser(user) : null);
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/users/check-username") {
+        sendJson(response, 200, await localBackend.checkUsername(url.searchParams.get("username")));
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/contacts/lookup") {
         const users = await localBackend.lookupContacts(await readRequestJson(request));
         sendJson(response, 200, users.map(publicUser));
@@ -444,6 +488,24 @@ async function handleHttpRequest(request, response) {
 
       if (request.method === "GET" && url.pathname === "/api/messages") {
         sendJson(response, 200, await localBackend.getMessages(url.searchParams.get("chatId")));
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/messenger") {
+        const chats = await localBackend.listChats();
+        const requestedChatId = url.searchParams.get("chatId") || "";
+        const activeChatId = chats.some((chat) => chat.id === requestedChatId)
+          ? requestedChatId
+          : chats[0]?.id || null;
+        const routeUsername = normalizeUsername(url.searchParams.get("username"));
+        const routeUsers = routeUsername ? await localBackend.searchUsers(routeUsername) : [];
+        const routeUser = routeUsers.find((item) => normalizeUsername(item.username) === routeUsername) || null;
+        sendJson(response, 200, {
+          chats,
+          activeChatId,
+          messages: activeChatId ? await localBackend.getMessages(activeChatId) : [],
+          routeUser: routeUser ? publicUser(routeUser) : null
+        });
         return;
       }
 
@@ -464,6 +526,11 @@ async function handleHttpRequest(request, response) {
 
       if (request.method === "POST" && url.pathname === "/api/account") {
         sendJson(response, 200, await createAccount(await readRequestJson(request)));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/account/update") {
+        sendJson(response, 200, await localBackend.updateAccount(await readRequestJson(request)).then(publicAccount));
         return;
       }
 
@@ -524,6 +591,16 @@ async function handleHttpRequest(request, response) {
 
       if (request.method === "POST" && url.pathname === "/api/chat/leave") {
         sendJson(response, 200, await localBackend.leaveChat(await readRequestJson(request)));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/chat/delete") {
+        sendJson(response, 200, await localBackend.deleteChat(await readRequestJson(request)));
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/chat/clear-history") {
+        sendJson(response, 200, await localBackend.clearHistory(await readRequestJson(request)));
         return;
       }
 
@@ -688,6 +765,10 @@ ipcMain.handle("users:search", async (_event, query) => {
   return users.map(publicUser);
 });
 
+ipcMain.handle("users:check-username", async (_event, username) => {
+  return localBackend.checkUsername(username);
+});
+
 ipcMain.handle("contacts:lookup", async (_event, payload) => {
   const users = await localBackend.lookupContacts(payload);
   return users.map(publicUser);
@@ -715,6 +796,14 @@ ipcMain.handle("chat:invite", async (_event, payload) => {
 
 ipcMain.handle("chat:leave", async (_event, payload) => {
   return localBackend.leaveChat(payload);
+});
+
+ipcMain.handle("chat:delete", async (_event, payload) => {
+  return localBackend.deleteChat(payload);
+});
+
+ipcMain.handle("chat:clear-history", async (_event, payload) => {
+  return localBackend.clearHistory(payload);
 });
 
 ipcMain.handle("message:send", async (_event, payload) => {
@@ -763,6 +852,10 @@ ipcMain.handle("challenge:verify", async (_event, payload) => {
 
 ipcMain.handle("account:create", async (_event, payload) => {
   return createAccount(payload);
+});
+
+ipcMain.handle("account:update", async (_event, payload) => {
+  return publicAccount(await localBackend.updateAccount(payload));
 });
 
 ipcMain.handle("account:delete-profile", async () => {

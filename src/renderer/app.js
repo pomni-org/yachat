@@ -3,6 +3,17 @@ const DEFAULT_THEME = "dark";
 const THEME_STORAGE_KEY = "yachat-theme";
 const THEME_SOURCE_STORAGE_KEY = "yachat-theme-source";
 const CHAT_MUTE_STORAGE_KEY = "yachat-muted-chat-ids";
+const SYSTEM_OWNER = {
+  id: "murochko",
+  username: "murochko",
+  displayName: "Мурочко",
+  roleLabel: "Владелец",
+  verified: true,
+  verifiedTitle: "Мурочко",
+  verifiedDescription: "Владелец ЯЧата. Этот значок подтверждает главный системный аккаунт."
+};
+const SYSTEM_CHAT_IDS = new Set(["yachat-favorites", "yachat-codes", "yachat-channel"]);
+const PROTECTED_HISTORY_CHAT_IDS = new Set(["yachat-codes"]);
 const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
 
 function systemTheme() {
@@ -166,6 +177,10 @@ const deleteProfileInput = document.querySelector("[data-delete-profile-input]")
 const deleteProfileSubmit = document.querySelector("[data-delete-profile-submit]");
 const qrCodeTarget = document.querySelector("[data-qr-code]");
 const qrStatus = document.querySelector("[data-qr-status]");
+const errorPage = document.querySelector("[data-error-page]");
+const errorCode = document.querySelector("[data-error-code]");
+const errorTitle = document.querySelector("[data-error-title]");
+const errorText = document.querySelector("[data-error-text]");
 
 const secondaryScreens = new Set(["language", "country"]);
 const standalonePagePaths = new Map([
@@ -477,7 +492,7 @@ const translations = {
     contacts: "Контакты",
     calls: "Звонки",
     yachatBot: "Коды подтверждения",
-    yachatChannel: "Канал ЯЧата",
+    yachatChannel: "ЯЧат",
     savedMessages: "Избранное",
     savedMessagesSubtitle: "Сообщения для себя",
     botChat: "Бот",
@@ -554,6 +569,8 @@ const translations = {
     cannotLeave: "Из этого чата нельзя выйти.",
     clearHistory: "Очистить историю",
     clearHistoryConfirm: "Очистить историю этого чата?",
+    clearHistoryLocked: "Историю этого системного чата нельзя очистить.",
+    clearHistoryOwnerOnly: "Историю канала ЯЧата может очистить только Мурочко.",
     deleteGroup: "Удалить группу",
     deleteGroupConfirm: "Удалить эту группу для всех участников?",
     groupOwner: "Вы владелец группы",
@@ -594,6 +611,36 @@ const translations = {
     continueChat: "Хотите продолжить чат с {name}?",
     writeMessage: "Напишите сообщение",
     lockedChat: "Системный чат ЯЧата. Отписаться нельзя.",
+    ownerRole: "Владелец",
+    systemChannelRole: "Системный канал",
+    systemBotRole: "Системный бот",
+    verifiedGenericTitle: "Подтверждённый аккаунт",
+    verifiedGenericText: "ЯЧат подтвердил этот профиль или чат.",
+    verifiedOwnerTitle: "Мурочко",
+    verifiedOwnerText: "Владелец ЯЧата. Этот значок подтверждает главный системный аккаунт.",
+    verifiedChannelTitle: "ЯЧат",
+    verifiedChannelText: "Системный канал ЯЧата. Все аккаунты подписаны автоматически; писать и чистить историю может только владелец Мурочко.",
+    verifiedCodesTitle: "Коды подтверждения",
+    verifiedCodesText: "Системный бот ЯЧата для одноразовых кодов. Историю этого бота очистить нельзя.",
+    verifiedGroupTitle: "Проверенная группа",
+    verifiedGroupText: "ЯЧат подтвердил эту группу.",
+    contactsPanelLead: "Быстро найдём людей, которые уже есть в ЯЧате.",
+    contactsManualTitle: "Поиск вручную",
+    callsPanelLead: "Звонки ещё готовятся, но экран уже приведён в порядок.",
+    callsVoiceTitle: "Голосовой вызов",
+    callsVoiceHint: "Появится после подключения голосового модуля.",
+    callsVideoTitle: "Видео",
+    callsVideoHint: "Будет здесь же, без отдельной вкладки.",
+    settingsAppearance: "Внешний вид",
+    settingsAccount: "Аккаунт",
+    settingsDocs: "Документы",
+    settingsSecurity: "Безопасность",
+    error404Title: "Страница не найдена",
+    error404Text: "Такого адреса в ЯЧате нет или профиль больше недоступен.",
+    errorGenericTitle: "Что-то пошло не так",
+    errorGenericText: "ЯЧат не смог открыть этот экран. Можно вернуться домой или повторить попытку.",
+    errorHome: "На главную",
+    errorRetry: "Попробовать снова",
     menuEdit: "Редактировать",
     menuReply: "Ответить",
     menuForward: "Переслать",
@@ -722,7 +769,7 @@ const translations = {
     contacts: "Contacts",
     calls: "Calls",
     yachatBot: "Verification Codes",
-    yachatChannel: "ЯЧат Channel",
+    yachatChannel: "ЯЧат",
     savedMessages: "Saved Messages",
     savedMessagesSubtitle: "Messages for yourself",
     botChat: "Bot",
@@ -799,6 +846,8 @@ const translations = {
     cannotLeave: "You cannot leave this chat.",
     clearHistory: "Clear history",
     clearHistoryConfirm: "Clear this chat history?",
+    clearHistoryLocked: "This system chat history cannot be cleared.",
+    clearHistoryOwnerOnly: "Only Murochko can clear the ЯЧат channel history.",
     deleteGroup: "Delete group",
     deleteGroupConfirm: "Delete this group for all members?",
     groupOwner: "You own this group",
@@ -839,6 +888,36 @@ const translations = {
     continueChat: "Want to continue chatting with {name}?",
     writeMessage: "Write a message",
     lockedChat: "Built-in ЯЧат system chat. You cannot unsubscribe.",
+    ownerRole: "Owner",
+    systemChannelRole: "System channel",
+    systemBotRole: "System bot",
+    verifiedGenericTitle: "Verified account",
+    verifiedGenericText: "ЯЧат has verified this profile or chat.",
+    verifiedOwnerTitle: "Murochko",
+    verifiedOwnerText: "Owner of ЯЧат. This badge confirms the main system account.",
+    verifiedChannelTitle: "ЯЧат",
+    verifiedChannelText: "System ЯЧат channel. Every account is subscribed automatically; only Murochko can post or clear history.",
+    verifiedCodesTitle: "Verification Codes",
+    verifiedCodesText: "System ЯЧат bot for one-time codes. This bot history cannot be cleared.",
+    verifiedGroupTitle: "Verified group",
+    verifiedGroupText: "ЯЧат has verified this group.",
+    contactsPanelLead: "Quickly find people who already have a ЯЧат account.",
+    contactsManualTitle: "Manual search",
+    callsPanelLead: "Calls are still being wired in, but this screen is ready.",
+    callsVoiceTitle: "Voice call",
+    callsVoiceHint: "Appears after the voice module is connected.",
+    callsVideoTitle: "Video",
+    callsVideoHint: "Will live here too, no separate tab.",
+    settingsAppearance: "Appearance",
+    settingsAccount: "Account",
+    settingsDocs: "Documents",
+    settingsSecurity: "Security",
+    error404Title: "Page not found",
+    error404Text: "This ЯЧат address does not exist or the profile is no longer available.",
+    errorGenericTitle: "Something went wrong",
+    errorGenericText: "ЯЧат could not open this screen. Go home or try again.",
+    errorHome: "Home",
+    errorRetry: "Try again",
     menuEdit: "Edit",
     menuReply: "Reply",
     menuForward: "Forward",
@@ -880,6 +959,10 @@ const serverMessageKeys = new Map([
   ["Username is already taken.", "errUsernameTaken"],
   ["Description must be no longer than 140 characters.", "errBio"],
   ["Could not open the image.", "errAvatar"],
+  ["This system chat history cannot be cleared.", "clearHistoryLocked"],
+  ["Only Murochko can clear the YaChat channel history.", "clearHistoryOwnerOnly"],
+  ["Историю этого системного чата нельзя очистить.", "clearHistoryLocked"],
+  ["Историю канала ЯЧата может очистить только Мурочко.", "clearHistoryOwnerOnly"],
   ["Users database is unavailable.", "errDatabaseUnavailable"],
   ["Users database is not configured. Set YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.", "errDatabaseMissing"],
   ["Server database is not configured.", "errDatabaseMissing"],
@@ -1080,7 +1163,7 @@ function getChatAvatarText(chat) {
   }
 
   if (chat?.id === "yachat-channel") {
-    return "#";
+    return "Я";
   }
 
   return String(cleanDisplayText(chat?.title, "Я")).trim().slice(0, 1).toUpperCase() || "Я";
@@ -1109,7 +1192,7 @@ function getChatSubtitle(chat) {
   }
 
   if (chat?.id === "yachat-channel") {
-    return t("channelChat");
+    return t("systemChannelRole");
   }
 
   if (chat?.id === "yachat-codes") {
@@ -1138,10 +1221,6 @@ function getChatAvatarModifier(chat) {
         : " is-private";
 }
 
-function renderVerified(chat) {
-  return chat?.verified ? '<img class="verified-mark" src="./assets/verified-badge.png" alt="Верифицирован" />' : "";
-}
-
 function setComposerReadonly(readonly) {
   const disabled = Boolean(readonly);
   messageForm?.classList.toggle("is-readonly", disabled);
@@ -1154,10 +1233,12 @@ function setComposerReadonly(readonly) {
 
 function renderChatAvatar(chat, className = "chat-avatar") {
   const modifier = getChatAvatarModifier(chat);
+  const text = getChatAvatarText(chat);
+  const title = getChatTitle(chat);
   const avatar = chat?.avatarDataUrl
     ? `<img src="${escapeHtml(chat.avatarDataUrl)}" alt="" />`
-    : escapeHtml(getChatAvatarText(chat));
-  return `<div class="${className}${modifier}">${avatar}</div>`;
+    : escapeHtml(text);
+  return `<div class="${className}${modifier}" ${avatarViewAttributes({ src: chat?.avatarDataUrl || "", text, title, modifier: modifier.trim() })}>${avatar}</div>`;
 }
 
 function chatProfileUsername(chat) {
@@ -1199,6 +1280,14 @@ function chatProfileUsername(chat) {
 }
 
 function chatProfileKindLabel(chat) {
+  if (chat?.id === "yachat-channel") {
+    return t("systemChannelRole");
+  }
+
+  if (chat?.id === "yachat-codes") {
+    return t("systemBotRole");
+  }
+
   if (chat?.kind === "private" || chat?.kind === "saved" || chat?.id === "yachat-favorites") {
     return "";
   }
@@ -1297,6 +1386,17 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
   const aboutText = chatProfileAboutText(chat);
   const muted = isChatMuted(chat?.id);
   const hasMore = Boolean(sections.editSection || sections.groupSection || sections.historySection || sections.leaveSection || sections.deleteGroupSection);
+  const ownerProfile = chat?.ownerName || chat?.ownerUsername
+    ? decorateVerifiedEntity({
+        id: chat.ownerId || SYSTEM_OWNER.id,
+        username: chat.ownerUsername || SYSTEM_OWNER.username,
+        displayName: chat.ownerName || SYSTEM_OWNER.displayName,
+        verified: true,
+        roleLabel: t("ownerRole"),
+        verifiedTitle: t("verifiedOwnerTitle"),
+        verifiedDescription: t("verifiedOwnerText")
+      })
+    : null;
   const meta = [
     username ? `<span class="chat-profile-handle">@${escapeHtml(username)}</span>` : "",
     kindLabel ? escapeHtml(kindLabel) : ""
@@ -1352,6 +1452,16 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
         <div class="chat-profile-card chat-profile-about-card">
           <span>${chatProfileAboutTitle(chat)}</span>
           <p>${escapeHtml(aboutText)}</p>
+        </div>
+      </section>` : ""}
+      ${ownerProfile ? `<section class="chat-profile-section">
+        <div class="chat-profile-card chat-profile-owner-card">
+          ${renderUserAvatar(ownerProfile, "panel-row-avatar")}
+          <span>
+            <small>${t("ownerRole")}</small>
+            <strong>${escapeHtml(ownerProfile.displayName)} ${renderVerified(ownerProfile)}</strong>
+            <em>@${escapeHtml(ownerProfile.username)}</em>
+          </span>
         </div>
       </section>` : ""}
       <section class="chat-profile-section">
@@ -1448,7 +1558,9 @@ function createPendingSearchChat(user) {
     participantIds: [state.account?.id, profile.id].filter(Boolean),
     participantProfiles,
     locked: false,
-    verified: false,
+    verified: Boolean(profile.verified),
+    verifiedTitle: profile.verifiedTitle || "",
+    verifiedDescription: profile.verifiedDescription || "",
     pinned: false,
     canSend: true,
     avatar: "private",
@@ -2154,8 +2266,14 @@ async function openRouteTargetFromLocation() {
     return;
   }
 
+  if (routeNeeds404Check()) {
+    showErrorPage("404", t("error404Title"), t("error404Text"));
+    return;
+  }
+
   const routeChatId = chatIdFromRoute();
   if (routeChatId) {
+    hideErrorPage();
     if (state.activeChatId !== routeChatId) {
       await selectChat(routeChatId, { preserveRoute: true });
     } else {
@@ -2168,11 +2286,13 @@ async function openRouteTargetFromLocation() {
 
   const routeUsername = routeUsernameFromLocation();
   if (!routeUsername) {
+    hideErrorPage();
     return;
   }
 
   const existing = state.chats.find((chat) => normalizeUsername(chatProfileUsername(chat)) === routeUsername);
   if (existing) {
+    hideErrorPage();
     if (state.activeChatId !== existing.id) {
       await selectChat(existing.id, { preserveRoute: true });
     } else {
@@ -2185,8 +2305,13 @@ async function openRouteTargetFromLocation() {
 
   if (yachatApi.users?.byUsername) {
     const user = await yachatApi.users.byUsername(routeUsername);
-    await openRouteUserIfNeeded(user);
+    if (await openRouteUserIfNeeded(user)) {
+      hideErrorPage();
+      return;
+    }
   }
+
+  showErrorPage("404", t("error404Title"), t("error404Text"));
 }
 
 async function applyMessengerSnapshot(snapshot = {}, selectedChatId = state.activeChatId) {
@@ -2208,9 +2333,16 @@ async function applyMessengerSnapshot(snapshot = {}, selectedChatId = state.acti
   }
 
   if (await openRouteUserIfNeeded(snapshot.routeUser)) {
+    hideErrorPage();
     return;
   }
 
+  const routeUsername = routeUsernameFromLocation();
+  if (routeNeeds404Check() || (routeUsername && !chatIdFromRoute() && !snapshot.routeUser)) {
+    showErrorPage("404", t("error404Title"), t("error404Text"));
+  } else {
+    hideErrorPage();
+  }
 }
 
 function chatIdFromUrl() {
@@ -2296,6 +2428,7 @@ async function selectChat(chatId, options = {}) {
 }
 
 function showMessenger(account, options = {}) {
+  hideErrorPage();
   state.account = normalizeAccount(account);
   document.body.classList.add("messenger-mode");
   setMobileDialogOpen(false);
@@ -2318,6 +2451,7 @@ function showMessenger(account, options = {}) {
 }
 
 function resetAccountSessionUi() {
+  hideErrorPage();
   stopQrPolling();
   stopQrScanner();
   stopMessengerPolling();
@@ -2464,6 +2598,277 @@ function cleanDisplayText(value, fallback = "") {
   return text;
 }
 
+function normalizeIdentityText(value) {
+  return String(value || "").trim().toLowerCase().replace(/^@+/, "").replace(/\s+/g, "");
+}
+
+function isMurochkoEntity(entity) {
+  const values = [
+    entity?.username,
+    entity?.displayName,
+    entity?.previewName,
+    entity?.title,
+    entity?.ownerUsername,
+    entity?.ownerName
+  ].map(normalizeIdentityText);
+
+  return values.some((value) => value === "murochko" || value === "мурочко");
+}
+
+function decorateVerifiedEntity(entity) {
+  if (!entity) {
+    return entity;
+  }
+
+  if (isMurochkoEntity(entity)) {
+    return {
+      ...entity,
+      verified: true,
+      roleLabel: entity.roleLabel || t("ownerRole"),
+      verifiedTitle: entity.verifiedTitle || t("verifiedOwnerTitle"),
+      verifiedDescription: entity.verifiedDescription || t("verifiedOwnerText")
+    };
+  }
+
+  return entity;
+}
+
+function verificationMeta(entity) {
+  if (!entity) {
+    return null;
+  }
+
+  if (entity.id === "yachat-channel") {
+    return {
+      title: entity.verifiedTitle || t("verifiedChannelTitle"),
+      description: entity.verifiedDescription || t("verifiedChannelText")
+    };
+  }
+
+  if (entity.id === "yachat-codes") {
+    return {
+      title: entity.verifiedTitle || t("verifiedCodesTitle"),
+      description: entity.verifiedDescription || t("verifiedCodesText")
+    };
+  }
+
+  if (isMurochkoEntity(entity)) {
+    return {
+      title: entity.verifiedTitle || t("verifiedOwnerTitle"),
+      description: entity.verifiedDescription || t("verifiedOwnerText")
+    };
+  }
+
+  if (!entity.verified) {
+    return null;
+  }
+
+  if (entity.kind === "group") {
+    return {
+      title: entity.verifiedTitle || t("verifiedGroupTitle"),
+      description: entity.verifiedDescription || t("verifiedGroupText")
+    };
+  }
+
+  return {
+    title: entity.verifiedTitle || t("verifiedGenericTitle"),
+    description: entity.verifiedDescription || t("verifiedGenericText")
+  };
+}
+
+function renderVerified(entity) {
+  const meta = verificationMeta(entity);
+  if (!meta) {
+    return "";
+  }
+
+  return `
+    <span class="verified-mark-button" role="button" tabindex="0" title="${escapeHtml(meta.title)}" aria-label="${escapeHtml(meta.title)}" data-verified-info data-verified-title="${escapeHtml(meta.title)}" data-verified-description="${escapeHtml(meta.description)}">
+      <img class="verified-mark" src="./assets/verified-badge.png" alt="" />
+    </span>
+  `;
+}
+
+function showInfoModal(title, description) {
+  let layer = document.querySelector("[data-info-modal]");
+  if (!layer) {
+    layer = document.createElement("div");
+    layer.className = "info-modal-layer";
+    layer.dataset.infoModal = "";
+    layer.hidden = true;
+    layer.innerHTML = `
+      <div class="info-modal-card" role="dialog" aria-modal="true">
+        <button class="icon-button" type="button" data-info-close aria-label="${escapeHtml(t("cancel"))}">
+          ${iconSvg("x")}
+        </button>
+        <img class="info-modal-badge" src="./assets/verified-badge.png" alt="" />
+        <h2 data-info-title></h2>
+        <p data-info-text></p>
+      </div>
+    `;
+    document.body.append(layer);
+  }
+
+  layer.querySelector("[data-info-title]").textContent = cleanDisplayText(title, t("verifiedGenericTitle"));
+  layer.querySelector("[data-info-text]").textContent = cleanDisplayText(description, t("verifiedGenericText"));
+  layer.hidden = false;
+  hydrateIcons(layer);
+}
+
+function closeInfoModal() {
+  const layer = document.querySelector("[data-info-modal]");
+  if (layer) {
+    layer.hidden = true;
+  }
+}
+
+function avatarViewAttributes({ src = "", text = "", title = "", modifier = "" } = {}) {
+  const safeText = cleanDisplayText(text, "Я");
+  const safeTitle = cleanDisplayText(title, safeText);
+  return `data-avatar-view data-avatar-src="${escapeHtml(src)}" data-avatar-text="${escapeHtml(safeText)}" data-avatar-title="${escapeHtml(safeTitle)}" data-avatar-modifier="${escapeHtml(modifier)}" role="button" tabindex="0"`;
+}
+
+function showAvatarViewerFromElement(element) {
+  if (!element) {
+    return;
+  }
+
+  openAvatarViewer({
+    src: element.dataset.avatarSrc || "",
+    text: element.dataset.avatarText || element.textContent || "Я",
+    title: element.dataset.avatarTitle || "",
+    modifier: element.dataset.avatarModifier || ""
+  });
+}
+
+function openAvatarViewer({ src = "", text = "Я", title = "", modifier = "" } = {}) {
+  let layer = document.querySelector("[data-avatar-modal]");
+  if (!layer) {
+    layer = document.createElement("div");
+    layer.className = "avatar-modal-layer";
+    layer.dataset.avatarModal = "";
+    layer.hidden = true;
+    layer.innerHTML = `
+      <div class="avatar-modal-card" role="dialog" aria-modal="true">
+        <button class="icon-button" type="button" data-avatar-close aria-label="${escapeHtml(t("cancel"))}">
+          ${iconSvg("x")}
+        </button>
+        <div class="avatar-modal-image" data-avatar-modal-image></div>
+        <strong data-avatar-modal-title></strong>
+      </div>
+    `;
+    document.body.append(layer);
+  }
+
+  const imageTarget = layer.querySelector("[data-avatar-modal-image]");
+  const titleTarget = layer.querySelector("[data-avatar-modal-title]");
+  const safeText = cleanDisplayText(text, "Я").slice(0, 2).toUpperCase() || "Я";
+  imageTarget.className = `avatar-modal-image${modifier ? ` ${modifier}` : ""}`;
+  imageTarget.innerHTML = src ? `<img src="${escapeHtml(src)}" alt="" />` : escapeHtml(safeText);
+  titleTarget.textContent = cleanDisplayText(title, safeText);
+  layer.hidden = false;
+  hydrateIcons(layer);
+}
+
+function closeAvatarViewer() {
+  const layer = document.querySelector("[data-avatar-modal]");
+  if (layer) {
+    layer.hidden = true;
+  }
+}
+
+function handleVerifiedInfoClick(event) {
+  const target = event.target.closest("[data-verified-info]");
+  if (!target) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  showInfoModal(target.dataset.verifiedTitle, target.dataset.verifiedDescription);
+  return true;
+}
+
+function handleAvatarViewClick(event) {
+  const target = event.target.closest("[data-avatar-view]");
+  if (!target) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  showAvatarViewerFromElement(target);
+  return true;
+}
+
+function showErrorPage(code = "404", title = t("error404Title"), text = t("error404Text")) {
+  if (errorCode) {
+    errorCode.textContent = code;
+  }
+  if (errorTitle) {
+    errorTitle.textContent = title;
+  }
+  if (errorText) {
+    errorText.textContent = text;
+  }
+  if (errorPage) {
+    errorPage.hidden = false;
+  }
+  document.body.classList.add("error-mode");
+}
+
+function hideErrorPage() {
+  if (errorPage) {
+    errorPage.hidden = true;
+  }
+  document.body.classList.remove("error-mode");
+}
+
+function currentRoutePath() {
+  if (!canUseHistoryRoutes()) {
+    return "";
+  }
+
+  return decodeURIComponent(window.location.pathname || "/").replace(/^\/+|\/+$/g, "");
+}
+
+function routeNeeds404Check() {
+  const path = currentRoutePath();
+  if (!path || standaloneRoutePaths.has(path.toLowerCase())) {
+    return false;
+  }
+
+  if (path.includes("/")) {
+    return true;
+  }
+
+  return !normalizeUsername(path) && !systemRouteChatIds.has(path.toLowerCase());
+}
+
+function canClearChatHistory(chat) {
+  if (!chat) {
+    return false;
+  }
+
+  if (PROTECTED_HISTORY_CHAT_IDS.has(chat.id)) {
+    return false;
+  }
+
+  if (chat.id === "yachat-channel" && !isMurochkoEntity(state.account)) {
+    return false;
+  }
+
+  return true;
+}
+
+function clearHistoryBlockedText(chat) {
+  if (chat?.id === "yachat-channel" && !isMurochkoEntity(state.account)) {
+    return t("clearHistoryOwnerOnly");
+  }
+
+  return t("clearHistoryLocked");
+}
+
 function normalizeAccount(account) {
   if (!account) {
     return null;
@@ -2471,12 +2876,12 @@ function normalizeAccount(account) {
 
   const username = cleanDisplayText(account.username, "user");
 
-  return {
+  return decorateVerifiedEntity({
     ...account,
     username,
     displayName: cleanDisplayText(account.displayName, username || "Я"),
     bio: cleanDisplayText(account.bio, "")
-  };
+  });
 }
 
 function normalizeUser(user) {
@@ -2487,7 +2892,7 @@ function normalizeUser(user) {
   const username = cleanDisplayText(user.username, "user");
   const displayName = cleanDisplayText(user.displayName || user.previewName, username);
 
-  return {
+  return decorateVerifiedEntity({
     ...user,
     username,
     displayName,
@@ -2497,7 +2902,7 @@ function normalizeUser(user) {
     matchedContact: cleanDisplayText(user.matchedContact, ""),
     avatarDataUrl: user.avatarDataUrl || "",
     avatarAccent: user.avatarAccent || "#471AFF"
-  };
+  });
 }
 
 function contactMatchKeys(value) {
@@ -2592,7 +2997,13 @@ function renderUserAvatar(user, className = "panel-row-avatar") {
   const content = user?.avatarDataUrl
     ? `<img src="${escapeHtml(user.avatarDataUrl)}" alt="" />`
     : escapeHtml(initial);
-  return `<span class="${className}">${content}</span>`;
+  const attrs = avatarViewAttributes({
+    src: user?.avatarDataUrl || "",
+    text: initial,
+    title: cleanDisplayText(user?.displayName, user?.username || "Я"),
+    modifier: isMurochkoEntity(user) ? "is-owner" : "is-private"
+  });
+  return `<span class="${className}${isMurochkoEntity(user) ? " is-owner" : ""}" ${attrs}>${content}</span>`;
 }
 
 function uniqueContactPhones(items) {
@@ -2762,7 +3173,11 @@ function contactProfilePayload(user) {
     bio: cleanDisplayText(user.bio, ""),
     contact: contactLookupText(user),
     avatarDataUrl: user.avatarDataUrl || "",
-    avatarAccent: user.avatarAccent || "#471AFF"
+    avatarAccent: user.avatarAccent || "#471AFF",
+    verified: Boolean(user.verified),
+    roleLabel: user.roleLabel || "",
+    verifiedTitle: user.verifiedTitle || "",
+    verifiedDescription: user.verifiedDescription || ""
   };
 }
 
@@ -2777,7 +3192,7 @@ function renderContactMatches() {
       <button class="panel-row contact-row" type="button" data-contact-user-id="${escapeHtml(user.id)}">
         ${renderUserAvatar(user)}
         <span>
-          <strong>${escapeHtml(user.displayName)}</strong>
+          <strong>${escapeHtml(user.displayName)} ${renderVerified(user)}</strong>
           <small>@${escapeHtml(user.username)}${contact ? ` · ${escapeHtml(contact)}` : ""}</small>
         </span>
         <b>${escapeHtml(t("openChat"))}</b>
@@ -2807,7 +3222,7 @@ function renderChatSearchUsers() {
         ${renderChatAvatar(chat)}
         <span class="chat-row-main">
           <span class="chat-row-top">
-            <strong>${escapeHtml(user.displayName)}</strong>
+            <strong>${escapeHtml(user.displayName)} ${renderVerified(user)}</strong>
             <time>${escapeHtml(t("openChat"))}</time>
           </span>
           <span class="chat-row-bottom">
@@ -3140,12 +3555,18 @@ function renderQrSvg(payload) {
 function accountAvatarHtml(sizeClass = "panel-avatar") {
   const account = state.account || {};
   const initial = String(cleanDisplayText(account.displayName, account.username || "Я")).trim().slice(0, 1).toUpperCase() || "Я";
+  const attrs = avatarViewAttributes({
+    src: account.avatarDataUrl || "",
+    text: initial,
+    title: cleanDisplayText(account.displayName, account.username || "Я"),
+    modifier: isMurochkoEntity(account) ? "is-owner" : "is-private"
+  });
 
   if (account.avatarDataUrl) {
-    return `<div class="${sizeClass}"><img src="${escapeHtml(account.avatarDataUrl)}" alt="" /></div>`;
+    return `<div class="${sizeClass}${isMurochkoEntity(account) ? " is-owner" : ""}" ${attrs}><img src="${escapeHtml(account.avatarDataUrl)}" alt="" /></div>`;
   }
 
-  return `<div class="${sizeClass}">${escapeHtml(initial)}</div>`;
+  return `<div class="${sizeClass}${isMurochkoEntity(account) ? " is-owner" : ""}" ${attrs}>${escapeHtml(initial)}</div>`;
 }
 
 function profileEditAvatarData(account = state.account || {}) {
@@ -3503,11 +3924,18 @@ function renderPanel() {
       </section>
     ` : "";
 
-    const historySection = `
+    const canClearHistory = canClearChatHistory(chat);
+    const historySection = canClearHistory ? `
       <section class="panel-section">
         <h3>${t("clearHistory")}</h3>
         <p>${getChatTitle(chat)}</p>
         <button class="panel-primary is-secondary" type="button" data-panel-action="clear-chat-history">${iconSvg("trash", "button-icon")}<span>${t("clearHistory")}</span></button>
+      </section>
+    ` : `
+      <section class="panel-section">
+        <h3>${t("clearHistory")}</h3>
+        <p>${escapeHtml(clearHistoryBlockedText(chat))}</p>
+        <button class="panel-primary is-secondary" type="button" disabled>${iconSvg("shield-check", "button-icon")}<span>${t("clearHistory")}</span></button>
       </section>
     `;
 
@@ -3540,19 +3968,36 @@ function renderPanel() {
 
   if (state.activePanel === "contacts") {
     panelBody.innerHTML = `
-      <section class="panel-section">
-        <h3>${t("contactsImportTitle")}</h3>
-        <p>${t("contactsImportHint")}</p>
-        <div class="panel-actions">
-          <button class="panel-primary is-secondary" type="button" data-panel-action="request-contacts" ${state.contactLookupLoading ? "disabled" : ""}>${iconSvg("users", "button-icon")}<span>${t("requestContacts")}</span></button>
-          <button type="button" data-panel-action="check-contact-input" ${state.contactLookupLoading ? "disabled" : ""}>${iconSvg("search", "button-icon")}<span>${t("checkContacts")}</span></button>
+      <div class="panel-hero is-contacts">
+        <span>${iconSvg("users-round")}</span>
+        <div>
+          <p>${t("contacts")}</p>
+          <h3>${t("contactsImportTitle")}</h3>
+          <small>${t("contactsPanelLead")}</small>
+        </div>
+      </div>
+      <section class="panel-section panel-section-strong">
+        <div class="panel-section-head">
+          <div>
+            <h3>${t("contactsManualTitle")}</h3>
+            <p>${t("contactsImportHint")}</p>
+          </div>
         </div>
         <textarea class="session-input contacts-input" rows="4" placeholder="${escapeHtml(t("contactsInputPlaceholder"))}" data-contact-input></textarea>
+        <div class="panel-actions">
+          <button class="panel-primary" type="button" data-panel-action="check-contact-input" ${state.contactLookupLoading ? "disabled" : ""}>${iconSvg("search", "button-icon")}<span>${t("checkContacts")}</span></button>
+          <button class="panel-primary is-secondary" type="button" data-panel-action="request-contacts" ${state.contactLookupLoading ? "disabled" : ""}>${iconSvg("users", "button-icon")}<span>${t("requestContacts")}</span></button>
+        </div>
         <div class="session-message" data-contact-status>${escapeHtml(state.contactLookupMessage || "")}</div>
       </section>
-      <section class="panel-section">
-        <h3>${t("contactsFoundTitle")}</h3>
-        ${renderContactMatches()}
+      <section class="panel-section panel-section-strong">
+        <div class="panel-section-head">
+          <div>
+            <h3>${t("contactsFoundTitle")}</h3>
+            <p>${state.contactMatches.length ? t("contactsFoundCount", { count: state.contactMatches.length }) : t("contactsNoMatches")}</p>
+          </div>
+        </div>
+        <div class="panel-list">${renderContactMatches()}</div>
       </section>
     `;
     hydrateIcons(panelBody);
@@ -3561,48 +4006,83 @@ function renderPanel() {
 
   if (state.activePanel === "calls") {
     panelBody.innerHTML = `
-      <section class="panel-section">
-        <h3>${t("calls")}</h3>
-        <p>${t("callsEmpty")}</p>
+      <div class="panel-hero is-calls">
+        <span>${iconSvg("phone-call")}</span>
+        <div>
+          <p>${t("calls")}</p>
+          <h3>${t("callsEmpty")}</h3>
+          <small>${t("callsPanelLead")}</small>
+        </div>
+      </div>
+      <section class="panel-section panel-section-strong">
+        <div class="call-option-list">
+          <button class="call-option" type="button" disabled>
+            <span>${iconSvg("phone-call")}</span>
+            <strong>${t("callsVoiceTitle")}</strong>
+            <small>${t("callsVoiceHint")}</small>
+          </button>
+          <button class="call-option" type="button" disabled>
+            <span>${iconSvg("video")}</span>
+            <strong>${t("callsVideoTitle")}</strong>
+            <small>${t("callsVideoHint")}</small>
+          </button>
+        </div>
       </section>
     `;
+    hydrateIcons(panelBody);
     return;
   }
 
   panelBody.innerHTML = `
-    <button class="profile-card profile-edit-trigger" type="button" data-panel-action="edit-profile">
+    <button class="profile-card profile-edit-trigger settings-profile-card" type="button" data-panel-action="edit-profile">
       ${accountAvatarHtml()}
       <div>
-        <h3>${escapeHtml(cleanDisplayText(account.displayName, account.username || "ЯЧат"))}</h3>
+        <h3>${escapeHtml(cleanDisplayText(account.displayName, account.username || "ЯЧат"))} ${renderVerified(account)}</h3>
         <p>@${escapeHtml(cleanDisplayText(account.username, "user"))}</p>
         <small>${escapeHtml(cleanDisplayText(account.bio, t("profileEditHint")))}</small>
       </div>
     </button>
     ${renderProfileEditor(account)}
-    <section class="panel-section">
-      <h3>${t("settings")}</h3>
-      <div class="panel-actions">
-        <button type="button" data-panel-action="toggle-theme">${iconSvg(themeIconName())}<span>${t("themeAria")}</span></button>
+    <div class="settings-grid">
+      <section class="panel-section panel-section-strong">
+        <div class="panel-section-head">
+          <span>${iconSvg(themeIconName())}</span>
+          <div>
+            <h3>${t("settingsAppearance")}</h3>
+            <p>${t("themeAria")}</p>
+          </div>
+        </div>
+        <button class="panel-primary is-secondary" type="button" data-panel-action="toggle-theme">${iconSvg(themeIconName(), "button-icon")}<span>${t("themeAria")}</span></button>
+      </section>
+      <section class="panel-section panel-section-strong">
+        <div class="panel-section-head">
+          <span>${iconSvg("shield-check")}</span>
+          <div>
+            <h3>${t("settingsDocs")}</h3>
+            <p>Политика конфиденциальности и условия использования.</p>
+          </div>
+        </div>
+        <div class="panel-actions">
+          <button type="button" data-panel-action="open-policy">${iconSvg("shield-check")}<span>Политика</span></button>
+          <button type="button" data-panel-action="open-terms">${iconSvg("file-text")}<span>Условия</span></button>
+        </div>
+      </section>
+    </div>
+    <section class="panel-section panel-section-strong">
+      <div class="panel-section-head">
+        <span>${iconSvg("scan-line")}</span>
+        <div>
+          <h3>${t("settingsSecurity")}</h3>
+          <p>${t("sessionsHint")}</p>
+        </div>
       </div>
-    </section>
-    <section class="panel-section">
-      <h3>Информация</h3>
-      <p>Политика конфиденциальности и условия использования.</p>
-      <div class="panel-actions">
-        <button type="button" data-panel-action="open-policy">${iconSvg("shield-check")}<span>Политика</span></button>
-        <button type="button" data-panel-action="open-terms">${iconSvg("file-text")}<span>Условия</span></button>
-      </div>
-    </section>
-    <section class="panel-section">
-      <h3>${t("sessions")}</h3>
-      <p>${t("sessionsHint")}</p>
       <video class="session-camera" data-session-camera hidden muted playsinline></video>
       <input class="visually-hidden" type="file" accept="image/*" capture="environment" data-session-capture />
       <p class="session-message" data-session-message></p>
       <button class="panel-primary is-secondary" type="button" data-panel-action="scan-session">${iconSvg("scan-line", "button-icon")}<span>${t("openCamera")}</span></button>
       <button class="panel-primary is-danger" type="button" data-panel-action="logout">${iconSvg("log-out", "button-icon")}<span>${t("logout")}</span></button>
     </section>
-    <section class="panel-section">
+    <section class="panel-section panel-section-strong">
       <h3>${t("dangerZone")}</h3>
       <p>${t("deleteProfileHint")}</p>
       <button class="panel-primary is-danger" type="button" data-panel-action="delete-profile">${iconSvg("trash", "button-icon")}<span>${t("deleteProfile")}</span></button>
@@ -3864,7 +4344,7 @@ function renderCreateChatForm() {
           <button class="user-choice-row" type="button" data-create-user-id="${escapeHtml(user.id)}">
             ${renderUserAvatar(user)}
             <span>
-              <strong>${escapeHtml(user.displayName)}</strong>
+              <strong>${escapeHtml(user.displayName)} ${renderVerified(user)}</strong>
               <small>@${escapeHtml(user.username)}${user.contact ? ` · ${escapeHtml(user.contact)}` : ""}</small>
             </span>
           </button>
@@ -4138,6 +4618,11 @@ function showChatProfileAttachments() {
 async function clearActiveChatHistory(button) {
   const chat = getActiveChat();
   if (!chat || !yachatApi.messenger?.clearHistory) {
+    return;
+  }
+
+  if (!canClearChatHistory(chat)) {
+    alert(clearHistoryBlockedText(chat));
     return;
   }
 
@@ -4415,6 +4900,12 @@ function applyTranslations() {
   setAttr("[data-delete-profile-input]", "placeholder", "deleteProfileConfirmPlaceholder");
   setText('[data-action="close-delete-profile"]:not(.icon-button)', "deleteProfileCancel");
   setText("[data-delete-profile-submit]", "deleteProfileConfirmAction");
+  setText('[data-action="error-home"]', "errorHome");
+  setText('[data-action="error-retry"]', "errorRetry");
+  if (document.body.classList.contains("error-mode")) {
+    const code = errorCode?.textContent === "404" ? "404" : "500";
+    showErrorPage(code, code === "404" ? t("error404Title") : t("errorGenericTitle"), code === "404" ? t("error404Text") : t("errorGenericText"));
+  }
   renderCreateChatForm();
   hydrateIcons();
   if (state.activePanel) {
@@ -4836,9 +5327,11 @@ function createLocalYachatApi() {
           profileUsername: "verificationcodes_bot",
           profileUrl: "https://yachat.vercel.app/verificationcodes_bot",
           profileAbout: "Ваши одноразовые коды от банков, магазинов и сервисов",
-          profileKindLabel: "Бот",
+          profileKindLabel: "Системный бот",
           locked: true,
           verified: true,
+          verifiedTitle: "Коды подтверждения",
+          verifiedDescription: "Системный бот ЯЧата для одноразовых кодов. Историю этого бота очистить нельзя.",
           pinned: true,
           canSend: false,
           avatar: "codes",
@@ -4848,14 +5341,19 @@ function createLocalYachatApi() {
         {
           id: "yachat-channel",
           kind: "channel",
-          title: "Канал ЯЧата",
-          subtitle: "Канал",
+          title: "ЯЧат",
+          subtitle: "Системный канал",
           profileUsername: "yachat_channel",
           profileUrl: "https://yachat.vercel.app/yachat_channel",
-          profileAbout: "Новости приложения, изменения и служебные объявления.",
-          profileKindLabel: "Канал",
+          profileAbout: "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.",
+          profileKindLabel: "Системный канал",
+          ownerId: SYSTEM_OWNER.id,
+          ownerName: SYSTEM_OWNER.displayName,
+          ownerUsername: SYSTEM_OWNER.username,
           locked: true,
           verified: true,
+          verifiedTitle: "ЯЧат",
+          verifiedDescription: "Системный канал ЯЧата. Все аккаунты подписаны автоматически; писать и чистить историю может только владелец Мурочко.",
           pinned: true,
           canSend: false,
           avatar: "channel",
@@ -4869,7 +5367,7 @@ function createLocalYachatApi() {
           createLocalMessage("yachat-codes", "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов.", "bot")
         ],
         "yachat-channel": [
-          createLocalMessage("yachat-channel", "Канал ЯЧата запущен. Здесь будут новости приложения, изменения и служебные объявления.", "channel")
+          createLocalMessage("yachat-channel", "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления.", "channel")
         ]
       }
     };
@@ -4895,7 +5393,17 @@ function createLocalYachatApi() {
 
     Object.entries(messages).forEach(([chatId, list]) => {
       if (Array.isArray(list)) {
-        messages[chatId] = list.filter((message) => !REMOVED_TEST_MESSAGE_TEXTS.has(String(message?.text || "").trim()));
+        messages[chatId] = list
+          .filter((message) => !REMOVED_TEST_MESSAGE_TEXTS.has(String(message?.text || "").trim()))
+          .map((message) => {
+            if (chatId === "yachat-channel" && String(message?.text || "").includes("Канал ЯЧата")) {
+              return {
+                ...message,
+                text: String(message.text || "").replaceAll("Канал ЯЧата", "ЯЧат").replaceAll("канал встроен", "системный канал встроен")
+              };
+            }
+            return message;
+          });
       }
     });
 
@@ -5032,12 +5540,15 @@ function createLocalYachatApi() {
       const ids = localParticipantIds(chat);
       const participantProfiles = chat.participantProfiles || {};
       const otherId = ids.find((id) => id !== account?.id) || ids[0];
-      const other = participantProfiles[otherId] || null;
+      const other = decorateVerifiedEntity(participantProfiles[otherId] || null);
       return {
         ...chat,
         title: chat.kind === "private" && other ? other.displayName || other.previewName || other.username || chat.title : chat.title,
         subtitle: chat.kind === "private" && other?.username ? `@${other.username}` : chat.subtitle,
         avatarDataUrl: chat.kind === "private" && other?.avatarDataUrl ? other.avatarDataUrl : chat.avatarDataUrl,
+        verified: chat.kind === "private" && other ? Boolean(other.verified) : Boolean(chat.verified),
+        verifiedTitle: chat.kind === "private" && other ? other.verifiedTitle || "" : chat.verifiedTitle || "",
+        verifiedDescription: chat.kind === "private" && other ? other.verifiedDescription || "" : chat.verifiedDescription || "",
         profileUsername: chat.kind === "private" && other?.username ? other.username : chat.profileUsername || "",
         profileAbout: chat.kind === "private" && other ? cleanDisplayText(other.bio, "") : cleanDisplayText(chat.profileAbout || chat.description, ""),
         profileKindLabel: chat.kind === "private" || chat.kind === "saved" ? "" : chat.profileKindLabel || (chat.kind === "group" ? t("groupChat") : ""),
@@ -5517,10 +6028,19 @@ function createLocalYachatApi() {
       },
       clearHistory: async (payload) => {
         const data = readMessenger();
+        const account = readAccount()?.account || null;
         const chat = data.chats.find((item) => item.id === payload?.chatId);
 
         if (!chat) {
           throw new Error("Чат не найден.");
+        }
+
+        if (chat.id === "yachat-codes") {
+          throw new Error(t("clearHistoryLocked"));
+        }
+
+        if (chat.id === "yachat-channel" && !isMurochkoEntity(account)) {
+          throw new Error(t("clearHistoryOwnerOnly"));
         }
 
         data.messages[chat.id] = [];
@@ -5925,6 +6445,35 @@ function finishAppBoot() {
   document.body.classList.remove("app-booting");
 }
 
+async function showSignedOutRouteErrorIfNeeded() {
+  if (!canUseHistoryRoutes()) {
+    return false;
+  }
+
+  if (routeNeeds404Check()) {
+    showErrorPage("404", t("error404Title"), t("error404Text"));
+    return true;
+  }
+
+  const routeUsername = routeUsernameFromLocation();
+  if (!routeUsername || systemRouteChatIds.has(routeUsername)) {
+    return false;
+  }
+
+  try {
+    const user = await yachatApi.users?.byUsername?.(routeUsername);
+    if (!user) {
+      showErrorPage("404", t("error404Title"), t("error404Text"));
+      return true;
+    }
+  } catch {
+    showErrorPage("500", t("errorGenericTitle"), t("errorGenericText"));
+    return true;
+  }
+
+  return false;
+}
+
 async function initializeApp() {
   setTheme(state.theme, false, state.themeSource);
   setDeliveryMethod(state.verificationDeliveryMethod);
@@ -5951,6 +6500,9 @@ async function initializeApp() {
         state.accountTextMode = "existing";
         showMessenger(boot.account, { snapshot: boot });
       } else {
+        if (await showSignedOutRouteErrorIfNeeded()) {
+          return;
+        }
         const account = await yachatApi.account.get();
         if (account) {
           state.account = normalizeAccount(account);
@@ -5967,9 +6519,12 @@ async function initializeApp() {
       state.account = normalizeAccount(account);
       state.accountTextMode = "existing";
       showMessenger(account);
+    } else {
+      await showSignedOutRouteErrorIfNeeded();
     }
   } catch {
     await loadServerState();
+    await showSignedOutRouteErrorIfNeeded();
   } finally {
     finishAppBoot();
   }
@@ -6690,6 +7245,10 @@ document.querySelectorAll("[data-language]").forEach((button) => {
 chatSearch?.addEventListener("input", refreshChatSearch);
 
 chatList?.addEventListener("click", (event) => {
+  if (handleVerifiedInfoClick(event) || handleAvatarViewClick(event)) {
+    return;
+  }
+
   const searchUserRow = event.target.closest("[data-search-user-id]");
   if (searchUserRow) {
     openPrivateChatFromSearch(searchUserRow.dataset.searchUserId).catch(() => {});
@@ -6772,6 +7331,16 @@ composerContext?.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-info-close]") || event.target.matches("[data-info-modal]")) {
+    closeInfoModal();
+    return;
+  }
+
+  if (event.target.closest("[data-avatar-close]") || event.target.matches("[data-avatar-modal]")) {
+    closeAvatarViewer();
+    return;
+  }
+
   const actionButton = event.target.closest("[data-message-action]");
   if (actionButton) {
     handleMessageAction(actionButton.dataset.messageAction);
@@ -6800,10 +7369,22 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if ((event.key === "Enter" || event.key === " ") && event.target.closest("[data-verified-info]")) {
+    handleVerifiedInfoClick(event);
+    return;
+  }
+
+  if ((event.key === "Enter" || event.key === " ") && event.target.closest("[data-avatar-view]")) {
+    handleAvatarViewClick(event);
+    return;
+  }
+
   if (event.key !== "Escape") {
     return;
   }
 
+  closeInfoModal();
+  closeAvatarViewer();
   closeMessageMenu();
   closeForwardPicker();
   if (state.selectingMessages) {
@@ -6892,7 +7473,11 @@ document.querySelector('[data-action="new-chat"]')?.addEventListener("click", ()
   openCreateChat();
 });
 
-document.querySelector('[data-action="chat-card"]')?.addEventListener("click", () => {
+document.querySelector('[data-action="chat-card"]')?.addEventListener("click", (event) => {
+  if (handleVerifiedInfoClick(event) || handleAvatarViewClick(event)) {
+    return;
+  }
+
   openPanel("chat");
 });
 
@@ -6919,6 +7504,20 @@ document.querySelectorAll("[data-rail]").forEach((button) => {
 
 document.querySelector('[data-action="close-panel"]')?.addEventListener("click", closePanel);
 
+document.querySelector('[data-action="error-home"]')?.addEventListener("click", () => {
+  hideErrorPage();
+  replaceAppRoute("/");
+  if (state.account) {
+    showMessenger(state.account);
+  } else {
+    resetAccountSessionUi();
+  }
+});
+
+document.querySelector('[data-action="error-retry"]')?.addEventListener("click", () => {
+  window.location.reload();
+});
+
 panelBody?.addEventListener("input", (event) => {
   const profileUsernameInput = event.target.closest("[data-profile-username]");
   if (profileUsernameInput) {
@@ -6928,6 +7527,10 @@ panelBody?.addEventListener("input", (event) => {
 });
 
 panelBody?.addEventListener("click", async (event) => {
+  if (handleVerifiedInfoClick(event) || handleAvatarViewClick(event)) {
+    return;
+  }
+
   const chatButton = event.target.closest("[data-panel-chat]");
   if (chatButton) {
     closePanel();
@@ -7153,6 +7756,10 @@ createChatForm?.addEventListener("input", (event) => {
 });
 
 createChatForm?.addEventListener("click", (event) => {
+  if (handleVerifiedInfoClick(event) || handleAvatarViewClick(event)) {
+    return;
+  }
+
   const avatarButton = event.target.closest('[data-action="choose-create-chat-avatar"]');
   if (avatarButton) {
     createChatForm.querySelector("[data-create-chat-avatar-input]")?.click();

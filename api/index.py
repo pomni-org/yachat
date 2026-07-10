@@ -89,6 +89,15 @@ DEFAULT_SETTINGS = {
     "country": "RU",
     "countryCode": "+7",
 }
+SYSTEM_OWNER = {
+    "id": "murochko",
+    "username": "murochko",
+    "displayName": "Мурочко",
+    "roleLabel": "Владелец",
+    "verified": True,
+    "verifiedTitle": "Мурочко",
+    "verifiedDescription": "Владелец ЯЧата. Этот значок подтверждает главный системный аккаунт.",
+}
 QR_SESSION_TTL_MINUTES = 5
 MAX_JSON_BODY_BYTES = int(os.getenv("YACHAT_MAX_JSON_BODY_BYTES", "6000000"))
 MAX_ATTACHMENT_DATA_URL_BYTES = int(os.getenv("YACHAT_MAX_ATTACHMENT_DATA_URL_BYTES", "1200000"))
@@ -486,6 +495,40 @@ def clean_text(value: Any, limit: int = 500) -> str:
     return str(value or "").replace("\x00", "").strip()[:limit]
 
 
+def identity_text(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip().lower().lstrip("@"))
+
+
+def is_murochko_profile(row: dict[str, Any] | None) -> bool:
+    if not row:
+        return False
+
+    values = (
+        row_value(row, "username"),
+        row_value(row, "display_name"),
+        row_value(row, "preview_name"),
+        row_value(row, "title"),
+    )
+    return any(identity_text(value) in {"murochko", "мурочко"} for value in values)
+
+
+def verification_fields(row: dict[str, Any] | None) -> dict[str, Any]:
+    if is_murochko_profile(row):
+        return {
+            "verified": True,
+            "roleLabel": "Владелец",
+            "verifiedTitle": "Мурочко",
+            "verifiedDescription": "Владелец ЯЧата. Этот значок подтверждает главный системный аккаунт.",
+        }
+
+    return {
+        "verified": False,
+        "roleLabel": "",
+        "verifiedTitle": "",
+        "verifiedDescription": "",
+    }
+
+
 def clean_chat_id(value: Any, *, allow_empty: bool = False) -> str:
     chat_id = str(value or "").strip()
     if allow_empty and not chat_id:
@@ -685,6 +728,7 @@ def public_user(row: dict[str, Any], matched_contact: str = "") -> dict[str, Any
         "matchedContact": matched_contact,
         "encrypted": True,
         "publicKeyType": str(row_value(row, "public_key_type")) or "x25519",
+        **verification_fields(row),
     }
 
     user["contact"] = str(row_value(row, "contact")) if env_flag("YACHAT_PUBLIC_CONTACTS", False) else ""
@@ -705,6 +749,7 @@ def public_account(row: dict[str, Any], session_token: str = "") -> dict[str, An
         "createdAt": row_value(row, "created_at"),
         "status": "account-created",
         "encrypted": True,
+        **verification_fields(row),
     }
     if session_token:
         account["sessionToken"] = session_token
@@ -1068,6 +1113,7 @@ def user_profile(row: dict[str, Any]) -> dict[str, Any]:
         "previewName": str(row_value(row, "preview_name", "display_name", "username")),
         "avatarDataUrl": str(row_value(row, "avatar_url")),
         "avatarAccent": str(row_value(row, "avatar_accent")) or "#471AFF",
+        **verification_fields(row),
     }
 
 
@@ -1146,7 +1192,7 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
     latest_messages = latest_messages or {}
     codes_latest = latest_messages.get("yachat-codes") or {}
     codes_intro = "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов."
-    channel_intro = "Канал ЯЧата запущен. Здесь будут новости приложения, изменения и служебные объявления."
+    channel_intro = "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления."
     return [
         {
             "id": "yachat-favorites",
@@ -1174,9 +1220,11 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
             "profileUsername": "verificationcodes_bot",
             "profileUrl": "https://yachat.vercel.app/verificationcodes_bot",
             "profileAbout": "Ваши одноразовые коды от банков, магазинов и сервисов",
-            "profileKindLabel": "Бот",
+            "profileKindLabel": "Системный бот",
             "locked": True,
             "verified": True,
+            "verifiedTitle": "Коды подтверждения",
+            "verifiedDescription": "Системный бот ЯЧата для одноразовых кодов. Историю этого бота очистить нельзя.",
             "pinned": True,
             "canSend": False,
             "avatar": "codes",
@@ -1189,15 +1237,20 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
         {
             "id": "yachat-channel",
             "kind": "channel",
-            "title": "Канал ЯЧата",
-            "subtitle": "Канал",
+            "title": "ЯЧат",
+            "subtitle": "Системный канал",
             "description": channel_intro,
             "profileUsername": "yachat_channel",
             "profileUrl": "https://yachat.vercel.app/yachat_channel",
-            "profileAbout": "Новости приложения, изменения и служебные объявления.",
-            "profileKindLabel": "Канал",
+            "profileAbout": "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.",
+            "profileKindLabel": "Системный канал",
+            "ownerId": SYSTEM_OWNER["id"],
+            "ownerName": SYSTEM_OWNER["displayName"],
+            "ownerUsername": SYSTEM_OWNER["username"],
             "locked": True,
             "verified": True,
+            "verifiedTitle": "ЯЧат",
+            "verifiedDescription": "Системный канал ЯЧата. Все аккаунты подписаны автоматически; писать и чистить историю может только владелец Мурочко.",
             "pinned": True,
             "canSend": False,
             "avatar": "channel",
@@ -1218,7 +1271,7 @@ def system_chat_messages(chat_id: str) -> list[dict[str, Any]]:
         ),
         "yachat-channel": (
             "channel",
-            "Канал ЯЧата запущен. Здесь будут новости приложения, изменения и служебные объявления.",
+            "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления.",
         ),
     }
     entry = messages.get(chat_id)
@@ -1342,6 +1395,8 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
     profile_url = ""
     profile_about = str(row_value(chat, "description"))
     profile_kind_label = "Группа" if chat["kind"] == "group" else ""
+    verified = bool(row_value(chat, "verified"))
+    verified_meta: dict[str, Any] = {}
     if chat["kind"] == "private" and other:
         title = str(row_value(other, "display_name", "preview_name", "username"))
         username = str(row_value(other, "username"))
@@ -1351,6 +1406,8 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         profile_url = f"https://yachat.vercel.app/{username}" if username else ""
         profile_about = str(row_value(other, "bio"))
         profile_kind_label = ""
+        verified_meta = verification_fields(other)
+        verified = bool(verified_meta.get("verified"))
     elif chat["kind"] == "group":
         subtitle = subtitle or f"{max(len(members), 1)} участников"
 
@@ -1364,7 +1421,10 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         "participantProfiles": profiles,
         "ownerId": str(row_value(chat, "owner_id")),
         "locked": bool(row_value(chat, "locked")),
-        "verified": bool(row_value(chat, "verified")),
+        "verified": verified,
+        "verifiedTitle": str(verified_meta.get("verifiedTitle") or ""),
+        "verifiedDescription": str(verified_meta.get("verifiedDescription") or ""),
+        "roleLabel": str(verified_meta.get("roleLabel") or ""),
         "pinned": bool(row_value(chat, "pinned")),
         "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True),
         "avatar": str(chat["kind"]),
@@ -1413,6 +1473,8 @@ def chat_summary_cached(
     profile_url = ""
     profile_about = str(row_value(chat, "description"))
     profile_kind_label = "Группа" if chat["kind"] == "group" else ""
+    verified = bool(row_value(chat, "verified"))
+    verified_meta: dict[str, Any] = {}
 
     if chat["kind"] == "private" and other:
         title = str(row_value(other, "display_name", "preview_name", "username"))
@@ -1423,6 +1485,8 @@ def chat_summary_cached(
         profile_url = f"https://yachat.vercel.app/{username}" if username else ""
         profile_about = str(row_value(other, "bio"))
         profile_kind_label = ""
+        verified_meta = verification_fields(other)
+        verified = bool(verified_meta.get("verified"))
     elif chat["kind"] == "group":
         subtitle = subtitle or f"{max(len(members), 1)} участников"
 
@@ -1436,7 +1500,10 @@ def chat_summary_cached(
         "participantProfiles": profiles,
         "ownerId": str(row_value(chat, "owner_id")),
         "locked": bool(row_value(chat, "locked")),
-        "verified": bool(row_value(chat, "verified")),
+        "verified": verified,
+        "verifiedTitle": str(verified_meta.get("verifiedTitle") or ""),
+        "verifiedDescription": str(verified_meta.get("verifiedDescription") or ""),
+        "roleLabel": str(verified_meta.get("roleLabel") or ""),
         "pinned": bool(row_value(chat, "pinned")),
         "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True),
         "avatar": str(chat["kind"]),
@@ -2448,6 +2515,10 @@ async def clear_chat_history(request: Request):
             if requested_chat_id == "yachat-favorites":
                 chat_id = ensure_saved_chat(cursor, str(user["id"]))
             elif requested_chat_id.startswith("yachat-"):
+                if requested_chat_id == "yachat-codes":
+                    raise HTTPException(status_code=403, detail="This system chat history cannot be cleared.")
+                if requested_chat_id == "yachat-channel" and not is_murochko_profile(user):
+                    raise HTTPException(status_code=403, detail="Only Murochko can clear the YaChat channel history.")
                 cursor.execute(
                     "delete from yachat_system_messages where user_id = %s and chat_id = %s",
                     (user["id"], requested_chat_id),

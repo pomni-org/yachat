@@ -12,6 +12,43 @@ try {
 const CIPHER = "aes-256-gcm";
 const KDF = "scrypt";
 const REMOVED_TEST_MESSAGE_TEXTS = new Set(["Приыет?"]);
+const SYSTEM_OWNER = {
+  id: "murochko",
+  username: "murochko",
+  displayName: "Мурочко",
+  roleLabel: "Владелец",
+  verified: true,
+  verifiedTitle: "Мурочко",
+  verifiedDescription: "Владелец ЯЧата. Этот значок подтверждает главный системный аккаунт."
+};
+
+function identityText(value) {
+  return String(value || "").trim().toLowerCase().replace(/^@+/, "").replace(/\s+/g, "");
+}
+
+function isMurochkoProfile(profile) {
+  return [profile?.username, profile?.displayName, profile?.previewName, profile?.title, profile?.ownerUsername, profile?.ownerName]
+    .map(identityText)
+    .some((value) => value === "murochko" || value === "мурочко");
+}
+
+function verificationFields(profile) {
+  if (isMurochkoProfile(profile)) {
+    return {
+      verified: true,
+      roleLabel: "Владелец",
+      verifiedTitle: "Мурочко",
+      verifiedDescription: "Владелец ЯЧата. Этот значок подтверждает главный системный аккаунт."
+    };
+  }
+
+  return {
+    verified: false,
+    roleLabel: "",
+    verifiedTitle: "",
+    verifiedDescription: ""
+  };
+}
 
 function safeSegment(value) {
   return String(value || "")
@@ -670,7 +707,8 @@ function createLocalBackend(app, appTitle) {
       createdAt: manifest.createdAt,
       status: "account-created",
       encrypted: true,
-      userDir: databasePath
+      userDir: databasePath,
+      ...verificationFields(manifest)
     };
   }
 
@@ -694,7 +732,8 @@ function createLocalBackend(app, appTitle) {
       previewName: displayName,
       contact: cleanPersonalText(manifest.contact, ""),
       avatarDataUrl: manifest.avatarDataUrl || "",
-      avatarAccent: manifest.avatarAccent || "#471AFF"
+      avatarAccent: manifest.avatarAccent || "#471AFF",
+      ...verificationFields(manifest)
     };
   }
 
@@ -714,7 +753,8 @@ function createLocalBackend(app, appTitle) {
       avatarAccent: manifest.avatarAccent || "#471AFF",
       createdAt: manifest.createdAt,
       encrypted: true,
-      publicKeyType: manifest.publicKeyType || "x25519"
+      publicKeyType: manifest.publicKeyType || "x25519",
+      ...verificationFields(manifest)
     };
   }
 
@@ -735,7 +775,8 @@ function createLocalBackend(app, appTitle) {
       previewName: displayName,
       contact: cleanPersonalText(profile?.contact || profile?.matchedContact, ""),
       avatarDataUrl: profile?.avatarDataUrl || "",
-      avatarAccent: profile?.avatarAccent || "#471AFF"
+      avatarAccent: profile?.avatarAccent || "#471AFF",
+      ...verificationFields(profile)
     };
   }
 
@@ -861,6 +902,23 @@ function createLocalBackend(app, appTitle) {
       .map((manifest) => publicDirectoryUser(manifest));
   }
 
+  async function checkUsername(username) {
+    await init();
+
+    const normalized = safeSegment(username).slice(0, 24);
+    const account = await getLastAccount();
+
+    if (!normalized || normalized.length < 3) {
+      return { username: normalized, available: false };
+    }
+
+    const taken = dbGet("select id from users where lower(username) = lower(?) and id <> ? limit 1", [normalized, account?.id || ""]);
+    return {
+      username: normalized,
+      available: !taken
+    };
+  }
+
   async function getLastAccount() {
     const settings = await getSettings();
     const users = await listUsers();
@@ -885,7 +943,8 @@ function createLocalBackend(app, appTitle) {
       createdAt: manifest.createdAt,
       status: "account-created",
       encrypted: true,
-      userDir: databasePath
+      userDir: databasePath,
+      ...verificationFields(manifest)
     };
   }
 
@@ -957,6 +1016,51 @@ function createLocalBackend(app, appTitle) {
       encrypted: true,
       userDir: databasePath
     };
+  }
+
+  async function updateAccount(payload) {
+    await init();
+
+    const account = await getLastAccount();
+    if (!account) {
+      throw new Error("Сначала войдите в аккаунт.");
+    }
+
+    const displayName = normalizeProfileText(payload?.displayName, 60);
+    const username = safeSegment(payload?.username).slice(0, 24);
+    const bio = normalizeProfileText(payload?.bio, 140);
+    const avatarDataUrl = normalizeAvatarDataUrl(payload?.avatarDataUrl);
+    const avatarAccent = String(payload?.avatarAccent || account.avatarAccent || "#471AFF").slice(0, 24);
+
+    if (!displayName) {
+      throw new Error("Введите имя.");
+    }
+
+    if (!username || username.length < 3) {
+      throw new Error("Ник: 3-24 символа, латиница, цифры или подчёркивание.");
+    }
+
+    const taken = dbGet("select id from users where lower(username) = lower(?) and id <> ? limit 1", [username, account.id]);
+    if (taken) {
+      throw new Error("Этот ник уже занят.");
+    }
+
+    dbRun(
+      `
+      update users
+      set username = ?,
+          preview_name = ?,
+          display_name = ?,
+          bio = ?,
+          avatar_data_url = ?,
+          avatar_accent = ?,
+          updated_at = ?
+      where id = ?
+      `,
+      [username, displayName, displayName, bio, avatarDataUrl, avatarAccent, new Date().toISOString(), account.id]
+    );
+
+    return getLastAccount();
   }
 
   async function logout() {
@@ -1224,10 +1328,13 @@ function createLocalBackend(app, appTitle) {
         title: "Коды подтверждения",
         subtitle: "Ваши одноразовые коды от банков, магазинов и сервисов",
         description: "Ваши одноразовые коды от банков, магазинов и сервисов",
+        profileKindLabel: "Системный бот",
         locked: true,
         verified: true,
+        verifiedTitle: "Коды подтверждения",
+        verifiedDescription: "Системный бот ЯЧата для одноразовых кодов. Историю этого бота очистить нельзя.",
         pinned: true,
-        canSend: true,
+        canSend: false,
         avatar: "codes",
         avatarDataUrl: "./assets/yachat-codes-avatar.webp",
         createdAt
@@ -1235,10 +1342,20 @@ function createLocalBackend(app, appTitle) {
       {
         id: "yachat-channel",
         kind: "channel",
-        title: "Канал ЯЧата",
-        subtitle: "Канал",
+        title: "ЯЧат",
+        subtitle: "Системный канал",
+        description: "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления.",
+        profileUsername: "yachat_channel",
+        profileUrl: "https://yachat.vercel.app/yachat_channel",
+        profileAbout: "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.",
+        profileKindLabel: "Системный канал",
+        ownerId: SYSTEM_OWNER.id,
+        ownerName: SYSTEM_OWNER.displayName,
+        ownerUsername: SYSTEM_OWNER.username,
         locked: true,
         verified: true,
+        verifiedTitle: "ЯЧат",
+        verifiedDescription: "Системный канал ЯЧата. Все аккаунты подписаны автоматически; писать и чистить историю может только владелец Мурочко.",
         pinned: true,
         canSend: false,
         avatar: "channel",
@@ -1257,8 +1374,8 @@ function createLocalBackend(app, appTitle) {
           createMessage("yachat-codes", "От этого чата нельзя отписаться: он нужен для безопасности аккаунта.", "bot")
         ],
         "yachat-channel": [
-          createMessage("yachat-channel", "Канал ЯЧата запущен. Здесь будут новости приложения, изменения и служебные объявления.", "channel"),
-          createMessage("yachat-channel", "Этот канал встроен в ЯЧат и остаётся доступным всегда.", "channel")
+          createMessage("yachat-channel", "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления.", "channel"),
+          createMessage("yachat-channel", "Этот системный канал встроен в ЯЧат и остаётся доступным всегда.", "channel")
         ]
       },
       updatedAt: createdAt
@@ -1284,7 +1401,17 @@ function createLocalBackend(app, appTitle) {
 
     for (const [chatId, list] of Object.entries(messages)) {
       if (Array.isArray(list)) {
-        messages[chatId] = list.filter((message) => !REMOVED_TEST_MESSAGE_TEXTS.has(String(message?.text || "").trim()));
+        messages[chatId] = list
+          .filter((message) => !REMOVED_TEST_MESSAGE_TEXTS.has(String(message?.text || "").trim()))
+          .map((message) => {
+            if (chatId === "yachat-channel" && String(message?.text || "").includes("Канал ЯЧата")) {
+              return {
+                ...message,
+                text: String(message.text || "").replaceAll("Канал ЯЧата", "ЯЧат").replaceAll("канал встроен", "системный канал встроен")
+              };
+            }
+            return message;
+          });
       }
     }
 
@@ -1400,6 +1527,10 @@ function createLocalBackend(app, appTitle) {
     let title = chat.title;
     let subtitle = chat.subtitle;
     let avatarDataUrl = chat.avatarDataUrl || "";
+    let verified = Boolean(chat.verified);
+    let verifiedTitle = chat.verifiedTitle || "";
+    let verifiedDescription = chat.verifiedDescription || "";
+    let roleLabel = chat.roleLabel || "";
 
     if (chat.kind === "private" && participantIds.length > 0) {
       const otherId = participantIds.find((id) => id !== account?.id) || participantIds[0];
@@ -1408,6 +1539,11 @@ function createLocalBackend(app, appTitle) {
         title = other.displayName || other.previewName || other.username || title;
         subtitle = other.username ? `@${other.username}` : "Личный чат";
         avatarDataUrl = other.avatarDataUrl || avatarDataUrl;
+        const meta = verificationFields(other);
+        verified = Boolean(meta.verified);
+        verifiedTitle = meta.verifiedTitle;
+        verifiedDescription = meta.verifiedDescription;
+        roleLabel = meta.roleLabel;
       }
     }
 
@@ -1421,6 +1557,10 @@ function createLocalBackend(app, appTitle) {
       title,
       subtitle,
       avatarDataUrl,
+      verified,
+      verifiedTitle,
+      verifiedDescription,
+      roleLabel,
       lastMessage: last?.text || attachmentText,
       lastAt: last?.createdAt || chat.createdAt,
       unread: countUnreadMessages(chat, list)
@@ -1721,6 +1861,61 @@ function createLocalBackend(app, appTitle) {
     return {
       chats,
       activeChatId: chats[0]?.id || null
+    };
+  }
+
+  async function deleteChat(payload) {
+    const state = await ensureMessengerState();
+    const account = await getLastAccount();
+    const usersById = createUserMap(await readAllManifests());
+    const chat = state.chats.find((item) => item.id === payload?.chatId);
+
+    if (!chat) {
+      throw new Error("Чат не найден.");
+    }
+
+    if (chat.kind !== "group" || chat.locked || (chat.ownerId && chat.ownerId !== account?.id)) {
+      throw new Error("Удалить группу может только владелец.");
+    }
+
+    state.chats = state.chats.filter((item) => item.id !== chat.id);
+    delete state.messages[chat.id];
+    await saveMessengerState(state);
+    const chats = summarizeChatList(state, account, usersById);
+
+    return {
+      chats,
+      activeChatId: chats[0]?.id || null
+    };
+  }
+
+  async function clearHistory(payload) {
+    const state = await ensureMessengerState();
+    const account = await getLastAccount();
+    const usersById = createUserMap(await readAllManifests());
+    const chat = state.chats.find((item) => item.id === payload?.chatId);
+
+    if (!chat) {
+      throw new Error("Чат не найден.");
+    }
+
+    if (chat.id === "yachat-codes") {
+      throw new Error("Историю этого системного чата нельзя очистить.");
+    }
+
+    if (chat.id === "yachat-channel" && !isMurochkoProfile(account)) {
+      throw new Error("Историю канала ЯЧата может очистить только Мурочко.");
+    }
+
+    state.messages[chat.id] = [];
+    chat.manualUnread = false;
+    chat.unreadMessageId = "";
+    chat.updatedAt = new Date().toISOString();
+    await saveMessengerState(state);
+
+    return {
+      chats: summarizeChatList(state, account, usersById),
+      messages: []
     };
   }
 
@@ -2087,10 +2282,12 @@ function createLocalBackend(app, appTitle) {
     updateSettings,
     listUsers,
     searchUsers,
+    checkUsername,
     lookupContacts,
     getLastAccount,
     findAccountByContact,
     createUser,
+    updateAccount,
     logout,
     deleteProfile,
     listChats,
@@ -2099,6 +2296,8 @@ function createLocalBackend(app, appTitle) {
     updateChat,
     createInvite,
     leaveChat,
+    deleteChat,
+    clearHistory,
     sendMessage,
     updateMessage,
     deleteMessage,
