@@ -359,13 +359,26 @@ def ensure_schema() -> None:
             id text primary key,
             user_id text not null references public_users(id) on delete cascade,
             chat_id text not null,
+            author_id text default 'yachat',
             text text default '',
+            attachments jsonb default '[]'::jsonb,
             system_kind text default '',
             created_at timestamptz default now(),
             expires_at timestamptz
         )
         """,
+        "alter table yachat_system_messages add column if not exists author_id text default 'yachat'",
+        "alter table yachat_system_messages add column if not exists attachments jsonb default '[]'::jsonb",
         "create index if not exists yachat_system_messages_user_chat_idx on yachat_system_messages(user_id, chat_id, created_at)",
+        """
+        create table if not exists yachat_system_chats (
+            id text primary key,
+            title text default '',
+            description text default '',
+            avatar_url text default '',
+            updated_at timestamptz default now()
+        )
+        """,
         """
         create table if not exists yachat_telegram_links (
             telegram_user_id text primary key,
@@ -527,6 +540,28 @@ def verification_fields(row: dict[str, Any] | None) -> dict[str, Any]:
         "verifiedTitle": "",
         "verifiedDescription": "",
     }
+
+
+def system_owner_profile(cursor) -> dict[str, Any] | None:
+    cursor.execute(
+        """
+        select *
+        from public_users
+        where lower(username) = 'murochko'
+           or lower(display_name) = 'мурочко'
+           or lower(preview_name) = 'мурочко'
+        order by updated_at desc nulls last, created_at desc nulls last
+        limit 1
+        """
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def system_chat_settings(cursor, chat_id: str) -> dict[str, Any]:
+    cursor.execute("select * from yachat_system_chats where id = %s limit 1", (chat_id,))
+    row = cursor.fetchone()
+    return dict(row) if row else {}
 
 
 def clean_chat_id(value: Any, *, allow_empty: bool = False) -> str:
@@ -1187,12 +1222,27 @@ def save_user_settings(user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     return settings
 
 
-def system_chats(now_value: datetime | None = None, latest_messages: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+def system_chats(
+    now_value: datetime | None = None,
+    latest_messages: dict[str, dict[str, Any]] | None = None,
+    owner_profile: dict[str, Any] | None = None,
+    channel_settings: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     created_at = now_value or utc_now()
     latest_messages = latest_messages or {}
+    channel_settings = channel_settings or {}
     codes_latest = latest_messages.get("yachat-codes") or {}
+    channel_latest = latest_messages.get("yachat-channel") or {}
     codes_intro = "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов."
     channel_intro = "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления."
+    owner = owner_profile or {}
+    owner_name = str(row_value(owner, "display_name", "preview_name", "username")) or SYSTEM_OWNER["displayName"]
+    owner_username = str(row_value(owner, "username")) or SYSTEM_OWNER["username"]
+    owner_avatar = str(row_value(owner, "avatar_url", "avatar_data_url"))
+    owner_avatar_accent = str(row_value(owner, "avatar_accent")) or "#471AFF"
+    channel_title = str(row_value(channel_settings, "title")) or "ЯЧат"
+    channel_description = str(row_value(channel_settings, "description")) or channel_intro
+    channel_avatar = str(row_value(channel_settings, "avatar_url")) or "./assets/yachat-logo-COLOR.png"
     return [
         {
             "id": "yachat-favorites",
@@ -1237,16 +1287,18 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
         {
             "id": "yachat-channel",
             "kind": "channel",
-            "title": "ЯЧат",
+            "title": channel_title,
             "subtitle": "Системный канал",
-            "description": channel_intro,
+            "description": channel_description,
             "profileUsername": "yachat_channel",
             "profileUrl": "https://yachat.vercel.app/yachat_channel",
-            "profileAbout": "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.",
+            "profileAbout": channel_description,
             "profileKindLabel": "Системный канал",
-            "ownerId": SYSTEM_OWNER["id"],
-            "ownerName": SYSTEM_OWNER["displayName"],
-            "ownerUsername": SYSTEM_OWNER["username"],
+            "ownerId": str(row_value(owner, "id")) or SYSTEM_OWNER["id"],
+            "ownerName": owner_name,
+            "ownerUsername": owner_username,
+            "ownerAvatarDataUrl": owner_avatar,
+            "ownerAvatarAccent": owner_avatar_accent,
             "locked": True,
             "verified": True,
             "verifiedTitle": "ЯЧат",
@@ -1254,10 +1306,10 @@ def system_chats(now_value: datetime | None = None, latest_messages: dict[str, d
             "pinned": True,
             "canSend": False,
             "avatar": "channel",
-            "avatarDataUrl": "./assets/yachat-logo-COLOR.png",
+            "avatarDataUrl": channel_avatar,
             "createdAt": created_at,
-            "lastAt": created_at,
-            "lastMessage": channel_intro,
+            "lastAt": row_value(channel_latest, "created_at") or created_at,
+            "lastMessage": str(row_value(channel_latest, "text")) or channel_description,
             "unread": 0,
         },
     ]
@@ -1294,14 +1346,17 @@ def system_chat_messages(chat_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def system_message_payload(row: dict[str, Any]) -> dict[str, Any]:
+def system_message_payload(row: dict[str, Any], current_user_id: str = "") -> dict[str, Any]:
+    chat_id = str(row_value(row, "chat_id"))
+    author_id = str(row_value(row, "author_id")) or "yachat"
+    attachments = row_value(row, "attachments")
     return {
         "id": str(row_value(row, "id")),
-        "chatId": str(row_value(row, "chat_id")),
-        "author": "bot",
-        "authorId": "yachat",
+        "chatId": chat_id,
+        "author": "channel" if chat_id == "yachat-channel" else "user" if author_id and author_id == current_user_id else "bot",
+        "authorId": author_id,
         "text": str(row_value(row, "text")),
-        "attachments": [],
+        "attachments": attachments if isinstance(attachments, list) else [],
         "replyToMessageId": None,
         "forwardedFrom": "",
         "createdAt": row_value(row, "created_at"),
@@ -1334,7 +1389,7 @@ def system_messages_for_user(cursor, chat_id: str, user_id: str) -> list[dict[st
         """,
         (user_id, chat_id),
     )
-    return [system_message_payload(dict(row)) for row in cursor.fetchall()]
+    return [system_message_payload(dict(row), user_id) for row in cursor.fetchall()]
 
 
 def chat_members(cursor, chat_id: str) -> list[dict[str, Any]]:
@@ -1538,9 +1593,15 @@ def list_user_chats(user_id: str) -> list[dict[str, Any]]:
             )
             chat_rows = [dict(row) for row in cursor.fetchall()]
             latest_messages = latest_system_messages(cursor, user_id)
+            owner_profile = system_owner_profile(cursor)
+            channel_settings = system_chat_settings(cursor, "yachat-channel")
 
             if not chat_rows:
-                return system_chats(latest_messages=latest_messages)
+                return system_chats(
+                    latest_messages=latest_messages,
+                    owner_profile=owner_profile,
+                    channel_settings=channel_settings,
+                )
 
             chat_ids = [str(row["id"]) for row in chat_rows]
             members_by_chat: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1599,7 +1660,14 @@ def list_user_chats(user_id: str) -> list[dict[str, Any]]:
                 for chat in chat_rows
             ]
 
-    return [*system_chats(latest_messages=latest_messages), *chats]
+    return [
+        *system_chats(
+            latest_messages=latest_messages,
+            owner_profile=owner_profile,
+            channel_settings=channel_settings,
+        ),
+        *chats,
+    ]
 
 
 def require_chat_member(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
@@ -2371,6 +2439,34 @@ async def update_chat(request: Request):
 
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
+            if chat_id == "yachat-channel":
+                if not is_murochko_profile(user):
+                    raise HTTPException(status_code=403, detail="Only Murochko can edit the YaChat channel.")
+
+                title = clean_text(payload.get("title"), 60) or "ЯЧат"
+                description = clean_text(payload.get("description"), 180) or "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления."
+                avatar_url = clean_text(payload.get("avatarDataUrl"), 900000)
+                cursor.execute(
+                    """
+                    insert into yachat_system_chats(id, title, description, avatar_url, updated_at)
+                    values ('yachat-channel', %s, %s, %s, now())
+                    on conflict (id) do update
+                    set title = excluded.title,
+                        description = excluded.description,
+                        avatar_url = excluded.avatar_url,
+                        updated_at = now()
+                    returning *
+                    """,
+                    (title, description, avatar_url),
+                )
+                connection.commit()
+                chats = list_user_chats(str(user["id"]))
+                return {
+                    "chat": next((chat for chat in chats if chat["id"] == "yachat-channel"), None),
+                    "chats": chats,
+                    "messages": get_chat_messages(chat_id, str(user["id"])),
+                }
+
             chat = require_chat_member(cursor, chat_id, str(user["id"]))
             if not can_manage_chat(chat, str(user["id"])):
                 raise HTTPException(status_code=403, detail="Only the group owner can edit this chat.")
@@ -2519,10 +2615,13 @@ async def clear_chat_history(request: Request):
                     raise HTTPException(status_code=403, detail="This system chat history cannot be cleared.")
                 if requested_chat_id == "yachat-channel" and not is_murochko_profile(user):
                     raise HTTPException(status_code=403, detail="Only Murochko can clear the YaChat channel history.")
-                cursor.execute(
-                    "delete from yachat_system_messages where user_id = %s and chat_id = %s",
-                    (user["id"], requested_chat_id),
-                )
+                if requested_chat_id == "yachat-channel":
+                    cursor.execute("delete from yachat_system_messages where chat_id = %s", (requested_chat_id,))
+                else:
+                    cursor.execute(
+                        "delete from yachat_system_messages where user_id = %s and chat_id = %s",
+                        (user["id"], requested_chat_id),
+                    )
                 system_chat = True
             else:
                 require_chat_member(cursor, chat_id, str(user["id"]))
@@ -2553,6 +2652,38 @@ async def send_message(request: Request):
     if not text and not attachments:
         raise HTTPException(status_code=400, detail="Enter a message.")
     is_saved_chat = chat_id == "yachat-favorites"
+    is_channel_post = chat_id == "yachat-channel"
+    if is_channel_post:
+        if not is_murochko_profile(user):
+            raise HTTPException(status_code=403, detail="Only Murochko can post to the YaChat channel.")
+
+        with connect_db() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute("select id from public_users")
+                user_ids = [str(row["id"]) for row in cursor.fetchall()]
+                if not user_ids:
+                    user_ids = [str(user["id"])]
+                message_id = str(uuid.uuid4())
+                for target_user_id in user_ids:
+                    cursor.execute(
+                        """
+                        insert into yachat_system_messages(id, user_id, chat_id, author_id, text, attachments, system_kind, created_at)
+                        values (%s, %s, 'yachat-channel', %s, %s, %s::jsonb, 'channel-post', now())
+                        """,
+                        (
+                            message_id if target_user_id == str(user["id"]) else str(uuid.uuid4()),
+                            target_user_id,
+                            user["id"],
+                            text,
+                            json.dumps(attachments[:8]),
+                        ),
+                    )
+
+        return {
+            "chats": list_user_chats(str(user["id"])),
+            "messages": get_chat_messages("yachat-channel", str(user["id"])),
+        }
+
     if chat_id.startswith("yachat-") and not is_saved_chat:
         raise HTTPException(status_code=400, detail="System chats are local only.")
 

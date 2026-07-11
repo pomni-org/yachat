@@ -32,6 +32,10 @@ function isMurochkoProfile(profile) {
     .some((value) => value === "murochko" || value === "мурочко");
 }
 
+function findMurochkoProfile(profiles = []) {
+  return profiles.find((profile) => isMurochkoProfile(profile)) || null;
+}
+
 function verificationFields(profile) {
   if (isMurochkoProfile(profile)) {
     return {
@@ -1391,7 +1395,16 @@ function createLocalBackend(app, appTitle) {
       if (!chats.some((chat) => chat.id === systemChat.id)) {
         chats.push(systemChat);
       } else {
-        Object.assign(chats.find((chat) => chat.id === systemChat.id), systemChat);
+        const existing = chats.find((chat) => chat.id === systemChat.id);
+        const preservedChannel = existing.id === "yachat-channel"
+          ? {
+              title: existing.title || systemChat.title,
+              description: existing.description || systemChat.description,
+              profileAbout: existing.profileAbout || existing.description || systemChat.profileAbout,
+              avatarDataUrl: existing.avatarDataUrl || systemChat.avatarDataUrl
+            }
+          : {};
+        Object.assign(existing, systemChat, preservedChannel, { createdAt: existing.createdAt || systemChat.createdAt });
       }
 
       if (!Array.isArray(messages[systemChat.id]) || messages[systemChat.id].length === 0) {
@@ -1551,7 +1564,7 @@ function createLocalBackend(app, appTitle) {
       subtitle = chat.description || `${Math.max(participantIds.length, 1)} участников`;
     }
 
-    return {
+    const summary = {
       ...chat,
       participantIds,
       title,
@@ -1565,6 +1578,20 @@ function createLocalBackend(app, appTitle) {
       lastAt: last?.createdAt || chat.createdAt,
       unread: countUnreadMessages(chat, list)
     };
+
+    if (chat.id === "yachat-channel") {
+      const owner = findMurochkoProfile([...usersById.values()]);
+      summary.canSend = isMurochkoProfile(account);
+      if (owner) {
+        summary.ownerId = owner.id || SYSTEM_OWNER.id;
+        summary.ownerName = owner.displayName || owner.previewName || SYSTEM_OWNER.displayName;
+        summary.ownerUsername = owner.username || SYSTEM_OWNER.username;
+        summary.ownerAvatarDataUrl = owner.avatarDataUrl || "";
+        summary.ownerAvatarAccent = owner.avatarAccent || "#471AFF";
+      }
+    }
+
+    return summary;
   }
 
   function summarizeChatList(state, account, usersById) {
@@ -1748,7 +1775,15 @@ function createLocalBackend(app, appTitle) {
   }
 
   function canManageChat(chat, account) {
-    if (!chat || chat.locked) {
+    if (!chat) {
+      return false;
+    }
+
+    if (chat.id === "yachat-channel") {
+      return isMurochkoProfile(account);
+    }
+
+    if (chat.locked) {
       return false;
     }
 
@@ -1787,7 +1822,12 @@ function createLocalBackend(app, appTitle) {
 
     if (Object.prototype.hasOwnProperty.call(payload || {}, "description")) {
       chat.description = normalizeProfileText(payload.description, 180);
-      chat.subtitle = chat.description || (chat.kind === "group" ? "Группа" : "Личный чат");
+      chat.subtitle = chat.id === "yachat-channel"
+        ? "Системный канал"
+        : chat.description || (chat.kind === "group" ? "Группа" : "Личный чат");
+      if (chat.id === "yachat-channel") {
+        chat.profileAbout = chat.description || "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.";
+      }
     }
 
     if (Object.prototype.hasOwnProperty.call(payload || {}, "avatarDataUrl")) {
@@ -1941,11 +1981,15 @@ function createLocalBackend(app, appTitle) {
       throw new Error("Введите сообщение.");
     }
 
-    if (chat.canSend === false) {
+    if (chat.canSend === false && !(chat.id === "yachat-channel" && isMurochkoProfile(account))) {
       throw new Error("В этот канал нельзя писать.");
     }
 
-    const userMessage = createMessage(chat.id, text, "user", { senderId: account.id, attachments, ...(replyTo ? { replyTo } : {}) });
+    const userMessage = createMessage(chat.id, text, chat.id === "yachat-channel" ? "channel" : "user", {
+      senderId: account.id,
+      attachments,
+      ...(replyTo ? { replyTo } : {})
+    });
     state.messages[chat.id] = [...(state.messages[chat.id] || []), userMessage];
     chat.manualUnread = false;
     chat.unreadMessageId = "";
@@ -2076,7 +2120,7 @@ function createLocalBackend(app, appTitle) {
       throw new Error("Сообщение не найдено.");
     }
 
-    if (toChat.canSend === false) {
+    if (toChat.canSend === false && !(toChat.id === "yachat-channel" && isMurochkoProfile(account))) {
       throw new Error("В этот канал нельзя писать.");
     }
 

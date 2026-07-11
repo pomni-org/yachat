@@ -115,6 +115,7 @@ const state = {
   qrPollTimer: null,
   qrScannerStream: null,
   qrScannerTimer: null,
+  avatarCrop: null,
   theme: initialTheme(),
   themeSource: storedThemeSource(),
   language: localStorage.getItem("yachat-language") === "en" ? "en" : "ru",
@@ -177,6 +178,8 @@ const deleteProfileInput = document.querySelector("[data-delete-profile-input]")
 const deleteProfileSubmit = document.querySelector("[data-delete-profile-submit]");
 const qrCodeTarget = document.querySelector("[data-qr-code]");
 const qrStatus = document.querySelector("[data-qr-status]");
+const bootScreen = document.querySelector("[data-boot-screen]");
+const bootText = document.querySelector("[data-boot-text]");
 const errorPage = document.querySelector("[data-error-page]");
 const errorCode = document.querySelector("[data-error-code]");
 const errorTitle = document.querySelector("[data-error-title]");
@@ -407,6 +410,9 @@ const translations = {
     profileSubtitle: "Аватар, имя и описание будут видны в ЯЧате",
     avatar: "Аватар",
     chooseAvatar: "Выбрать из галереи",
+    avatarPositionTitle: "Позиция аватара",
+    avatarZoom: "Масштаб",
+    saveAvatar: "Сохранить аватар",
     name: "Имя",
     namePlaceholder: "обязательно",
     username: "Ник",
@@ -654,7 +660,10 @@ const translations = {
     forwardTitle: "Переслать в чат",
     cancel: "Отмена",
     damagedText: "Текст повреждён",
-    errSendMessage: "Не удалось отправить сообщение."
+    errSendMessage: "Не удалось отправить сообщение.",
+    bootCheckingAccount: "Проверяем вход",
+    bootPreparingChats: "Готовим чаты",
+    bootOpeningAccount: "Открываем аккаунт"
   },
   en: {
     appName: "ячат",
@@ -684,6 +693,9 @@ const translations = {
     profileSubtitle: "Your avatar, name, and profile description will be visible in ЯЧат",
     avatar: "Avatar",
     chooseAvatar: "Choose from gallery",
+    avatarPositionTitle: "Avatar position",
+    avatarZoom: "Zoom",
+    saveAvatar: "Save avatar",
     name: "Name",
     namePlaceholder: "Yaroslav",
     username: "Username",
@@ -931,7 +943,10 @@ const translations = {
     forwardTitle: "Forward to chat",
     cancel: "Cancel",
     damagedText: "Text is damaged",
-    errSendMessage: "Could not send the message."
+    errSendMessage: "Could not send the message.",
+    bootCheckingAccount: "Checking sign-in",
+    bootPreparingChats: "Preparing chats",
+    bootOpeningAccount: "Opening account"
   }
 };
 
@@ -1042,6 +1057,22 @@ function setCodeState(status) {
   codeGrid.dataset.state = status || "idle";
 }
 
+function setBootText(key = "bootCheckingAccount") {
+  if (bootText) {
+    bootText.textContent = t(key);
+  }
+}
+
+function beginAppBoot(key = "bootCheckingAccount") {
+  setBootText(key);
+  document.body.classList.add("app-booting");
+}
+
+function finishAppBoot() {
+  state.bootstrapped = true;
+  document.body.classList.remove("app-booting");
+}
+
 function getProfileInitial() {
   const name = cleanDisplayText(profileForm.elements.displayName?.value || state.account?.displayName, "Я");
   return String(name).trim().slice(0, 1).toUpperCase() || "Я";
@@ -1081,7 +1112,7 @@ function renderDoneAvatar() {
   }
 }
 
-function readAvatarFile(file) {
+function readImageFile(file) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith("image/")) {
       reject(new Error(t("errAvatar")));
@@ -1090,25 +1121,176 @@ function readAvatarFile(file) {
 
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(t("errAvatar")));
-    reader.onload = () => {
-      const image = new Image();
-      image.onerror = () => reject(new Error(t("errAvatar")));
-      image.onload = () => {
-        const side = 256;
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
-        const scale = Math.max(side / image.width, side / image.height);
-        const width = image.width * scale;
-        const height = image.height * scale;
-
-        canvas.width = side;
-        canvas.height = side;
-        context.drawImage(image, (side - width) / 2, (side - height) / 2, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.88));
-      };
-      image.src = String(reader.result || "");
-    };
+    reader.onload = () => resolve(String(reader.result || ""));
     reader.readAsDataURL(file);
+  });
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onerror = () => reject(new Error(t("errAvatar")));
+    image.onload = () => resolve(image);
+    image.src = src;
+  });
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function cropToDataUrl(source, crop = {}) {
+  const image = crop.image;
+  if (!image) {
+    return "";
+  }
+
+  const side = 256;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  const zoom = clamp(Number(crop.zoom) || 1, 1, 3);
+  const scale = Math.max(side / image.width, side / image.height) * zoom;
+  const width = image.width * scale;
+  const height = image.height * scale;
+  const maxX = Math.max(0, (width - side) / 2);
+  const maxY = Math.max(0, (height - side) / 2);
+  const offsetX = clamp(Number(crop.x) || 0, -1, 1) * maxX;
+  const offsetY = clamp(Number(crop.y) || 0, -1, 1) * maxY;
+
+  canvas.width = side;
+  canvas.height = side;
+  context.drawImage(image, (side - width) / 2 + offsetX, (side - height) / 2 + offsetY, width, height);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
+function closeAvatarCrop(reject = true) {
+  const crop = state.avatarCrop;
+  const layer = document.querySelector("[data-avatar-crop-modal]");
+
+  if (layer) {
+    layer.hidden = true;
+  }
+
+  state.avatarCrop = null;
+
+  if (reject && crop?.reject) {
+    const error = new Error("avatar-crop-cancelled");
+    error.cancelled = true;
+    crop.reject(error);
+  }
+}
+
+function avatarCropMetrics() {
+  const crop = state.avatarCrop;
+  const frame = document.querySelector("[data-avatar-crop-frame]");
+  if (!crop?.image || !frame) {
+    return null;
+  }
+
+  const side = frame.clientWidth || 240;
+  const zoom = clamp(Number(crop.zoom) || 1, 1, 3);
+  const scale = Math.max(side / crop.image.width, side / crop.image.height) * zoom;
+  const width = crop.image.width * scale;
+  const height = crop.image.height * scale;
+  const maxX = Math.max(0, (width - side) / 2);
+  const maxY = Math.max(0, (height - side) / 2);
+
+  return { side, width, height, maxX, maxY };
+}
+
+function updateAvatarCropPreview() {
+  const crop = state.avatarCrop;
+  const image = document.querySelector("[data-avatar-crop-image]");
+  const zoomInput = document.querySelector("[data-avatar-crop-zoom]");
+  const metrics = avatarCropMetrics();
+
+  if (!crop || !image || !metrics) {
+    return;
+  }
+
+  crop.x = metrics.maxX ? clamp(crop.x, -1, 1) : 0;
+  crop.y = metrics.maxY ? clamp(crop.y, -1, 1) : 0;
+  image.style.width = `${metrics.width}px`;
+  image.style.height = `${metrics.height}px`;
+  image.style.transform = `translate(calc(-50% + ${crop.x * metrics.maxX}px), calc(-50% + ${crop.y * metrics.maxY}px))`;
+
+  if (zoomInput && Number(zoomInput.value) !== crop.zoom) {
+    zoomInput.value = String(crop.zoom);
+  }
+}
+
+function ensureAvatarCropModal() {
+  let layer = document.querySelector("[data-avatar-crop-modal]");
+  if (layer) {
+    return layer;
+  }
+
+  layer = document.createElement("div");
+  layer.className = "avatar-crop-layer";
+  layer.dataset.avatarCropModal = "";
+  layer.hidden = true;
+  layer.innerHTML = `
+    <div class="avatar-crop-card" role="dialog" aria-modal="true">
+      <header>
+        <strong data-avatar-crop-title></strong>
+        <button class="icon-button" type="button" data-avatar-crop-close aria-label="${escapeHtml(t("cancel"))}">
+          ${iconSvg("x")}
+        </button>
+      </header>
+      <div class="avatar-crop-frame" data-avatar-crop-frame>
+        <img data-avatar-crop-image alt="" draggable="false" />
+      </div>
+      <label class="avatar-crop-zoom">
+        <span data-avatar-crop-zoom-label></span>
+        <input type="range" min="1" max="3" step="0.01" value="1" data-avatar-crop-zoom />
+      </label>
+      <div class="avatar-crop-actions">
+        <button class="panel-primary is-secondary" type="button" data-avatar-crop-close>${t("cancel")}</button>
+        <button class="panel-primary" type="button" data-avatar-crop-save>${t("saveAvatar")}</button>
+      </div>
+    </div>
+  `;
+  document.body.append(layer);
+  hydrateIcons(layer);
+  return layer;
+}
+
+async function readAvatarFile(file) {
+  const source = await readImageFile(file);
+  const image = await loadImageElement(source);
+  const layer = ensureAvatarCropModal();
+  const imageTarget = layer.querySelector("[data-avatar-crop-image]");
+  const title = layer.querySelector("[data-avatar-crop-title]");
+  const zoomLabel = layer.querySelector("[data-avatar-crop-zoom-label]");
+  const zoom = layer.querySelector("[data-avatar-crop-zoom]");
+
+  return new Promise((resolve, reject) => {
+    state.avatarCrop = {
+      source,
+      image,
+      zoom: 1,
+      x: 0,
+      y: 0,
+      dragging: false,
+      resolve,
+      reject
+    };
+
+    if (title) {
+      title.textContent = t("avatarPositionTitle");
+    }
+    if (zoomLabel) {
+      zoomLabel.textContent = t("avatarZoom");
+    }
+    if (zoom) {
+      zoom.value = "1";
+    }
+    if (imageTarget) {
+      imageTarget.src = source;
+    }
+
+    layer.hidden = false;
+    requestAnimationFrame(updateAvatarCropPreview);
   });
 }
 
@@ -1153,9 +1335,21 @@ function formatChatTime(value) {
   });
 }
 
+function accountAvatarInitial() {
+  return String(cleanDisplayText(state.account?.displayName, state.account?.username || "Я")).trim().slice(0, 1).toUpperCase() || "Я";
+}
+
+function chatAvatarSource(chat) {
+  if (chat?.id === "yachat-favorites") {
+    return state.account?.avatarDataUrl || "";
+  }
+
+  return chat?.avatarDataUrl || "";
+}
+
 function getChatAvatarText(chat) {
   if (chat?.id === "yachat-favorites") {
-    return "";
+    return accountAvatarInitial();
   }
 
   if (chat?.id === "yachat-codes") {
@@ -1232,13 +1426,14 @@ function setComposerReadonly(readonly) {
 }
 
 function renderChatAvatar(chat, className = "chat-avatar") {
-  const modifier = getChatAvatarModifier(chat);
+  const src = chatAvatarSource(chat);
+  const modifier = chat?.id === "yachat-favorites" && src ? " is-private" : getChatAvatarModifier(chat);
   const text = getChatAvatarText(chat);
   const title = getChatTitle(chat);
-  const avatar = chat?.avatarDataUrl
-    ? `<img src="${escapeHtml(chat.avatarDataUrl)}" alt="" />`
+  const avatar = src
+    ? `<img src="${escapeHtml(src)}" alt="" />`
     : escapeHtml(text);
-  return `<div class="${className}${modifier}" ${avatarViewAttributes({ src: chat?.avatarDataUrl || "", text, title, modifier: modifier.trim() })}>${avatar}</div>`;
+  return `<div class="${className}${modifier}" ${avatarViewAttributes({ src, text, title, modifier: modifier.trim() })}>${avatar}</div>`;
 }
 
 function chatProfileUsername(chat) {
@@ -1386,11 +1581,13 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
   const aboutText = chatProfileAboutText(chat);
   const muted = isChatMuted(chat?.id);
   const hasMore = Boolean(sections.editSection || sections.groupSection || sections.historySection || sections.leaveSection || sections.deleteGroupSection);
-  const ownerProfile = chat?.ownerName || chat?.ownerUsername
+  const ownerProfile = chat?.ownerName || chat?.ownerUsername || chat?.ownerAvatarDataUrl
     ? decorateVerifiedEntity({
         id: chat.ownerId || SYSTEM_OWNER.id,
         username: chat.ownerUsername || SYSTEM_OWNER.username,
         displayName: chat.ownerName || SYSTEM_OWNER.displayName,
+        avatarDataUrl: chat.ownerAvatarDataUrl || "",
+        avatarAccent: chat.ownerAvatarAccent || "#471AFF",
         verified: true,
         roleLabel: t("ownerRole"),
         verifiedTitle: t("verifiedOwnerTitle"),
@@ -1589,8 +1786,32 @@ function canOwnActiveGroup(chat) {
   return Boolean(chat?.kind === "group" && state.account?.id && (!chat.ownerId || chat.ownerId === state.account.id));
 }
 
+function canManageYachatChannel(chat) {
+  return Boolean(chat?.id === "yachat-channel" && isMurochkoEntity(state.account));
+}
+
+function canSendToChat(chat) {
+  if (!chat) {
+    return false;
+  }
+
+  if (canManageYachatChannel(chat)) {
+    return true;
+  }
+
+  return chat.canSend !== false;
+}
+
 function canEditActiveChat(chat) {
-  if (!chat || chat.locked) {
+  if (!chat) {
+    return false;
+  }
+
+  if (canManageYachatChannel(chat)) {
+    return true;
+  }
+
+  if (chat.locked) {
     return false;
   }
 
@@ -1628,7 +1849,7 @@ function renderChatList() {
             <span>${escapeHtml(cleanDisplayText(chat.lastMessage, getChatSubtitle(chat)))}</span>
           </span>
         </span>
-        ${unread ? `<b class="chat-unread-badge">${escapeHtml(unread)}</b>` : chat.locked ? '<i class="pin-dot"></i>' : ""}
+        ${unread ? `<b class="chat-unread-badge">${escapeHtml(unread)}</b>` : ""}
       </button>
     `;
   }).join("");
@@ -1648,9 +1869,10 @@ function renderActiveChat() {
 
   dialogTitle.innerHTML = `${escapeHtml(getChatTitle(chat))} ${renderVerified(chat)}`;
   dialogSubtitle.textContent = getChatSubtitle(chat);
-  const avatarModifier = getChatAvatarModifier(chat);
-  const avatarContent = chat.avatarDataUrl
-    ? `<img src="${escapeHtml(chat.avatarDataUrl)}" alt="" />`
+  const avatarSource = chatAvatarSource(chat);
+  const avatarModifier = chat.id === "yachat-favorites" && avatarSource ? " is-private" : getChatAvatarModifier(chat);
+  const avatarContent = avatarSource
+    ? `<img src="${escapeHtml(avatarSource)}" alt="" />`
     : escapeHtml(getChatAvatarText(chat));
   dialogAvatar.className = `dialog-avatar${avatarModifier}`;
   dialogAvatar.innerHTML = avatarContent;
@@ -1666,7 +1888,7 @@ function renderActiveChat() {
     dialogIntro.hidden = state.messages.length > 0;
   }
 
-  const readonly = chat.canSend === false;
+  const readonly = !canSendToChat(chat);
   if (readonly && state.pendingAttachments.length > 0) {
     state.pendingAttachments = [];
     renderAttachmentTray();
@@ -1826,7 +2048,7 @@ function getMessageById(messageId) {
 
 function canEditMessage(message) {
   const chat = getActiveChat();
-  return Boolean(message?.author === "user" && chat?.canSend !== false && messagePreviewText(message));
+  return Boolean(message?.author === "user" && canSendToChat(chat) && messagePreviewText(message));
 }
 
 function ensureMessageMenu() {
@@ -2062,7 +2284,7 @@ function renderForwardPicker() {
     return;
   }
 
-  const chats = state.chats.filter((chat) => chat.canSend !== false);
+  const chats = state.chats.filter((chat) => canSendToChat(chat));
   layer.hidden = false;
   layer.innerHTML = `
     <div class="forward-picker-card">
@@ -2184,12 +2406,12 @@ function renderAttachmentTray() {
 
   const chat = getActiveChat();
   if (sendButton) {
-    sendButton.disabled = chat?.canSend === false || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
+    sendButton.disabled = !canSendToChat(chat) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
   }
 }
 
 async function addAttachments(files) {
-  if (getActiveChat()?.canSend === false) {
+  if (!canSendToChat(getActiveChat())) {
     if (attachmentInput) {
       attachmentInput.value = "";
     }
@@ -2314,10 +2536,11 @@ async function openRouteTargetFromLocation() {
   showErrorPage("404", t("error404Title"), t("error404Text"));
 }
 
-async function applyMessengerSnapshot(snapshot = {}, selectedChatId = state.activeChatId) {
+async function applyMessengerSnapshot(snapshot = {}, selectedChatId = state.activeChatId, options = {}) {
+  const followRoute = options.followRoute !== false;
   state.pendingSearchChat = null;
   state.chats = Array.isArray(snapshot.chats) ? snapshot.chats : [];
-  const preferredChatId = snapshot.activeChatId || chatIdFromRoute() || selectedChatId;
+  const preferredChatId = snapshot.activeChatId || (followRoute ? chatIdFromRoute() : "") || selectedChatId;
   state.activeChatId = state.chats.some((chat) => chat.id === preferredChatId)
     ? preferredChatId
     : state.chats[0]?.id || "yachat-codes";
@@ -2328,20 +2551,22 @@ async function applyMessengerSnapshot(snapshot = {}, selectedChatId = state.acti
   renderActiveChat();
   renderMessages();
 
-  if ((chatIdFromRoute() || routeUsernameFromLocation()) && state.activeChatId) {
+  if (followRoute && (chatIdFromRoute() || routeUsernameFromLocation()) && state.activeChatId) {
     setMobileDialogOpen(true);
   }
 
-  if (await openRouteUserIfNeeded(snapshot.routeUser)) {
+  if (followRoute && await openRouteUserIfNeeded(snapshot.routeUser)) {
     hideErrorPage();
     return;
   }
 
-  const routeUsername = routeUsernameFromLocation();
-  if (routeNeeds404Check() || (routeUsername && !chatIdFromRoute() && !snapshot.routeUser)) {
-    showErrorPage("404", t("error404Title"), t("error404Text"));
-  } else {
-    hideErrorPage();
+  if (followRoute) {
+    const routeUsername = routeUsernameFromLocation();
+    if (routeNeeds404Check() || (routeUsername && !chatIdFromRoute() && !snapshot.routeUser)) {
+      showErrorPage("404", t("error404Title"), t("error404Text"));
+    } else {
+      hideErrorPage();
+    }
   }
 }
 
@@ -2367,8 +2592,8 @@ async function refreshMessengerFromServer() {
   if (yachatApi.messenger.snapshot) {
     await applyMessengerSnapshot(await yachatApi.messenger.snapshot({
       chatId: selectedChatId,
-      username: routeUsernameFromLocation()
-    }), selectedChatId);
+      username: ""
+    }), selectedChatId, { followRoute: false });
     return;
   }
 
@@ -2427,7 +2652,7 @@ async function selectChat(chatId, options = {}) {
   updateChatRoute(getActiveChat(), options);
 }
 
-function showMessenger(account, options = {}) {
+async function showMessenger(account, options = {}) {
   hideErrorPage();
   state.account = normalizeAccount(account);
   document.body.classList.add("messenger-mode");
@@ -2442,9 +2667,9 @@ function showMessenger(account, options = {}) {
   }
 
   if (options.snapshot) {
-    applyMessengerSnapshot(options.snapshot, options.snapshot.activeChatId || chatIdFromUrl() || state.activeChatId).catch(() => {});
+    await applyMessengerSnapshot(options.snapshot, options.snapshot.activeChatId || chatIdFromUrl() || state.activeChatId);
   } else {
-    loadMessenger(chatIdFromUrl() || state.activeChatId).catch(() => {});
+    await loadMessenger(chatIdFromUrl() || state.activeChatId);
   }
   startMessengerPolling();
   enablePushNotifications().catch(() => {});
@@ -4724,7 +4949,12 @@ async function pollQrSession() {
     if (result.status === "approved" && result.account) {
       stopQrPolling();
       qrStatus.textContent = t("qrApproved");
-      showMessenger(result.account);
+      beginAppBoot("bootOpeningAccount");
+      try {
+        await showMessenger(result.account);
+      } finally {
+        finishAppBoot();
+      }
       return;
     }
 
@@ -5381,7 +5611,15 @@ function createLocalYachatApi() {
     fallback.chats.forEach((systemChat) => {
       const existing = chats.find((chat) => chat.id === systemChat.id);
       if (existing) {
-        Object.assign(existing, systemChat, { createdAt: existing.createdAt || systemChat.createdAt });
+        const preservedChannel = existing.id === "yachat-channel"
+          ? {
+              title: existing.title || systemChat.title,
+              description: existing.description || systemChat.description,
+              profileAbout: existing.profileAbout || existing.description || systemChat.profileAbout,
+              avatarDataUrl: existing.avatarDataUrl || systemChat.avatarDataUrl
+            }
+          : {};
+        Object.assign(existing, systemChat, preservedChannel, { createdAt: existing.createdAt || systemChat.createdAt });
       } else {
         chats.push(systemChat);
       }
@@ -5523,6 +5761,7 @@ function createLocalYachatApi() {
 
   function summarizeLocalChats(data) {
     const account = readAccount()?.account || null;
+    const localChannelOwner = isMurochkoEntity(account) ? account : null;
     return data.chats.filter((chat) => {
       const ids = localParticipantIds(chat);
       return ids.length === 0 || Boolean(account?.id && ids.includes(account.id));
@@ -5541,7 +5780,7 @@ function createLocalYachatApi() {
       const participantProfiles = chat.participantProfiles || {};
       const otherId = ids.find((id) => id !== account?.id) || ids[0];
       const other = decorateVerifiedEntity(participantProfiles[otherId] || null);
-      return {
+      const summary = {
         ...chat,
         title: chat.kind === "private" && other ? other.displayName || other.previewName || other.username || chat.title : chat.title,
         subtitle: chat.kind === "private" && other?.username ? `@${other.username}` : chat.subtitle,
@@ -5556,6 +5795,19 @@ function createLocalYachatApi() {
         lastAt: last?.createdAt || chat.createdAt,
         unread: countUnreadMessages(chat, messages)
       };
+
+      if (chat.id === "yachat-channel") {
+        summary.canSend = isMurochkoEntity(account);
+        if (localChannelOwner) {
+          summary.ownerId = localChannelOwner.id || SYSTEM_OWNER.id;
+          summary.ownerName = localChannelOwner.displayName || localChannelOwner.previewName || SYSTEM_OWNER.displayName;
+          summary.ownerUsername = localChannelOwner.username || SYSTEM_OWNER.username;
+          summary.ownerAvatarDataUrl = localChannelOwner.avatarDataUrl || "";
+          summary.ownerAvatarAccent = localChannelOwner.avatarAccent || "#471AFF";
+        }
+      }
+
+      return summary;
     }).sort((a, b) => {
       if (a.pinned !== b.pinned) {
         return a.pinned ? -1 : 1;
@@ -5927,13 +6179,18 @@ function createLocalYachatApi() {
       },
       updateChat: async (payload) => {
         const data = readMessenger();
+        const account = readAccount()?.account || null;
         const chat = data.chats.find((item) => item.id === payload?.chatId);
 
         if (!chat) {
           throw new Error("Чат не найден.");
         }
 
-        if (chat.locked || chat.kind !== "group") {
+        if (chat.id === "yachat-channel" && !isMurochkoEntity(account)) {
+          throw new Error("Нет прав на изменение этого чата.");
+        }
+
+        if (chat.id !== "yachat-channel" && (chat.locked || chat.kind !== "group")) {
           throw new Error("Нет прав на изменение этого чата.");
         }
 
@@ -5947,7 +6204,12 @@ function createLocalYachatApi() {
 
         if (Object.prototype.hasOwnProperty.call(payload || {}, "description")) {
           chat.description = String(payload.description || "").trim().slice(0, 180);
-          chat.subtitle = chat.description || (chat.kind === "group" ? "Группа" : "Личный чат");
+          chat.subtitle = chat.id === "yachat-channel"
+            ? "Системный канал"
+            : chat.description || (chat.kind === "group" ? "Группа" : "Личный чат");
+          if (chat.id === "yachat-channel") {
+            chat.profileAbout = chat.description || "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.";
+          }
         }
 
         if (Object.prototype.hasOwnProperty.call(payload || {}, "avatarDataUrl")) {
@@ -6069,7 +6331,7 @@ function createLocalYachatApi() {
           throw new Error("Чат не найден.");
         }
 
-        if (chat.canSend === false) {
+        if (chat.canSend === false && !(chat.id === "yachat-channel" && isMurochkoEntity(readAccount()?.account))) {
           throw new Error("В этот канал нельзя писать.");
         }
 
@@ -6079,7 +6341,11 @@ function createLocalYachatApi() {
 
         data.messages[chat.id] = [
           ...(data.messages[chat.id] || []),
-          createLocalMessage(chat.id, text, "user", { attachments, ...(replyTo ? { replyTo } : {}) })
+          createLocalMessage(chat.id, text, chat.id === "yachat-channel" ? "channel" : "user", {
+            senderId: readAccount()?.account?.id || "",
+            attachments,
+            ...(replyTo ? { replyTo } : {})
+          })
         ];
         chat.manualUnread = false;
         chat.unreadMessageId = "";
@@ -6193,7 +6459,7 @@ function createLocalYachatApi() {
           throw new Error("Сообщение не найдено.");
         }
 
-        if (toChat.canSend === false) {
+        if (toChat.canSend === false && !(toChat.id === "yachat-channel" && isMurochkoEntity(readAccount()?.account))) {
           throw new Error("В этот канал нельзя писать.");
         }
 
@@ -6440,11 +6706,6 @@ function applyServerSettings(settings = {}) {
   setCountry(settings.country || "RU", settings.countryCode || "+7", false);
 }
 
-function finishAppBoot() {
-  state.bootstrapped = true;
-  document.body.classList.remove("app-booting");
-}
-
 async function showSignedOutRouteErrorIfNeeded() {
   if (!canUseHistoryRoutes()) {
     return false;
@@ -6475,6 +6736,7 @@ async function showSignedOutRouteErrorIfNeeded() {
 }
 
 async function initializeApp() {
+  setBootText("bootCheckingAccount");
   setTheme(state.theme, false, state.themeSource);
   setDeliveryMethod(state.verificationDeliveryMethod);
   applyTranslations();
@@ -6498,7 +6760,8 @@ async function initializeApp() {
       if (boot?.account) {
         state.account = normalizeAccount(boot.account);
         state.accountTextMode = "existing";
-        showMessenger(boot.account, { snapshot: boot });
+        setBootText("bootPreparingChats");
+        await showMessenger(boot.account, { snapshot: boot });
       } else {
         if (await showSignedOutRouteErrorIfNeeded()) {
           return;
@@ -6507,7 +6770,8 @@ async function initializeApp() {
         if (account) {
           state.account = normalizeAccount(account);
           state.accountTextMode = "existing";
-          showMessenger(account);
+          setBootText("bootPreparingChats");
+          await showMessenger(account);
         }
       }
       return;
@@ -6518,7 +6782,8 @@ async function initializeApp() {
     if (account) {
       state.account = normalizeAccount(account);
       state.accountTextMode = "existing";
-      showMessenger(account);
+      setBootText("bootPreparingChats");
+      await showMessenger(account);
     } else {
       await showSignedOutRouteErrorIfNeeded();
     }
@@ -6691,7 +6956,7 @@ function setScreen(nextScreen, options = {}) {
 
 function backHome() {
   if (state.previousScreen === "messenger" && state.account) {
-    showMessenger(state.account);
+    showMessenger(state.account).catch(() => {});
     return;
   }
 
@@ -7005,7 +7270,12 @@ async function verifyChallenge(submitButton) {
       state.account = normalizeAccount(result.account);
       state.accountTextMode = "existing";
       state.challenge = null;
-      showMessenger(result.account);
+      beginAppBoot("bootOpeningAccount");
+      try {
+        await showMessenger(result.account);
+      } finally {
+        finishAppBoot();
+      }
       return;
     }
     state.challenge = {
@@ -7053,7 +7323,12 @@ async function createAccount(submitButton) {
     state.account = normalizeAccount(account);
     state.accountTextMode = "created";
     state.challenge = null;
-    showMessenger(account);
+    beginAppBoot("bootOpeningAccount");
+    try {
+      await showMessenger(account);
+    } finally {
+      finishAppBoot();
+    }
   } catch (error) {
     setMessage("profile", translatedServerMessage(error.message, "errAccountCreate"));
   } finally {
@@ -7139,6 +7414,9 @@ avatarInput?.addEventListener("change", async () => {
     setAvatarData(await readAvatarFile(file));
     setMessage("profile", "");
   } catch (error) {
+    if (error.cancelled) {
+      return;
+    }
     setMessage("profile", translatedServerMessage(error.message, "errAvatar"));
   }
 });
@@ -7315,7 +7593,7 @@ messageList?.addEventListener("pointerdown", (event) => {
 
 messageInput?.addEventListener("input", () => {
   const chat = getActiveChat();
-  sendButton.disabled = chat?.canSend === false || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
+  sendButton.disabled = !canSendToChat(chat) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
 });
 
 composerContext?.addEventListener("click", (event) => {
@@ -7331,6 +7609,22 @@ composerContext?.addEventListener("click", (event) => {
 });
 
 document.addEventListener("click", (event) => {
+  if (event.target.closest("[data-avatar-crop-save]")) {
+    const crop = state.avatarCrop;
+    if (crop?.resolve) {
+      const dataUrl = cropToDataUrl(crop.source, crop);
+      const resolve = crop.resolve;
+      closeAvatarCrop(false);
+      resolve(dataUrl);
+    }
+    return;
+  }
+
+  if (event.target.closest("[data-avatar-crop-close]") || event.target.matches("[data-avatar-crop-modal]")) {
+    closeAvatarCrop(true);
+    return;
+  }
+
   if (event.target.closest("[data-info-close]") || event.target.matches("[data-info-modal]")) {
     closeInfoModal();
     return;
@@ -7352,6 +7646,61 @@ document.addEventListener("click", (event) => {
   }
 
   closeMessageMenu();
+});
+
+document.addEventListener("input", (event) => {
+  const zoom = event.target.closest("[data-avatar-crop-zoom]");
+  if (!zoom || !state.avatarCrop) {
+    return;
+  }
+
+  state.avatarCrop.zoom = clamp(Number(zoom.value) || 1, 1, 3);
+  updateAvatarCropPreview();
+});
+
+document.addEventListener("pointerdown", (event) => {
+  const frame = event.target.closest("[data-avatar-crop-frame]");
+  const crop = state.avatarCrop;
+  const metrics = avatarCropMetrics();
+  if (!frame || !crop || !metrics) {
+    return;
+  }
+
+  event.preventDefault();
+  frame.setPointerCapture?.(event.pointerId);
+  crop.dragging = true;
+  crop.dragStart = {
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    cropX: crop.x,
+    cropY: crop.y
+  };
+});
+
+document.addEventListener("pointermove", (event) => {
+  const crop = state.avatarCrop;
+  const metrics = avatarCropMetrics();
+  if (!crop?.dragging || !crop.dragStart || !metrics || crop.dragStart.pointerId !== event.pointerId) {
+    return;
+  }
+
+  event.preventDefault();
+  const dx = event.clientX - crop.dragStart.x;
+  const dy = event.clientY - crop.dragStart.y;
+  crop.x = metrics.maxX ? clamp(crop.dragStart.cropX + dx / metrics.maxX, -1, 1) : 0;
+  crop.y = metrics.maxY ? clamp(crop.dragStart.cropY + dy / metrics.maxY, -1, 1) : 0;
+  updateAvatarCropPreview();
+});
+
+document.addEventListener("pointerup", (event) => {
+  const crop = state.avatarCrop;
+  if (!crop?.dragging || crop.dragStart?.pointerId !== event.pointerId) {
+    return;
+  }
+
+  crop.dragging = false;
+  crop.dragStart = null;
 });
 
 document.addEventListener("click", (event) => {
@@ -7385,6 +7734,7 @@ document.addEventListener("keydown", (event) => {
 
   closeInfoModal();
   closeAvatarViewer();
+  closeAvatarCrop(true);
   closeMessageMenu();
   closeForwardPicker();
   if (state.selectingMessages) {
@@ -7397,7 +7747,7 @@ window.addEventListener("popstate", () => {
 });
 
 attachmentButton?.addEventListener("click", () => {
-  if (getActiveChat()?.canSend === false) {
+  if (!canSendToChat(getActiveChat())) {
     return;
   }
 
@@ -7405,7 +7755,7 @@ attachmentButton?.addEventListener("click", () => {
 });
 
 stickersButton?.addEventListener("click", () => {
-  if (getActiveChat()?.canSend === false) {
+  if (!canSendToChat(getActiveChat())) {
     return;
   }
 
@@ -7431,7 +7781,7 @@ messageForm?.addEventListener("submit", async (event) => {
   const chat = getActiveChat();
   const text = messageInput.value.trim();
 
-  if (!chat || chat.canSend === false || (!text && state.pendingAttachments.length === 0 && !state.editingMessageId)) {
+  if (!chat || !canSendToChat(chat) || (!text && state.pendingAttachments.length === 0 && !state.editingMessageId)) {
     return;
   }
 
@@ -7465,7 +7815,7 @@ messageForm?.addEventListener("submit", async (event) => {
   } catch (error) {
     alert(translatedServerMessage(error.message, "errSendMessage"));
   } finally {
-    sendButton.disabled = getActiveChat()?.canSend === false || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
+    sendButton.disabled = !canSendToChat(getActiveChat()) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
   }
 });
 
@@ -7508,7 +7858,7 @@ document.querySelector('[data-action="error-home"]')?.addEventListener("click", 
   hideErrorPage();
   replaceAppRoute("/");
   if (state.account) {
-    showMessenger(state.account);
+    showMessenger(state.account).catch(() => {});
   } else {
     resetAccountSessionUi();
   }
@@ -7707,6 +8057,9 @@ panelBody?.addEventListener("change", async (event) => {
       state.profileEditMessage = "";
       renderPanel();
     } catch (error) {
+      if (error.cancelled) {
+        return;
+      }
       state.profileEditMessage = translatedServerMessage(error.message, "errAvatar");
       renderPanel();
     } finally {
@@ -7729,6 +8082,9 @@ panelBody?.addEventListener("change", async (event) => {
     state.pendingChatAvatarDataUrl = await readAvatarFile(file);
     renderPanel();
   } catch (error) {
+    if (error.cancelled) {
+      return;
+    }
     alert(error.message || t("errAvatar"));
   }
 });
@@ -7797,6 +8153,9 @@ createChatForm?.querySelector("[data-create-chat-avatar-input]")?.addEventListen
     state.pendingCreateChatAvatarDataUrl = await readAvatarFile(file);
     renderCreateChatForm();
   } catch (error) {
+    if (error.cancelled) {
+      return;
+    }
     alert(error.message || t("errAvatar"));
   } finally {
     event.target.value = "";

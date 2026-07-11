@@ -45,6 +45,7 @@
   --accent: var(--max-blue);
   --accent-hover: var(--max-pulsar);
   --page: var(--max-dark);
+  --boot-page: #050507;
   --card: var(--max-dark);
   --surface: color-mix(in srgb, var(--max-dark), var(--max-white) 13%);
   --surface-hover: color-mix(in srgb, var(--max-dark), var(--max-white) 19%);
@@ -84,6 +85,7 @@
 
 :root[data-theme="light"] {
   --page: #f5f7fa;
+  --boot-page: #ffffff;
   --card: #ffffff;
   --surface: #e9ebf1;
   --surface-hover: #dfe3eb;
@@ -189,9 +191,14 @@ body {
     var(--page);
 }
 
+body.app-booting {
+  background: var(--boot-page);
+}
+
 body.app-booting .auth-card,
 body.app-booting .messenger-shell {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
 }
 
@@ -203,8 +210,7 @@ body.error-mode .boot-screen {
 }
 
 body:not(.app-booting) .boot-screen {
-  opacity: 0;
-  pointer-events: none;
+  display: none;
 }
 
 button,
@@ -256,14 +262,16 @@ body.messenger-mode .app-shell {
 .boot-screen {
   gap: 18px;
   align-content: center;
-  color: #fff;
+  background: var(--boot-page);
+  color: var(--text);
   text-align: center;
-  transition: opacity 220ms var(--ease);
+  transition: opacity 220ms var(--ease), transform 220ms var(--ease);
 }
 
 .boot-screen > div:last-child {
   display: grid;
   gap: 6px;
+  animation: bootContentIn 420ms var(--ease) both;
 }
 
 .boot-screen strong {
@@ -273,7 +281,7 @@ body.messenger-mode .app-shell {
 }
 
 .boot-screen span {
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--muted);
   font-size: 14px;
   font-weight: 500;
 }
@@ -291,6 +299,7 @@ body.messenger-mode .app-shell {
 
 .boot-mark {
   position: relative;
+  animation: bootMarkIn 460ms var(--ease) both;
 }
 
 .boot-mark::after {
@@ -369,6 +378,7 @@ body.messenger-mode .app-shell {
   overflow: hidden;
   background: var(--page);
   -webkit-app-region: no-drag;
+  animation: shellIn 260ms var(--ease) both;
 }
 
 .messenger-rail {
@@ -417,7 +427,7 @@ body.messenger-mode .app-shell {
 }
 
 .rail-button:hover {
-  transform: none;
+  transform: translateY(-1px);
 }
 
 .rail-button .css-icon {
@@ -496,7 +506,7 @@ body.messenger-mode .app-shell {
 
 .round-action:hover {
   background: var(--accent-hover);
-  transform: none;
+  transform: translateY(-1px) scale(1.03);
 }
 
 .search-field {
@@ -545,6 +555,7 @@ body.messenger-mode .app-shell {
   cursor: pointer;
   text-align: left;
   transition: background 160ms var(--ease), transform 160ms var(--ease);
+  animation: chatRowIn 220ms var(--ease) both;
 }
 
 .chat-row + .chat-row {
@@ -570,7 +581,7 @@ body.messenger-mode .app-shell {
 }
 
 .chat-row:hover {
-  transform: none;
+  transform: translateX(2px);
 }
 
 .chat-avatar,
@@ -2521,7 +2532,11 @@ body.messenger-mode .app-shell {
 
 .main-button:hover:not(:disabled) {
   background: var(--accent-hover);
-  transform: none;
+  transform: translateY(-1px);
+}
+
+.main-button:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
 }
 
 .main-button:disabled {
@@ -2616,7 +2631,7 @@ body.messenger-mode .app-shell {
 .back-button:hover {
   background: var(--field);
   color: var(--text);
-  transform: none;
+  transform: translateX(-1px);
 }
 
 .code-grid {
@@ -2833,6 +2848,42 @@ body.messenger-mode .app-shell {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes shellIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chatRowIn {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -3873,7 +3924,8 @@ body.messenger-mode .app-shell {
 }
 
 .info-modal-layer,
-.avatar-modal-layer {
+.avatar-modal-layer,
+.avatar-crop-layer {
   position: fixed;
   z-index: 90;
   inset: 0;
@@ -3885,7 +3937,8 @@ body.messenger-mode .app-shell {
 }
 
 .info-modal-card,
-.avatar-modal-card {
+.avatar-modal-card,
+.avatar-crop-card {
   position: relative;
   display: grid;
   justify-items: center;
@@ -3901,7 +3954,8 @@ body.messenger-mode .app-shell {
 }
 
 .info-modal-card .icon-button,
-.avatar-modal-card .icon-button {
+.avatar-modal-card .icon-button,
+.avatar-crop-card .icon-button {
   position: absolute;
   top: 12px;
   right: 12px;
@@ -3979,6 +4033,76 @@ body.messenger-mode .app-shell {
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.avatar-crop-card {
+  width: min(430px, calc(100vw - 36px));
+  gap: 16px;
+  padding: 22px;
+  animation: modalIn 200ms var(--ease) both;
+}
+
+.avatar-crop-card header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 34px;
+}
+
+.avatar-crop-card header strong {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.avatar-crop-frame {
+  position: relative;
+  overflow: hidden;
+  width: min(260px, calc(100vw - 92px));
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.08) 25%, transparent 25% 75%, rgba(255, 255, 255, 0.08) 75%),
+    var(--field);
+  background-size: 20px 20px;
+  box-shadow: 0 0 0 1px var(--card-edge), 0 16px 46px rgba(0, 0, 0, 0.24);
+  cursor: grab;
+  touch-action: none;
+}
+
+.avatar-crop-frame:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-frame img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  user-select: none;
+  will-change: transform, width, height;
+}
+
+.avatar-crop-zoom {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.avatar-crop-zoom input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.avatar-crop-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
 }
 
 .confirm-modal-card {
@@ -4898,5 +5022,29 @@ body.messenger-mode .app-shell {
 @keyframes bootSpin {
   to {
     transform: rotate(1turn);
+  }
+}
+
+@keyframes bootMarkIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bootContentIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
