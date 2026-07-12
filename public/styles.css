@@ -656,7 +656,9 @@ body.messenger-mode .app-shell {
 .dialog-avatar.is-favorites,
 .dialog-intro-avatar.is-favorites,
 .panel-row-avatar.is-favorites,
-.panel-avatar.is-favorites {
+.panel-avatar.is-favorites,
+.chat-profile-avatar.is-favorites,
+.avatar-modal-image.is-favorites {
   position: relative;
   background: var(--max-blue);
   color: #fff;
@@ -667,13 +669,21 @@ body.messenger-mode .app-shell {
 .dialog-avatar.is-favorites::before,
 .dialog-intro-avatar.is-favorites::before,
 .panel-row-avatar.is-favorites::before,
-.panel-avatar.is-favorites::before {
+.panel-avatar.is-favorites::before,
+.chat-profile-avatar.is-favorites::before,
+.avatar-modal-image.is-favorites::before {
   content: "";
   width: 37%;
   height: 54%;
   border-radius: 8px 8px 3px 3px;
   background: #fff;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 76%, 0 100%);
+}
+
+.avatar-modal-image.is-favorites::before {
+  width: 34%;
+  height: 50%;
+  border-radius: 18px 18px 8px 8px;
 }
 
 .chat-row-main {

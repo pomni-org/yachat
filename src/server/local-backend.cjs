@@ -1414,7 +1414,7 @@ function createLocalBackend(app, appTitle) {
         Object.assign(existing, systemChat, preservedChannel, { createdAt: existing.createdAt || systemChat.createdAt });
       }
 
-      if (!Array.isArray(messages[systemChat.id]) || messages[systemChat.id].length === 0) {
+      if (!Array.isArray(messages[systemChat.id])) {
         messages[systemChat.id] = fallback.messages[systemChat.id];
       }
     }
@@ -1568,7 +1568,7 @@ function createLocalBackend(app, appTitle) {
     }
 
     if (chat.kind === "group") {
-      subtitle = chat.description || `${Math.max(participantIds.length, 1)} участников`;
+      subtitle = `${Math.max(participantIds.length, 1)} участников`;
     }
 
     const summary = {
@@ -1829,11 +1829,12 @@ function createLocalBackend(app, appTitle) {
 
     if (Object.prototype.hasOwnProperty.call(payload || {}, "description")) {
       chat.description = normalizeProfileText(payload.description, 180);
-      chat.subtitle = chat.id === "yachat-channel"
-        ? "Системный канал"
-        : chat.description || (chat.kind === "group" ? "Группа" : "Личный чат");
       if (chat.id === "yachat-channel") {
+        chat.subtitle = "Системный канал";
         chat.profileAbout = chat.description || "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.";
+      } else if (chat.kind === "group") {
+        chat.subtitle = "Группа";
+        chat.profileAbout = chat.description;
       }
     }
 

@@ -1354,7 +1354,7 @@ function accountAvatarInitial() {
 
 function chatAvatarSource(chat) {
   if (chat?.id === "yachat-favorites") {
-    return chat?.avatarDataUrl || "";
+    return "";
   }
 
   return chat?.avatarDataUrl || "";
@@ -1438,15 +1438,18 @@ function setComposerReadonly(readonly) {
   });
 }
 
-function renderChatAvatar(chat, className = "chat-avatar") {
+function renderChatAvatar(chat, className = "chat-avatar", options = {}) {
   const src = chatAvatarSource(chat);
-  const modifier = chat?.id === "yachat-favorites" && src ? " is-private" : getChatAvatarModifier(chat);
+  const modifier = getChatAvatarModifier(chat);
   const text = getChatAvatarText(chat);
   const title = getChatTitle(chat);
   const avatar = src
     ? `<img src="${escapeHtml(src)}" alt="" />`
     : escapeHtml(text);
-  return `<div class="${className}${modifier}" ${avatarViewAttributes({ src, text, title, modifier: modifier.trim() })}>${avatar}</div>`;
+  const attrs = options.viewable
+    ? ` ${avatarViewAttributes({ src, text, title, modifier: modifier.trim() })}`
+    : "";
+  return `<div class="${className}${modifier}"${attrs}>${avatar}</div>`;
 }
 
 function chatProfileUsername(chat) {
@@ -1618,7 +1621,7 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
         ${iconSvg("chevron-left")}
       </button>
       <div class="chat-profile-hero">
-        ${renderChatAvatar(displayChat || chat, "chat-profile-avatar")}
+        ${renderChatAvatar(displayChat || chat, "chat-profile-avatar", { viewable: true })}
         <h1 class="chat-profile-title">${escapeHtml(title)} ${renderVerified(chat)}</h1>
         ${meta ? `<p class="chat-profile-meta">${meta}</p>` : ""}
       </div>
@@ -1874,7 +1877,7 @@ function renderChatList() {
             <time>${escapeHtml(formatChatTime(chat.lastAt))}</time>
           </span>
           <span class="chat-row-bottom">
-            <span>${escapeHtml(cleanDisplayText(chat.lastMessage, getChatSubtitle(chat)))}</span>
+            <span>${escapeHtml(cleanDisplayText(chat.lastMessage, ""))}</span>
           </span>
         </span>
         ${unread ? `<b class="chat-unread-badge">${escapeHtml(unread)}</b>` : ""}
@@ -1898,7 +1901,7 @@ function renderActiveChat() {
   dialogTitle.innerHTML = `${escapeHtml(getChatTitle(chat))} ${renderVerified(chat)}`;
   dialogSubtitle.textContent = getChatSubtitle(chat);
   const avatarSource = chatAvatarSource(chat);
-  const avatarModifier = chat.id === "yachat-favorites" && avatarSource ? " is-private" : getChatAvatarModifier(chat);
+  const avatarModifier = getChatAvatarModifier(chat);
   const avatarContent = avatarSource
     ? `<img src="${escapeHtml(avatarSource)}" alt="" />`
     : escapeHtml(getChatAvatarText(chat));
@@ -3015,7 +3018,10 @@ function openAvatarViewer({ src = "", text = "Я", title = "", modifier = "" } =
 
   const imageTarget = layer.querySelector("[data-avatar-modal-image]");
   const titleTarget = layer.querySelector("[data-avatar-modal-title]");
-  const safeText = cleanDisplayText(text, "Я").slice(0, 2).toUpperCase() || "Я";
+  const isFavoritesAvatar = String(modifier || "").split(/\s+/).includes("is-favorites");
+  const safeText = isFavoritesAvatar
+    ? ""
+    : cleanDisplayText(text, "Я").slice(0, 2).toUpperCase() || "Я";
   imageTarget.className = `avatar-modal-image${modifier ? ` ${modifier}` : ""}`;
   imageTarget.innerHTML = src ? `<img src="${escapeHtml(src)}" alt="" />` : escapeHtml(safeText);
   titleTarget.textContent = cleanDisplayText(title, safeText);
@@ -5824,7 +5830,11 @@ function createLocalYachatApi() {
       const summary = {
         ...chat,
         title: chat.kind === "private" && other ? other.displayName || other.previewName || other.username || chat.title : chat.title,
-        subtitle: chat.kind === "private" && other?.username ? `@${other.username}` : chat.subtitle,
+        subtitle: chat.kind === "private" && other?.username
+          ? `@${other.username}`
+          : chat.kind === "group"
+            ? t("groupChat")
+            : chat.subtitle,
         avatarDataUrl: chat.kind === "private" && other?.avatarDataUrl ? other.avatarDataUrl : chat.avatarDataUrl,
         verified: chat.kind === "private" && other ? Boolean(other.verified) : Boolean(chat.verified),
         verifiedTitle: chat.kind === "private" && other ? other.verifiedTitle || "" : chat.verifiedTitle || "",
@@ -6245,11 +6255,12 @@ function createLocalYachatApi() {
 
         if (Object.prototype.hasOwnProperty.call(payload || {}, "description")) {
           chat.description = String(payload.description || "").trim().slice(0, 180);
-          chat.subtitle = chat.id === "yachat-channel"
-            ? "Системный канал"
-            : chat.description || (chat.kind === "group" ? "Группа" : "Личный чат");
           if (chat.id === "yachat-channel") {
+            chat.subtitle = t("systemChannelRole");
             chat.profileAbout = chat.description || "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.";
+          } else if (chat.kind === "group") {
+            chat.subtitle = t("groupChat");
+            chat.profileAbout = chat.description;
           }
         }
 
@@ -7571,7 +7582,7 @@ document.querySelectorAll("[data-language]").forEach((button) => {
 chatSearch?.addEventListener("input", refreshChatSearch);
 
 chatList?.addEventListener("click", (event) => {
-  if (handleVerifiedInfoClick(event) || handleAvatarViewClick(event)) {
+  if (handleVerifiedInfoClick(event)) {
     return;
   }
 

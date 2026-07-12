@@ -1286,7 +1286,7 @@ def system_chats(
             "avatarDataUrl": "./assets/yachat-codes-avatar.webp",
             "createdAt": created_at,
             "lastAt": row_value(codes_latest, "created_at") or created_at,
-            "lastMessage": str(row_value(codes_latest, "text")) or codes_intro,
+            "lastMessage": str(row_value(codes_latest, "text")),
             "unread": 0,
         },
         {
@@ -1314,7 +1314,7 @@ def system_chats(
             "avatarDataUrl": channel_avatar,
             "createdAt": created_at,
             "lastAt": row_value(channel_latest, "created_at") or created_at,
-            "lastMessage": str(row_value(channel_latest, "text")) or channel_description,
+            "lastMessage": str(row_value(channel_latest, "text")),
             "unread": 0,
         },
     ]
@@ -1449,7 +1449,7 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         attachment_text = "Фото" if kind == "image" else "Видео" if kind == "video" else "Файл"
 
     title = str(row_value(chat, "title"))
-    subtitle = str(row_value(chat, "description"))
+    subtitle = ""
     avatar_data_url = str(row_value(chat, "avatar_url"))
     profile_username = ""
     profile_url = ""
@@ -1527,7 +1527,7 @@ def chat_summary_cached(
     attachment_text = attachment_preview_text(row_value(last, "attachments"))
 
     title = str(row_value(chat, "title"))
-    subtitle = str(row_value(chat, "description"))
+    subtitle = ""
     avatar_data_url = str(row_value(chat, "avatar_url"))
     profile_username = ""
     profile_url = ""
@@ -2411,11 +2411,17 @@ async def create_chat(request: Request):
                 chat_id = f"group-{uuid.uuid4()}"
                 cursor.execute(
                     """
-                    insert into yachat_chats(id, kind, title, description, owner_id, created_at, updated_at)
-                    values (%s, 'group', %s, %s, %s, now(), now())
+                    insert into yachat_chats(id, kind, title, description, avatar_url, owner_id, created_at, updated_at)
+                    values (%s, 'group', %s, %s, %s, %s, now(), now())
                     returning *
                     """,
-                    (chat_id, clean_text(payload.get("title"), 60), clean_text(payload.get("description"), 180), user["id"]),
+                    (
+                        chat_id,
+                        clean_text(payload.get("title"), 60),
+                        clean_text(payload.get("description"), 180),
+                        clean_text(payload.get("avatarDataUrl"), 900000),
+                        user["id"],
+                    ),
                 )
             chat = dict(cursor.fetchone())
 
