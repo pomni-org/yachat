@@ -14,6 +14,7 @@ const SYSTEM_OWNER = {
 };
 const SYSTEM_CHAT_IDS = new Set(["yachat-favorites", "yachat-codes", "yachat-channel"]);
 const PROTECTED_HISTORY_CHAT_IDS = new Set(["yachat-codes"]);
+const TELEGRAM_BOT_URL = "https://t.me/code_yachatBot";
 const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
 
 function systemTheme() {
@@ -442,6 +443,12 @@ const translations = {
     deliveryYachatHint: "Бот «Коды подтверждения» на другом устройстве",
     deliveryTelegram: "Telegram",
     deliveryTelegramHint: "Привязанный бот кодов",
+    telegramInstructionsTitle: "Вход через Telegram",
+    telegramStepBotPrefix: "Откройте",
+    telegramBotLink: "Telegram бот",
+    telegramStepBotSuffix: ", нажмите Start и поделитесь номером.",
+    telegramStepPhone: "В ЯЧате введите тот же номер, который отправили боту.",
+    telegramStepCode: "Получите код и введите его здесь.",
     helpQrTitle: "QR-вход",
     helpQrText: "Экран уже готов визуально. Реальное подтверждение через телефон подключим после авторизации на сервере.",
     localServer: "Хранилище",
@@ -725,6 +732,12 @@ const translations = {
     deliveryYachatHint: "Verification Codes bot on another device",
     deliveryTelegram: "Telegram",
     deliveryTelegramHint: "Linked code bot",
+    telegramInstructionsTitle: "Telegram sign-in",
+    telegramStepBotPrefix: "Open the",
+    telegramBotLink: "Telegram bot",
+    telegramStepBotSuffix: ", press Start, and share your phone number.",
+    telegramStepPhone: "Enter the same phone number in YaChat.",
+    telegramStepCode: "Receive your code and enter it here.",
     helpQrTitle: "QR sign-in",
     helpQrText: "The screen is visually ready. Real phone confirmation will be connected after server authorization.",
     localServer: "Storage",
@@ -1369,7 +1382,7 @@ function getChatTitle(chat) {
   }
 
   if (chat?.id === "yachat-channel") {
-    return t("yachatChannel");
+    return cleanDisplayText(chat?.title, t("yachatChannel"));
   }
 
   if (chat?.id === "yachat-codes") {
@@ -1386,7 +1399,7 @@ function getChatSubtitle(chat) {
   }
 
   if (chat?.id === "yachat-channel") {
-    return t("systemChannelRole");
+    return cleanDisplayText(chat?.description || chat?.subtitle, t("systemChannelRole"));
   }
 
   if (chat?.id === "yachat-codes") {
@@ -1775,6 +1788,21 @@ function getActiveChat() {
   }
 
   return state.chats.find((chat) => chat.id === state.activeChatId) || state.chats[0] || null;
+}
+
+function mergeChatIntoList(chats, chat) {
+  if (!chat?.id) {
+    return Array.isArray(chats) ? chats : [];
+  }
+
+  const list = Array.isArray(chats) ? [...chats] : [];
+  const index = list.findIndex((item) => item.id === chat.id);
+  if (index >= 0) {
+    list[index] = { ...list[index], ...chat };
+  } else {
+    list.unshift(chat);
+  }
+  return list;
 }
 
 function setMobileDialogOpen(isOpen) {
@@ -4664,7 +4692,7 @@ async function saveActiveChat(submitButton) {
       avatarDataUrl
     });
     state.pendingChatAvatarDataUrl = null;
-    state.chats = result.chats || await yachatApi.messenger.chats();
+    state.chats = mergeChatIntoList(result.chats || await yachatApi.messenger.chats(), result.chat);
     state.messages = result.messages || state.messages;
     renderChatList();
     renderActiveChat();
@@ -5059,6 +5087,12 @@ function applyTranslations() {
   setText("[data-delivery-yachat-hint]", "deliveryYachatHint");
   setText("[data-delivery-telegram]", "deliveryTelegram");
   setText("[data-delivery-telegram-hint]", "deliveryTelegramHint");
+  setText("[data-telegram-instructions-title]", "telegramInstructionsTitle");
+  setText("[data-telegram-step-bot-prefix]", "telegramStepBotPrefix");
+  setText("[data-telegram-bot-link]", "telegramBotLink");
+  setText("[data-telegram-step-bot-suffix]", "telegramStepBotSuffix");
+  setText("[data-telegram-step-phone]", "telegramStepPhone");
+  setText("[data-telegram-step-code]", "telegramStepCode");
   setText('[data-form="phone"] .main-button', "login");
   setText("[data-legal-prefix]", "legalPrefix");
   setText('[data-action="open-policy"]', "policyLink");
@@ -6898,9 +6932,7 @@ async function pageUrlFor(page) {
   return new URL(pageFileForPath(path), window.location.href).href;
 }
 
-async function openStandalonePage(page) {
-  const url = await pageUrlFor(page);
-
+async function openExternalUrl(url) {
   if (!url) {
     return;
   }
@@ -6915,6 +6947,10 @@ async function openStandalonePage(page) {
   }
 
   window.open(url, "_blank", "noopener,noreferrer");
+}
+
+async function openStandalonePage(page) {
+  await openExternalUrl(await pageUrlFor(page));
 }
 
 function setScreen(nextScreen, options = {}) {
@@ -7444,6 +7480,11 @@ document.querySelector('[data-action="resend-code"]').addEventListener("click", 
 });
 
 document.querySelector('[data-action="open-qr"]').addEventListener("click", () => setScreen("qr"));
+
+document.querySelector('[data-action="open-telegram-bot"]')?.addEventListener("click", (event) => {
+  event.preventDefault();
+  openExternalUrl(TELEGRAM_BOT_URL);
+});
 
 document.querySelector('[data-action="toggle-theme"]').addEventListener("click", () => {
   setTheme(nextTheme(state.theme));

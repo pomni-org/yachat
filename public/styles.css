@@ -2160,6 +2160,56 @@ body.messenger-mode .app-shell {
   margin-top: 28px;
 }
 
+.telegram-instructions {
+  width: min(420px, 100%);
+  margin: 18px auto 0;
+  padding: 14px 15px;
+  border: 1px solid var(--card-edge);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  text-align: left;
+}
+
+.telegram-instructions > strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.telegram-instructions ol {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.telegram-bot-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--max-blue);
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.telegram-bot-link:focus-visible {
+  outline: 2px solid rgba(71, 26, 255, 0.55);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+:root[data-theme="light"] .telegram-instructions {
+  background: rgba(15, 23, 42, 0.03);
+}
+
 .auth-form {
   position: relative;
   flex: 0 0 auto;
