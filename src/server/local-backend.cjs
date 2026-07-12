@@ -1363,7 +1363,7 @@ function createLocalBackend(app, appTitle) {
         pinned: true,
         canSend: false,
         avatar: "channel",
-        avatarDataUrl: "./assets/yachat-logo-COLOR.png",
+        avatarDataUrl: "./assets/yachat-icon-square.png",
         createdAt
       }
     ];
@@ -1386,6 +1386,13 @@ function createLocalBackend(app, appTitle) {
     };
   }
 
+  function systemChannelAvatar(avatarDataUrl, fallbackAvatarDataUrl) {
+    const value = String(avatarDataUrl || "");
+    return value.includes("yachat-logo-COLOR") || value.includes("yachat-icon.svg") || value.includes("yachat-SVG-color")
+      ? fallbackAvatarDataUrl
+      : value || fallbackAvatarDataUrl;
+  }
+
   function ensureSystemChats(state) {
     const fallback = createDefaultMessengerState();
     const chats = Array.isArray(state.chats) ? state.chats : [];
@@ -1401,7 +1408,7 @@ function createLocalBackend(app, appTitle) {
               title: existing.title || systemChat.title,
               description: existing.description || systemChat.description,
               profileAbout: existing.profileAbout || existing.description || systemChat.profileAbout,
-              avatarDataUrl: existing.avatarDataUrl || systemChat.avatarDataUrl
+              avatarDataUrl: systemChannelAvatar(existing.avatarDataUrl, systemChat.avatarDataUrl)
             }
           : {};
         Object.assign(existing, systemChat, preservedChannel, { createdAt: existing.createdAt || systemChat.createdAt });

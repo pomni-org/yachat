@@ -1242,7 +1242,12 @@ def system_chats(
     owner_avatar_accent = str(row_value(owner, "avatar_accent")) or "#471AFF"
     channel_title = str(row_value(channel_settings, "title")) or "ЯЧат"
     channel_description = str(row_value(channel_settings, "description")) or channel_intro
-    channel_avatar = str(row_value(channel_settings, "avatar_url")) or "./assets/yachat-logo-COLOR.png"
+    channel_avatar = str(row_value(channel_settings, "avatar_url"))
+    if not channel_avatar or any(
+        legacy_icon in channel_avatar
+        for legacy_icon in ("yachat-logo-COLOR", "yachat-icon.svg", "yachat-SVG-color")
+    ):
+        channel_avatar = "./assets/yachat-icon-square.png"
     return [
         {
             "id": "yachat-favorites",

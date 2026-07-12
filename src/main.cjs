@@ -10,7 +10,8 @@ const APP_TITLE = "ЯЧат";
 const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const WEB_PORT = 3087;
 const PROJECT_ROOT = path.resolve(__dirname, "..");
-const APP_ICON_PATH = path.join(__dirname, "renderer", "assets", "yachat-SVG-color.svg");
+const APP_ICON_PATH = path.join(__dirname, "renderer", "assets", "yachat.ico");
+const APP_USER_MODEL_ID = "ru.yachat.desktop";
 const WEB_SERVER_INFO_PATH = path.join(PROJECT_ROOT, "USERS", "server", "web-server.json");
 
 let mainWindow;
@@ -317,6 +318,7 @@ async function serveRendererAsset(response, pathname) {
       ".jpeg": "image/jpeg",
       ".webp": "image/webp",
       ".svg": "image/svg+xml; charset=utf-8",
+      ".ico": "image/x-icon",
       ".woff2": "font/woff2",
       ".ttf": "font/ttf"
     }[ext];
@@ -684,6 +686,9 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId(APP_USER_MODEL_ID);
+  }
   configureMediaPermissions();
   localBackend = createLocalBackend(app, APP_TITLE);
   await localBackend.init();

@@ -1341,7 +1341,7 @@ function accountAvatarInitial() {
 
 function chatAvatarSource(chat) {
   if (chat?.id === "yachat-favorites") {
-    return state.account?.avatarDataUrl || "";
+    return chat?.avatarDataUrl || "";
   }
 
   return chat?.avatarDataUrl || "";
@@ -1349,7 +1349,7 @@ function chatAvatarSource(chat) {
 
 function getChatAvatarText(chat) {
   if (chat?.id === "yachat-favorites") {
-    return accountAvatarInitial();
+    return "";
   }
 
   if (chat?.id === "yachat-codes") {
@@ -5587,7 +5587,7 @@ function createLocalYachatApi() {
           pinned: true,
           canSend: false,
           avatar: "channel",
-          avatarDataUrl: "./assets/yachat-logo-COLOR.png",
+          avatarDataUrl: "./assets/yachat-icon-square.png",
           createdAt
         }
       ],
@@ -5603,6 +5603,13 @@ function createLocalYachatApi() {
     };
   }
 
+  function systemChannelAvatar(avatarDataUrl, fallbackAvatarDataUrl) {
+    const value = String(avatarDataUrl || "");
+    return value.includes("yachat-logo-COLOR") || value.includes("yachat-icon.svg") || value.includes("yachat-SVG-color")
+      ? fallbackAvatarDataUrl
+      : value || fallbackAvatarDataUrl;
+  }
+
   function ensureLocalSystemChats(data) {
     const fallback = createDefaultMessenger();
     const chats = Array.isArray(data?.chats) ? data.chats : [];
@@ -5616,7 +5623,7 @@ function createLocalYachatApi() {
               title: existing.title || systemChat.title,
               description: existing.description || systemChat.description,
               profileAbout: existing.profileAbout || existing.description || systemChat.profileAbout,
-              avatarDataUrl: existing.avatarDataUrl || systemChat.avatarDataUrl
+              avatarDataUrl: systemChannelAvatar(existing.avatarDataUrl, systemChat.avatarDataUrl)
             }
           : {};
         Object.assign(existing, systemChat, preservedChannel, { createdAt: existing.createdAt || systemChat.createdAt });
