@@ -1283,7 +1283,7 @@ def system_chats(
             "pinned": True,
             "canSend": False,
             "avatar": "codes",
-            "avatarDataUrl": "./assets/yachat-codes-avatar.webp",
+            "avatarDataUrl": "./assets/yachat-codes-avatar-v2.jpeg",
             "createdAt": created_at,
             "lastAt": row_value(codes_latest, "created_at") or created_at,
             "lastMessage": str(row_value(codes_latest, "text")),
