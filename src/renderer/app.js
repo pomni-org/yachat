@@ -5605,7 +5605,7 @@ function createLocalYachatApi() {
           pinned: true,
           canSend: false,
           avatar: "codes",
-          avatarDataUrl: "./assets/yachat-codes-avatar.webp",
+          avatarDataUrl: "./assets/yachat-codes-avatar-v2.jpeg",
           createdAt
         },
         {
