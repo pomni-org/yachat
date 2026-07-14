@@ -8,6 +8,7 @@ const outputDir = path.join(root, "public");
 const files = [
   "index.html",
   "favicon.ico",
+  "favicon-v2.ico",
   "manifest.webmanifest",
   "app.js",
   "styles.css",
