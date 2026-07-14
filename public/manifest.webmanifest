@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "ЯЧат",
+  "short_name": "ЯЧат",
+  "description": "Мессенджер ЯЧат",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d001a",
+  "theme_color": "#4f46f7",
+  "icons": [
+    {
+      "src": "/assets/yachat-icon-square.png",
+      "sizes": "352x352",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/yachat-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
