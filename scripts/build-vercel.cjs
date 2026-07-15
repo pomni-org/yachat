@@ -7,8 +7,6 @@ const outputDir = path.join(root, "public");
 
 const files = [
   "index.html",
-  "favicon.ico",
-  "favicon-v2.ico",
   "manifest.webmanifest",
   "app.js",
   "styles.css",
@@ -23,6 +21,72 @@ async function copyFile(name) {
   await fs.copyFile(path.join(rendererDir, name), path.join(outputDir, name));
 }
 
+function canonicalIconLinks() {
+  return [
+    '    <link rel="apple-touch-icon" sizes="180x180" href="/api/icon?variant=shortcut&size=180&v=4" />',
+    '    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/api/icon?variant=shortcut&size=180&v=4" />',
+    '    <link rel="icon" type="image/png" sizes="256x256" href="/api/icon?variant=shortcut&size=256&v=4" />',
+    '    <link rel="icon" type="image/png" sizes="48x48" href="/api/icon?variant=shortcut&size=48&v=4" />',
+    '    <link rel="icon" type="image/png" sizes="32x32" href="/api/icon?variant=shortcut&size=32&v=4" />',
+    '    <link rel="icon" type="image/png" sizes="16x16" href="/api/icon?variant=shortcut&size=16&v=4" />',
+    '    <link rel="icon" type="image/svg+xml" sizes="any" href="/assets/yachat-shortcut.svg?v=4" />',
+    '    <link rel="shortcut icon" href="/api/icon?variant=shortcut&size=32&v=4" />'
+  ].join("\n");
+}
+
+function rewriteIconMetadata(html) {
+  const withoutLegacyIcons = html
+    .replace(/\s*<meta\s+name=["']msapplication-TileImage["'][^>]*\/?>/gi, "")
+    .replace(/\s*<link\s+rel=["'](?:apple-touch-icon(?:-precomposed)?|icon|shortcut icon)["'][^>]*\/?>/gi, "");
+
+  const tileMeta = '    <meta name="msapplication-TileImage" content="/api/icon?variant=shortcut&size=256&v=4" />';
+
+  let rewritten = withoutLegacyIcons.replace(
+    /(\s*<title>)/i,
+    `\n${tileMeta}$1`
+  );
+
+  const manifestTag = /(<link\s+rel=["']manifest["'][^>]*\/?>)/i;
+  if (manifestTag.test(rewritten)) {
+    rewritten = rewritten.replace(manifestTag, `$1\n${canonicalIconLinks()}`);
+  } else {
+    rewritten = rewritten.replace(/(<\/head>)/i, `${canonicalIconLinks()}\n$1`);
+  }
+
+  return rewritten;
+}
+
+async function rewriteOutputHtml() {
+  await Promise.all(["index.html", "privacy.html", "terms.html", "help.html"].map(async (name) => {
+    const filePath = path.join(outputDir, name);
+    const html = await fs.readFile(filePath, "utf8");
+    await fs.writeFile(filePath, rewriteIconMetadata(html), "utf8");
+  }));
+}
+
+async function rewriteOutputStyles() {
+  const stylesPath = path.join(outputDir, "styles.css");
+  const styles = await fs.readFile(stylesPath, "utf8");
+  const rewritten = styles
+    .replace(
+      /@font-face\s*\{\s*font-family:\s*"Max Sans";[\s\S]*?font-display:\s*swap;\s*\}\s*/m,
+      ""
+    )
+    .replace(
+      '--font-logo: "Max Sans", "Arial Black", Arial, "Segoe UI", sans-serif;',
+      '--font-logo: "Roboto", "Segoe UI", Arial, sans-serif;'
+    )
+    .replace(
+      'url("./assets/yachat-logo-LIGHT.png")',
+      'url("./assets/yachat-theme-dark.svg?v=4")'
+    )
+    .replace(
+      'url("./assets/yachat-logo-DARK.png")',
+      'url("./assets/yachat-theme-light.svg?v=4")'
+    );
+  await fs.writeFile(stylesPath, rewritten, "utf8");
+}
+
 async function injectEnhancementAssets() {
   const indexPath = path.join(outputDir, "index.html");
   const html = await fs.readFile(indexPath, "utf8");
@@ -30,6 +94,7 @@ async function injectEnhancementAssets() {
     '<link rel="stylesheet" href="./styles.css" />',
     [
       '<link rel="stylesheet" href="./styles.css" />',
+      '    <link rel="stylesheet" href="./assets/brand-icons.css?v=4" />',
       '    <link rel="stylesheet" href="./assets/chat-presence.css" />',
       '    <link rel="stylesheet" href="./assets/username-copy.css" />',
       '    <link rel="stylesheet" href="./assets/profile-modal.css" />',
@@ -60,6 +125,8 @@ async function build() {
   await fs.cp(path.join(rendererDir, "assets"), path.join(outputDir, "assets"), {
     recursive: true
   });
+  await rewriteOutputHtml();
+  await rewriteOutputStyles();
   await injectEnhancementAssets();
 }
 
