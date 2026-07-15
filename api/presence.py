@@ -10,7 +10,7 @@ import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from psycopg.rows import dict_row
 
-app = FastAPI(title="YaChat Presence API", version="0.1.0")
+app = FastAPI(title="YaChat Presence API", version="0.2.0")
 
 DATABASE_ENV_NAMES = (
     "YACHAT_USERS_DB_URL",
@@ -29,6 +29,7 @@ CHAT_ID_PATTERN = re.compile(
     r"^(yachat-[a-z0-9-]+|private-[a-f0-9]{32}|group-[a-f0-9-]{36}|saved-[a-f0-9]{32})$"
 )
 ONLINE_WINDOW_SECONDS = 25
+RECENT_WINDOW_DAYS = 3
 TYPING_TTL_SECONDS = 7
 _schema_ready = False
 
@@ -202,7 +203,13 @@ def private_peer_status(cursor, chat_id: str, user_id: str) -> str:
     now = datetime.now(timezone.utc)
     if last_seen.tzinfo is None:
         last_seen = last_seen.replace(tzinfo=timezone.utc)
-    return "online" if now - last_seen <= timedelta(seconds=ONLINE_WINDOW_SECONDS) else "long-ago"
+
+    elapsed = now - last_seen
+    if elapsed <= timedelta(seconds=ONLINE_WINDOW_SECONDS):
+        return "online"
+    if elapsed <= timedelta(days=RECENT_WINDOW_DAYS):
+        return "recent"
+    return "long-ago"
 
 
 def typing_users(cursor, chat_id: str, user_id: str) -> list[dict[str, str]]:
