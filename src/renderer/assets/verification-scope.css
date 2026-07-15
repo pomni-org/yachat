@@ -1,0 +1,44 @@
+.verified-mark-button {
+  pointer-events: none;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.is-chat-profile .verified-mark-button {
+  display: inline-grid;
+  width: 19px;
+  height: 19px;
+  flex: 0 0 19px;
+  place-items: center;
+  margin-inline-start: 3px;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.is-chat-profile .verified-mark-button:hover,
+.is-chat-profile .verified-mark-button:focus-visible {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  outline: none;
+}
+
+.is-chat-profile .verified-mark-button:active {
+  transform: scale(0.9);
+}
+
+.is-chat-profile .verified-mark-button .verified-mark {
+  display: block;
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-chat-profile .verified-mark-button {
+    transition-duration: 1ms;
+  }
+}
