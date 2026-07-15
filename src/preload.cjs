@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld("yachat", {
     leave: (payload) => ipcRenderer.invoke("chat:leave", payload),
     deleteChat: (payload) => ipcRenderer.invoke("chat:delete", payload),
     clearHistory: (payload) => ipcRenderer.invoke("chat:clear-history", payload),
+    blockUser: (payload) => ipcRenderer.invoke("chat:block-user", payload),
+    unblockUser: (payload) => ipcRenderer.invoke("chat:unblock-user", payload),
     send: (payload) => ipcRenderer.invoke("message:send", payload),
     updateMessage: (payload) => ipcRenderer.invoke("message:update", payload),
     deleteMessage: (payload) => ipcRenderer.invoke("message:delete", payload),
