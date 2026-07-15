@@ -10,8 +10,9 @@ const files = [
   "favicon.ico",
   "favicon-v2.ico",
   "manifest.webmanifest",
-  "app.js",
   "styles.css",
+  "chat-presence.css",
+  "chat-presence.js",
   "page.css",
   "sw.js",
   "privacy.html",
@@ -28,6 +29,8 @@ async function build() {
   await fs.mkdir(outputDir, { recursive: true });
 
   await Promise.all(files.map(copyFile));
+  await fs.copyFile(path.join(rendererDir, "app.js"), path.join(outputDir, "app-core.js"));
+  await fs.copyFile(path.join(rendererDir, "app-loader.js"), path.join(outputDir, "app.js"));
   await fs.cp(path.join(rendererDir, "assets"), path.join(outputDir, "assets"), {
     recursive: true
   });
