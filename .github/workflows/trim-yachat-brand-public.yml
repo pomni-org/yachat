@@ -1,0 +1,79 @@
+name: Keep public brand changes focused once
+
+on:
+  push:
+    branches:
+      - codex/yachat-brand-icons
+    paths:
+      - ".github/workflows/trim-yachat-brand-public.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  trim-public:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore public and copy only brand assets
+        run: |
+          git checkout origin/main -- public
+          rm -f public/assets/MaxSans-Bold.ttf
+          find src/renderer/assets -maxdepth 1 -type f \( -name 'yachat-*' -o -name 'apple-touch-icon*' \) -exec cp {} public/assets/ \;
+          cp src/renderer/favicon.ico public/favicon.ico
+          cp src/renderer/favicon-v2.ico public/favicon-v2.ico
+
+      - name: Patch public brand references
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('public')
+          replacements = {
+              'yachat-logo-LIGHT.png': 'yachat-logo-light.svg',
+              'yachat-logo-DARK.png': 'yachat-logo-dark.svg',
+              'yachat-codes-avatar-v2.jpeg': 'yachat-avatar.svg',
+              'yachat-codes-avatar.webp': 'yachat-avatar.svg',
+              'yachat-icon-mark.png': 'yachat-notification-mark.png',
+              'yachat-icon.svg': 'yachat-avatar.svg',
+              'apple-touch-icon-v2.png': 'yachat-shortcut-180.png',
+              'apple-touch-icon.png': 'yachat-shortcut-180.png',
+          }
+          for path in root.rglob('*'):
+              if not path.is_file() or path.suffix.lower() not in {'.css','.js','.html','.json','.webmanifest'}:
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except UnicodeDecodeError:
+                  continue
+              for old, new in replacements.items():
+                  text = text.replace(old, new)
+              text = re.sub(r'yachat-app-icon(?:-v2)?-maskable-(192|512)\.png', r'yachat-shortcut-maskable-\1.png', text)
+              text = re.sub(r'yachat-app-icon(?:-v2)?-(192|512|1024)\.png', r'yachat-shortcut-\1.png', text)
+              text = re.sub(r'yachat-favicon(?:-v2)?-(16|32|48|256)\.png', r'yachat-favicon-\1.png', text)
+              if path.name.endswith('.html'):
+                  text = text.replace('href="/manifest.webmanifest"', 'href="/manifest.webmanifest?v=4"')
+                  text = re.sub(r'href="/manifest\.webmanifest\?v=\d+"', 'href="/manifest.webmanifest?v=4"', text)
+              if path.name == 'styles.css':
+                  text = re.sub(r'@font-face\s*\{\s*font-family:\s*"Max Sans";.*?\}\s*', '', text, flags=re.DOTALL)
+                  text = re.sub(r'--font-logo:\s*"Max Sans"[^;]*;', '--font-logo: "Roboto", "Segoe UI", Arial, sans-serif;', text)
+              path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate source files
+        run: |
+          npm run check
+          python -m py_compile api/index.py
+
+      - name: Remove one-shot workflow and commit focused output
+        run: |
+          rm -f .github/workflows/trim-yachat-brand-public.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: keep public icon update focused [brand-public-trimmed]"
+          git push origin HEAD:codex/yachat-brand-icons
