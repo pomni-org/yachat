@@ -2299,14 +2299,38 @@ function openMessageMenu(messageId, x, y) {
   menu.style.top = "0px";
 
   requestAnimationFrame(() => {
-    if (window.matchMedia("(max-width: 640px)").matches) {
-      menu.style.removeProperty("left");
-      menu.style.removeProperty("top");
+    const rect = menu.getBoundingClientRect();
+    const isMobile = window.matchMedia("(max-width: 640px)").matches;
+    const anchor = isMobile
+      ? Array.from(messageList?.querySelectorAll("[data-message-id]") || [])
+        .find((element) => element.dataset.messageId === messageId)
+      : null;
+
+    if (anchor) {
+      const anchorRect = anchor.getBoundingClientRect();
+      const margin = 8;
+      const gap = 6;
+      const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
+      const preferredLeft = message.author === "user"
+        ? anchorRect.right - rect.width
+        : anchorRect.left;
+      const left = Math.min(Math.max(margin, preferredLeft), maxLeft);
+      let top = anchorRect.bottom + gap;
+
+      if (top + rect.height > window.innerHeight - margin) {
+        top = anchorRect.top - rect.height - gap;
+      }
+
+      top = Math.min(
+        Math.max(margin, top),
+        Math.max(margin, window.innerHeight - rect.height - margin)
+      );
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
       menu.querySelector("button")?.focus({ preventScroll: true });
       return;
     }
 
-    const rect = menu.getBoundingClientRect();
     const left = Math.min(Math.max(8, x), window.innerWidth - rect.width - 8);
     const top = Math.min(Math.max(8, y), window.innerHeight - rect.height - 8);
     menu.style.left = `${left}px`;

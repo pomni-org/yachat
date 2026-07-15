@@ -4836,51 +4836,39 @@ body.messenger-mode .app-shell {
   }
 
   .message-context-layer {
-    display: grid;
-    align-items: end;
-    background: rgba(0, 0, 0, 0.28);
-    pointer-events: auto;
+    display: block;
+    background: transparent;
+    pointer-events: none;
   }
 
   .message-context-menu {
-    position: relative;
-    left: auto;
-    top: auto;
-    width: 100%;
+    position: fixed;
+    width: min(252px, calc(100vw - 16px));
     min-width: 0;
-    max-height: min(82dvh, 720px);
+    max-height: calc(100dvh - 16px);
     overflow: auto;
-    padding: 5px 0 max(7px, env(safe-area-inset-bottom));
-    border-width: 1px 0 0;
-    border-radius: 22px 22px 0 0;
-    box-shadow: 0 -16px 46px rgba(0, 0, 0, 0.25);
+    padding: 5px;
+    border-width: 1px;
+    border-radius: 14px;
+    box-shadow: 0 16px 42px rgba(0, 0, 0, 0.34);
   }
 
   .message-context-menu button {
-    min-height: 62px;
-    padding: 11px 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 0;
-    font-size: 19px;
-  }
-
-  :root[data-theme="light"] .message-context-menu button {
-    border-bottom-color: rgba(15, 23, 42, 0.1);
-  }
-
-  .message-context-menu button:last-child {
-    border-bottom: 0;
+    min-height: 40px;
+    padding: 7px 9px 7px 11px;
+    border-radius: 8px;
+    font-size: 15px;
   }
 
   .message-context-menu button.is-separated {
-    margin-top: 8px;
-    border-top-width: 8px;
-    border-radius: 0;
+    margin-top: 4px;
+    border-top-width: 1px;
+    border-radius: 0 0 8px 8px;
   }
 
   .message-context-menu .lucide-icon {
-    width: 27px;
-    height: 27px;
+    width: 21px;
+    height: 21px;
   }
 
   .action-feedback {
