@@ -1,0 +1,91 @@
+.dialog-title p.is-live-status {
+  display: inline-flex;
+  align-items: baseline;
+  min-height: 15px;
+  white-space: nowrap;
+}
+
+.live-typing-dots,
+.typing-bubble-dots {
+  display: inline-flex;
+  align-items: center;
+}
+
+.live-typing-dots {
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.live-typing-dots > i,
+.typing-bubble-dots > i {
+  display: block;
+  border-radius: 999px;
+  background: currentColor;
+  animation: yachatTypingDot 1.05s ease-in-out infinite;
+}
+
+.live-typing-dots > i {
+  width: 3px;
+  height: 3px;
+}
+
+.live-typing-dots > i:nth-child(2),
+.typing-bubble-dots > i:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+.live-typing-dots > i:nth-child(3),
+.typing-bubble-dots > i:nth-child(3) {
+  animation-delay: 0.28s;
+}
+
+.message-bubble.typing-message-bubble {
+  display: grid;
+  gap: 5px;
+  min-width: 52px;
+  padding: 10px 13px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.typing-bubble-author {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.typing-bubble-dots {
+  gap: 4px;
+  min-height: 10px;
+  color: var(--muted);
+}
+
+.typing-bubble-dots > i {
+  width: 7px;
+  height: 7px;
+}
+
+@keyframes yachatTypingDot {
+  0%, 60%, 100% {
+    opacity: 0.35;
+    transform: translateY(0) scale(0.88);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-3px) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-typing-dots > i,
+  .typing-bubble-dots > i {
+    animation-duration: 1.8s;
+    transform: none;
+  }
+}
