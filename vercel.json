@@ -20,6 +20,10 @@
       "destination": "/api/contacts.py"
     },
     {
+      "source": "/api/icon",
+      "destination": "/api/icon.py"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     },
@@ -87,6 +91,9 @@
       "maxDuration": 10
     },
     "api/contacts.py": {
+      "maxDuration": 10
+    },
+    "api/icon.py": {
       "maxDuration": 10
     }
   }
