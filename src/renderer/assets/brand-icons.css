@@ -1,0 +1,61 @@
+:root {
+  --brand-logo: url("./yachat-theme-dark.svg?v=4");
+  --font-logo: "Roboto", "Segoe UI", Arial, sans-serif;
+}
+
+:root[data-theme="light"] {
+  --brand-logo: url("./yachat-theme-light.svg?v=4");
+}
+
+.brand-name {
+  font-family: var(--font-logo) !important;
+  font-weight: 700;
+}
+
+.chat-avatar.is-favorites,
+.dialog-avatar.is-favorites,
+.dialog-intro-avatar.is-favorites,
+.panel-row-avatar.is-favorites,
+.panel-avatar.is-favorites,
+.chat-profile-avatar.is-favorites,
+.avatar-modal-image.is-favorites {
+  background: #fff url("./yachat-shortcut.svg?v=4") center / cover no-repeat !important;
+  color: transparent !important;
+  box-shadow: none !important;
+  font-size: 0 !important;
+}
+
+.chat-avatar.is-favorites::before,
+.dialog-avatar.is-favorites::before,
+.dialog-intro-avatar.is-favorites::before,
+.panel-row-avatar.is-favorites::before,
+.panel-avatar.is-favorites::before,
+.chat-profile-avatar.is-favorites::before,
+.avatar-modal-image.is-favorites::before {
+  display: none !important;
+  content: none !important;
+}
+
+.chat-avatar.is-channel,
+.dialog-avatar.is-channel,
+.dialog-intro-avatar.is-channel,
+.panel-row-avatar.is-channel,
+.panel-avatar.is-channel,
+.chat-profile-avatar.is-channel,
+.avatar-modal-image.is-channel {
+  background: transparent url("./yachat-icon.svg?v=4") center / cover no-repeat !important;
+  color: transparent !important;
+  box-shadow: none !important;
+  font-size: 0 !important;
+}
+
+.chat-avatar.is-channel::before,
+.dialog-avatar.is-channel::before,
+.dialog-intro-avatar.is-channel::before,
+.panel-row-avatar.is-channel::before,
+.panel-avatar.is-channel::before,
+.chat-profile-avatar.is-channel::before,
+.avatar-modal-image.is-channel::before {
+  display: none !important;
+  content: none !important;
+}
