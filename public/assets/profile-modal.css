@@ -1,0 +1,128 @@
+body.profile-edit-modal-open {
+  overflow: hidden;
+}
+
+body.profile-edit-modal-open .side-panel {
+  z-index: 100 !important;
+  transform: none !important;
+  animation: none !important;
+}
+
+.profile-edit-modal-backdrop {
+  position: fixed;
+  z-index: 1;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  backdrop-filter: blur(0);
+  -webkit-backdrop-filter: blur(0);
+  opacity: 0;
+  transition:
+    background 180ms var(--ease),
+    backdrop-filter 180ms var(--ease),
+    opacity 180ms var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.profile-edit-modal-backdrop.is-visible {
+  background: rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  opacity: 1;
+}
+
+:root[data-theme="light"] .profile-edit-modal-backdrop.is-visible {
+  background: rgba(20, 24, 34, 0.28);
+}
+
+body.profile-edit-modal-open .profile-edit-section {
+  position: fixed;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  gap: 14px;
+  width: min(460px, calc(100vw - 32px));
+  max-height: min(720px, calc(100dvh - 40px));
+  overflow: auto;
+  margin: 0;
+  padding: 20px;
+  border: 1px solid var(--card-edge);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--card), transparent 2%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  opacity: 0;
+  transform: translate(-50%, calc(-50% + 12px)) scale(0.985);
+  transition:
+    opacity 180ms var(--ease),
+    transform 180ms var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+body.profile-edit-modal-open .profile-edit-section.is-profile-modal-visible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.profile-edit-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+}
+
+.profile-edit-modal-header h3 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.profile-edit-modal-close {
+  flex: 0 0 auto;
+}
+
+body.profile-edit-modal-open .profile-edit-section .profile-edit-avatar {
+  padding: 10px;
+  border: 1px solid var(--card-edge);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--field), transparent 18%);
+}
+
+body.profile-edit-modal-open .profile-edit-section .panel-actions:last-child {
+  display: grid;
+  grid-template-columns: 1fr auto;
+}
+
+body.profile-edit-modal-open .profile-edit-section .panel-actions:last-child .panel-primary {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  body.profile-edit-modal-open .profile-edit-section {
+    top: auto;
+    right: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: 10px;
+    width: auto;
+    max-height: min(82dvh, 720px);
+    padding: 18px;
+    border-radius: 20px;
+    transform: translateY(20px) scale(0.99);
+  }
+
+  body.profile-edit-modal-open .profile-edit-section.is-profile-modal-visible {
+    transform: translateY(0) scale(1);
+  }
+
+  body.profile-edit-modal-open .profile-edit-section .panel-actions:last-child {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-edit-modal-backdrop,
+  body.profile-edit-modal-open .profile-edit-section {
+    transition: none;
+  }
+}
