@@ -1,0 +1,39 @@
+name: Replace legacy theme logo bytes once
+
+on:
+  push:
+    branches:
+      - codex/yachat-brand-icons
+    paths:
+      - ".github/workflows/replace-legacy-theme-logos.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  replace-theme-logos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace every legacy theme logo with the clean transparent vectors render
+        run: |
+          cp src/renderer/assets/yachat-logo-light.png src/renderer/assets/yachat-logo-LIGHT.png
+          cp src/renderer/assets/yachat-logo-dark.png src/renderer/assets/yachat-logo-DARK.png
+          cp src/renderer/assets/yachat-logo-light.png public/assets/yachat-logo-LIGHT.png
+          cp src/renderer/assets/yachat-logo-dark.png public/assets/yachat-logo-DARK.png
+          test "$(sha256sum src/renderer/assets/yachat-logo-light.png | cut -d' ' -f1)" = "$(sha256sum src/renderer/assets/yachat-logo-LIGHT.png | cut -d' ' -f1)"
+          test "$(sha256sum src/renderer/assets/yachat-logo-dark.png | cut -d' ' -f1)" = "$(sha256sum src/renderer/assets/yachat-logo-DARK.png | cut -d' ' -f1)"
+
+      - name: Validate and commit
+        run: |
+          npm run check
+          python -m py_compile api/index.py
+          rm -f .github/workflows/replace-legacy-theme-logos.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: replace final legacy theme logo bytes [brand-theme-final]"
+          git push origin HEAD:codex/yachat-brand-icons
