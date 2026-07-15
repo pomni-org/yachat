@@ -1,0 +1,55 @@
+name: Version YaChat icon cache once
+
+on:
+  push:
+    branches:
+      - codex/yachat-brand-icons
+    paths:
+      - ".github/workflows/version-yachat-icon-cache.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  version-icons:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bust favicon and bookmark caches
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          for root in (Path('src/renderer'), Path('public')):
+              for path in root.glob('*.html'):
+                  text = path.read_text(encoding='utf-8')
+                  text = re.sub(r'(href="/assets/yachat-favicon-(?:16|32|48|256)\.png)(?:\?v=\d+)?(")', r'\1?v=4\2', text)
+                  text = re.sub(r'(href="/favicon-v2\.ico)(?:\?v=\d+)?(")', r'\1?v=4\2', text)
+                  path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate complete replacement
+        run: |
+          npm run check
+          python -m py_compile api/index.py
+          test ! -e src/renderer/assets/MaxSans-Bold.ttf
+          test ! -e public/assets/MaxSans-Bold.ttf
+          test "$(sha256sum src/renderer/assets/yachat-logo-light.png | cut -d' ' -f1)" = "$(sha256sum src/renderer/assets/yachat-logo-LIGHT.png | cut -d' ' -f1)"
+          test "$(sha256sum src/renderer/assets/yachat-logo-dark.png | cut -d' ' -f1)" = "$(sha256sum src/renderer/assets/yachat-logo-DARK.png | cut -d' ' -f1)"
+          test "$(sha256sum src/renderer/assets/yachat-shortcut-512.png | cut -d' ' -f1)" = "$(sha256sum src/renderer/assets/yachat-app-icon-v2-512.png | cut -d' ' -f1)"
+          grep -q 'yachat-logo-light.svg' src/renderer/styles.css
+          grep -q 'yachat-logo-dark.svg' src/renderer/styles.css
+          grep -q 'yachat-avatar.svg' api/index.py
+          grep -q 'yachat-avatar.svg' src/renderer/app.js
+
+      - name: Remove workflow and commit
+        run: |
+          rm -f .github/workflows/version-yachat-icon-cache.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: version all ЯЧат icon cache links [brand-cache-final]"
+          git push origin HEAD:codex/yachat-brand-icons
