@@ -2550,6 +2550,7 @@ async function handleMessageAction(action) {
   }
 
   closeMessageMenu();
+  state.ignoreNextMessageClick = false;
 
   try {
     if (action === "edit") {

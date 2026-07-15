@@ -4890,7 +4890,10 @@ body.messenger-mode .app-shell {
     border-radius: 18px;
   }
 
-  body.mobile-dialog-open .action-feedback,
+  body.mobile-dialog-open .action-feedback {
+    bottom: max(138px, calc(env(safe-area-inset-bottom) + 130px));
+  }
+
   body.chat-profile-open .action-feedback {
     bottom: max(22px, calc(env(safe-area-inset-bottom) + 14px));
   }
