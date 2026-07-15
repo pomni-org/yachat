@@ -33,6 +33,7 @@ async function injectEnhancementAssets() {
       '    <link rel="stylesheet" href="./assets/chat-presence.css" />',
       '    <link rel="stylesheet" href="./assets/username-copy.css" />',
       '    <link rel="stylesheet" href="./assets/profile-modal.css" />',
+      '    <link rel="stylesheet" href="./assets/avatar-preview.css" />',
       '    <link rel="stylesheet" href="./assets/loading-shine.css" />'
     ].join("\n")
   );
