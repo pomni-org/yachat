@@ -672,6 +672,15 @@ const translations = {
     feedbackCopiedInvite: "Приглашение скопировано",
     feedbackCopyFailed: "Не удалось скопировать",
     feedbackMarkedUnread: "Чат отмечен непрочитанным",
+    feedbackMessageEdited: "Сообщение изменено",
+    feedbackMessageDeleted: "Сообщение удалено",
+    feedbackMessagesDeleted: "Выбранные сообщения удалены",
+    feedbackMessageForwarded: "Сообщение переслано",
+    feedbackEditFailed: "Не удалось изменить сообщение",
+    feedbackDeleteFailed: "Не удалось удалить сообщение",
+    feedbackForwardFailed: "Не удалось переслать сообщение",
+    feedbackMarkUnreadFailed: "Не удалось отметить чат непрочитанным",
+    feedbackActionFailed: "Не удалось выполнить действие",
     feedbackSendFailed: "Сообщение не отправлено",
     messageSending: "Отправляется",
     messageSent: "Отправлено",
@@ -684,6 +693,18 @@ const translations = {
     forwardTitle: "Переслать в чат",
     cancel: "Отмена",
     damagedText: "Текст повреждён",
+    errChatUnavailable: "Этот чат больше недоступен. Обновите список чатов.",
+    errMessageNotFound: "Сообщение не найдено. Возможно, оно уже удалено.",
+    errMessageEmpty: "Сообщение не может быть пустым.",
+    errMessageCannotEdit: "Можно редактировать только свои сообщения.",
+    errMessageCannotDelete: "Можно удалять только свои сообщения.",
+    errMessageNotSelected: "Сначала выберите сообщение.",
+    errMessageCannotForward: "Это сообщение нельзя переслать.",
+    errForwardTargetUnavailable: "В этот чат нельзя переслать сообщение.",
+    errMessageCannotMarkUnread: "Это сообщение нельзя отметить непрочитанным.",
+    errChatReadonly: "В этот чат нельзя отправлять сообщения.",
+    errMessageConflict: "Не удалось завершить отправку. Повторите попытку.",
+    errChatCannotDelete: "Этот чат нельзя удалить.",
     errSendMessage: "Не удалось отправить сообщение.",
     bootCheckingAccount: "Проверяем вход",
     bootPreparingChats: "Готовим чаты",
@@ -972,6 +993,15 @@ const translations = {
     feedbackCopiedInvite: "Invite copied",
     feedbackCopyFailed: "Could not copy",
     feedbackMarkedUnread: "Chat marked unread",
+    feedbackMessageEdited: "Message updated",
+    feedbackMessageDeleted: "Message deleted",
+    feedbackMessagesDeleted: "Selected messages deleted",
+    feedbackMessageForwarded: "Message forwarded",
+    feedbackEditFailed: "Could not update the message",
+    feedbackDeleteFailed: "Could not delete the message",
+    feedbackForwardFailed: "Could not forward the message",
+    feedbackMarkUnreadFailed: "Could not mark the chat unread",
+    feedbackActionFailed: "Could not complete the action",
     feedbackSendFailed: "Message was not sent",
     messageSending: "Sending",
     messageSent: "Sent",
@@ -984,6 +1014,18 @@ const translations = {
     forwardTitle: "Forward to chat",
     cancel: "Cancel",
     damagedText: "Text is damaged",
+    errChatUnavailable: "This chat is no longer available. Refresh the chat list.",
+    errMessageNotFound: "The message was not found. It may have already been deleted.",
+    errMessageEmpty: "The message cannot be empty.",
+    errMessageCannotEdit: "You can edit only your own messages.",
+    errMessageCannotDelete: "You can delete only your own messages.",
+    errMessageNotSelected: "Select a message first.",
+    errMessageCannotForward: "This message cannot be forwarded.",
+    errForwardTargetUnavailable: "Messages cannot be forwarded to this chat.",
+    errMessageCannotMarkUnread: "This message cannot be marked unread.",
+    errChatReadonly: "Messages cannot be sent to this chat.",
+    errMessageConflict: "Sending could not be completed. Try again.",
+    errChatCannotDelete: "This chat cannot be deleted.",
     errSendMessage: "Could not send the message.",
     bootCheckingAccount: "Checking sign-in",
     bootPreparingChats: "Preparing chats",
@@ -1015,6 +1057,53 @@ const serverMessageKeys = new Map([
   ["Username is already taken.", "errUsernameTaken"],
   ["Description must be no longer than 140 characters.", "errBio"],
   ["Could not open the image.", "errAvatar"],
+  ["Attachment is too large.", "attachLimit"],
+  ["Request is too large.", "attachLimit"],
+  ["Файл слишком большой. Лимит 8 МБ.", "attachLimit"],
+  ["Choose one person.", "errChoosePerson"],
+  ["Выберите одного человека для личного чата.", "errChoosePerson"],
+  ["Add at least one person.", "errChooseGroupMember"],
+  ["Добавьте в группу хотя бы одного человека.", "errChooseGroupMember"],
+  ["Enter a group name.", "errGroupName"],
+  ["Введите название группы.", "errGroupName"],
+  ["User not found.", "noPeopleFound"],
+  ["Chat not found.", "errChatUnavailable"],
+  ["Чат не найден.", "errChatUnavailable"],
+  ["Invalid chat id.", "errChatUnavailable"],
+  ["Message not found.", "errMessageNotFound"],
+  ["Сообщение не найдено.", "errMessageNotFound"],
+  ["Enter a message.", "errMessageEmpty"],
+  ["Введите сообщение.", "errMessageEmpty"],
+  ["This message cannot be edited.", "errMessageCannotEdit"],
+  ["Это сообщение нельзя редактировать.", "errMessageCannotEdit"],
+  ["This message cannot be deleted.", "errMessageCannotDelete"],
+  ["Это сообщение нельзя удалить.", "errMessageCannotDelete"],
+  ["You can delete only your own messages.", "errMessageCannotDelete"],
+  ["Можно удалять только свои сообщения.", "errMessageCannotDelete"],
+  ["Select a message first.", "errMessageNotSelected"],
+  ["Сообщение не выбрано.", "errMessageNotSelected"],
+  ["This message cannot be forwarded.", "errMessageCannotForward"],
+  ["Это сообщение нельзя переслать.", "errMessageCannotForward"],
+  ["Messages cannot be forwarded to this chat.", "errForwardTargetUnavailable"],
+  ["В этот чат нельзя переслать сообщение.", "errForwardTargetUnavailable"],
+  ["This message cannot be marked unread.", "errMessageCannotMarkUnread"],
+  ["Это сообщение нельзя отметить непрочитанным.", "errMessageCannotMarkUnread"],
+  ["This chat is read-only.", "errChatReadonly"],
+  ["System chats are local only.", "errChatReadonly"],
+  ["Only Murochko can post to the YaChat channel.", "errChatReadonly"],
+  ["В этот канал нельзя писать.", "errChatReadonly"],
+  ["Message id conflict.", "errMessageConflict"],
+  ["System chats cannot be left.", "cannotLeave"],
+  ["This chat cannot be left.", "cannotLeave"],
+  ["Из этого чата нельзя выйти.", "cannotLeave"],
+  ["System chats cannot be deleted.", "errChatCannotDelete"],
+  ["Only groups can be deleted.", "errChatCannotDelete"],
+  ["Only the group owner can delete this chat.", "errChatCannotDelete"],
+  ["Удалить группу может только владелец.", "errChatCannotDelete"],
+  ["Only the group owner can edit this chat.", "ownerOnly"],
+  ["Only Murochko can edit the YaChat channel.", "ownerOnly"],
+  ["Only the group owner can invite people.", "ownerOnly"],
+  ["Нет прав на изменение этого чата.", "ownerOnly"],
   ["This system chat history cannot be cleared.", "clearHistoryLocked"],
   ["Only Murochko can clear the YaChat channel history.", "clearHistoryOwnerOnly"],
   ["Историю этого системного чата нельзя очистить.", "clearHistoryLocked"],
@@ -2563,6 +2652,7 @@ async function forwardMessageTo(chatId) {
   renderChatList();
   renderActiveChat();
   renderMessages();
+  showActionFeedback(t("feedbackMessageForwarded"), { icon: "forward" });
 }
 
 async function handleMessageAction(action) {
@@ -2597,9 +2687,18 @@ async function handleMessageAction(action) {
         ? [...state.selectedMessageIds]
         : [message.id];
       await deleteMessages(selected);
+      showActionFeedback(t(selected.length > 1 ? "feedbackMessagesDeleted" : "feedbackMessageDeleted"), {
+        icon: "trash"
+      });
     }
   } catch (error) {
-    showActionFeedback(translatedServerMessage(error.message, "errSendMessage"), {
+    const fallbackKey = {
+      copy: "feedbackCopyFailed",
+      delete: "feedbackDeleteFailed",
+      forward: "feedbackForwardFailed",
+      unread: "feedbackMarkUnreadFailed"
+    }[action] || "feedbackActionFailed";
+    showActionFeedback(translatedServerMessage(error.message, fallbackKey), {
       tone: "error",
       icon: "circle-alert"
     });
@@ -2744,7 +2843,7 @@ async function addAttachments(files) {
     state.pendingAttachments = [...state.pendingAttachments, ...next].slice(0, 8);
     renderAttachmentTray();
   } catch (error) {
-    alert(error.message || t("errSendMessage"));
+    alert(translatedServerMessage(error.message, "errSendMessage"));
   } finally {
     if (attachmentInput) {
       attachmentInput.value = "";
@@ -3658,7 +3757,7 @@ async function lookupContacts(phones, sourceButton = null) {
       : t("contactsNoMatches");
     return state.contactMatches;
   } catch (error) {
-    state.contactLookupMessage = error.message || t("contactsUnavailable");
+    state.contactLookupMessage = translatedServerMessage(error.message, "contactsUnavailable");
     return [];
   } finally {
     state.contactLookupLoading = false;
@@ -3676,7 +3775,7 @@ async function importDeviceContacts(sourceButton) {
   } catch (error) {
     state.contactLookupMessage = error.name === "NotAllowedError"
       ? t("contactsPermissionDenied")
-      : error.message || t("contactsUnavailable");
+      : translatedServerMessage(error.message, "contactsUnavailable");
     state.contactLookupLoading = false;
     renderPanel();
   }
@@ -3709,7 +3808,7 @@ async function searchContactsDirectory(query, sourceButton = null) {
       : t("contactsNoMatches");
     return state.contactMatches;
   } catch (error) {
-    state.contactLookupMessage = error.message || t("contactsUnavailable");
+    state.contactLookupMessage = translatedServerMessage(error.message, "contactsUnavailable");
     return [];
   } finally {
     state.contactLookupLoading = false;
@@ -3853,7 +3952,7 @@ async function openPrivateChatWithContact(userId, sourceButton = null) {
   try {
     await openPendingPrivateChat(user, { closePanelOnOpen: true });
   } catch (error) {
-    state.contactLookupMessage = error.message || t("errSendMessage");
+    state.contactLookupMessage = translatedServerMessage(error.message, "errSendMessage");
     renderPanel();
   } finally {
     if (sourceButton) {
@@ -4346,9 +4445,9 @@ async function scanCapturedSessionImage(file) {
     await confirmQrPayload(payload);
   } catch (error) {
     if (message) {
-      message.textContent = error.message || t("cameraQrUnavailable");
+      message.textContent = translatedServerMessage(error.message, "cameraQrUnavailable");
     } else {
-      alert(error.message || t("cameraQrUnavailable"));
+      alert(translatedServerMessage(error.message, "cameraQrUnavailable"));
     }
   }
 }
@@ -4411,7 +4510,7 @@ async function startQrScanner() {
   } catch (error) {
     stopQrScanner();
     if (!openSessionCaptureFallback()) {
-      alert(error.message || t("cameraQrUnavailable"));
+      alert(translatedServerMessage(error.message, "cameraQrUnavailable"));
     }
   }
 }
@@ -4421,7 +4520,7 @@ async function confirmQrPayload(payload) {
     await yachatApi.qr.confirm({ payload });
     alert(t("qrApproved"));
   } catch (error) {
-    alert(error.message || t("errVerify"));
+    alert(translatedServerMessage(error.message, "errVerify"));
   }
 }
 
@@ -4727,7 +4826,7 @@ async function searchCreateChatUsers(query, requestId) {
       return;
     }
 
-    state.createChatSearchError = error.message || t("contactsUnavailable");
+    state.createChatSearchError = translatedServerMessage(error.message, "contactsUnavailable");
     state.createChatUsers = mergeUsers(getCreateChatSelectedUsers(), historicalChatUsers(query));
   } finally {
     if (requestId === state.createChatSearchRequestId) {
@@ -4790,7 +4889,7 @@ async function searchChatUserDirectory(query, requestId) {
     }
 
     state.chatSearchUsers = [];
-    state.chatSearchError = error.message || t("contactsUnavailable");
+    state.chatSearchError = translatedServerMessage(error.message, "contactsUnavailable");
   } finally {
     if (requestId === state.chatSearchRequestId) {
       state.chatSearchLoading = false;
@@ -4982,7 +5081,7 @@ async function createChatFromForm(submitButton) {
     renderMessages();
     setMobileDialogOpen(true);
   } catch (error) {
-    setMessage("create-chat", error.message || t("errSendMessage"));
+    setMessage("create-chat", translatedServerMessage(error.message, "errSendMessage"));
   } finally {
     setLoading(submitButton, false);
     renderCreateChatForm();
@@ -5335,7 +5434,7 @@ async function startQrLogin() {
     qrStatus.textContent = t("qrWaiting");
     pollQrSession();
   } catch (error) {
-    qrStatus.textContent = error.message || t("errCreateCode");
+    qrStatus.textContent = translatedServerMessage(error.message, "errCreateCode");
   }
 }
 
@@ -5502,12 +5601,17 @@ function applyTranslations() {
 }
 
 function translatedServerMessage(message, fallbackKey) {
-  const key = serverMessageKeys.get(message);
+  const normalized = cleanDisplayText(message, "").replace(/\s+/g, " ").trim();
+  const key = serverMessageKeys.get(normalized);
   if (key) {
     return t(key);
   }
 
-  return state.language === "ru" && message ? message : t(fallbackKey);
+  if (state.language === "ru" && /[а-яё]/i.test(normalized)) {
+    return normalized;
+  }
+
+  return t(fallbackKey);
 }
 
 function isLoopbackHostname(hostname) {
@@ -6761,6 +6865,7 @@ function createLocalYachatApi() {
       },
       deleteMessage: async (payload) => {
         const data = readMessenger();
+        const account = readAccount()?.account;
         const chat = data.chats.find((item) => item.id === payload?.chatId);
         const ids = [...new Set((Array.isArray(payload?.messageIds) ? payload.messageIds : [payload?.messageId])
           .map((id) => String(id || "").trim())
@@ -6770,8 +6875,23 @@ function createLocalYachatApi() {
           throw new Error("Чат не найден.");
         }
 
+        if (ids.length === 0) {
+          throw new Error("Сообщение не выбрано.");
+        }
+
+        const messages = data.messages[chat.id] || [];
+        const selected = ids.map((id) => messages.find((message) => message.id === id));
+        if (selected.some((message) => !message)) {
+          throw new Error("Сообщение не найдено.");
+        }
+        if (selected.some((message) => (
+          message.senderId ? message.senderId !== account?.id : message.author !== "user"
+        ))) {
+          throw new Error("Можно удалять только свои сообщения.");
+        }
+
         const removing = new Set(ids);
-        data.messages[chat.id] = (data.messages[chat.id] || []).filter((message) => !removing.has(message.id));
+        data.messages[chat.id] = messages.filter((message) => !removing.has(message.id));
         writeMessenger(data);
         return {
           chats: summarizeLocalChats(data),
@@ -8123,7 +8243,10 @@ document.addEventListener("click", (event) => {
   const chatButton = event.target.closest("[data-forward-chat]");
   if (chatButton) {
     forwardMessageTo(chatButton.dataset.forwardChat).catch((error) => {
-      alert(translatedServerMessage(error.message, "errSendMessage"));
+      showActionFeedback(translatedServerMessage(error.message, "feedbackForwardFailed"), {
+        tone: "error",
+        icon: "circle-alert"
+      });
     });
     return;
   }
@@ -8224,6 +8347,7 @@ messageForm?.addEventListener("submit", async (event) => {
       renderChatList();
       renderActiveChat();
       renderMessages();
+      showActionFeedback(t("feedbackMessageEdited"), { icon: "pencil" });
       return;
     }
 
@@ -8242,7 +8366,8 @@ messageForm?.addEventListener("submit", async (event) => {
     renderComposerContext();
     await deliverTransientMessage(targetChat, outgoing);
   } catch (error) {
-    showActionFeedback(translatedServerMessage(error.message, "feedbackSendFailed"), {
+    const fallbackKey = state.editingMessageId ? "feedbackEditFailed" : "feedbackSendFailed";
+    showActionFeedback(translatedServerMessage(error.message, fallbackKey), {
       tone: "error",
       icon: "circle-alert",
       duration: 3200
@@ -8518,7 +8643,7 @@ panelBody?.addEventListener("change", async (event) => {
     if (error.cancelled) {
       return;
     }
-    alert(error.message || t("errAvatar"));
+    alert(translatedServerMessage(error.message, "errAvatar"));
   }
 });
 
@@ -8589,7 +8714,7 @@ createChatForm?.querySelector("[data-create-chat-avatar-input]")?.addEventListen
     if (error.cancelled) {
       return;
     }
-    alert(error.message || t("errAvatar"));
+    alert(translatedServerMessage(error.message, "errAvatar"));
   } finally {
     event.target.value = "";
   }

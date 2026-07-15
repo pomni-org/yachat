@@ -1822,6 +1822,12 @@ def ensure_saved_chat(cursor, user_id: str) -> str:
     return chat_id
 
 
+def resolve_message_chat_id(cursor, requested_chat_id: str, user_id: str) -> str:
+    if requested_chat_id == "yachat-favorites":
+        return ensure_saved_chat(cursor, user_id)
+    return requested_chat_id
+
+
 def can_manage_chat(chat: dict[str, Any], user_id: str) -> bool:
     if not chat or bool(row_value(chat, "locked")) or str(row_value(chat, "kind")) != "group":
         return False
@@ -2818,18 +2824,22 @@ async def mark_chat_read(request: Request):
 async def mark_message_unread(request: Request):
     user = require_user(request)
     payload = await read_json_payload(request)
-    chat_id = clean_chat_id(payload.get("chatId"))
+    requested_chat_id = clean_chat_id(payload.get("chatId"))
     message_id = str(payload.get("messageId") or "")
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
+            if requested_chat_id.startswith("yachat-") and requested_chat_id != "yachat-favorites":
+                raise HTTPException(status_code=400, detail="This message cannot be marked unread.")
+            chat_id = resolve_message_chat_id(cursor, requested_chat_id, str(user["id"]))
             require_chat_member(cursor, chat_id, str(user["id"]))
             cursor.execute("select created_at from yachat_messages where id = %s and chat_id = %s", (message_id, chat_id))
             row = cursor.fetchone()
-            if row:
-                cursor.execute(
-                    "update yachat_chat_members set last_read_at = %s where chat_id = %s and user_id = %s",
-                    (row["created_at"] - timedelta(milliseconds=1), chat_id, user["id"]),
-                )
+            if not row:
+                raise HTTPException(status_code=404, detail="Message not found.")
+            cursor.execute(
+                "update yachat_chat_members set last_read_at = %s where chat_id = %s and user_id = %s",
+                (row["created_at"] - timedelta(milliseconds=1), chat_id, user["id"]),
+            )
     return {"chats": list_user_chats(str(user["id"]))}
 
 
@@ -2837,31 +2847,60 @@ async def mark_message_unread(request: Request):
 async def delete_message(request: Request):
     user = require_user(request)
     payload = await read_json_payload(request)
-    chat_id = clean_chat_id(payload.get("chatId"))
+    requested_chat_id = clean_chat_id(payload.get("chatId"))
     ids = payload.get("messageIds") if isinstance(payload.get("messageIds"), list) else [payload.get("messageId")]
-    ids = [str(item or "") for item in ids if str(item or "")]
+    ids = list(dict.fromkeys(str(item or "") for item in ids if str(item or "")))
+    if not ids:
+        raise HTTPException(status_code=400, detail="Select a message first.")
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
+            if requested_chat_id.startswith("yachat-") and requested_chat_id != "yachat-favorites":
+                raise HTTPException(status_code=403, detail="This message cannot be deleted.")
+            chat_id = resolve_message_chat_id(cursor, requested_chat_id, str(user["id"]))
             require_chat_member(cursor, chat_id, str(user["id"]))
+            cursor.execute(
+                "select id, sender_id from yachat_messages where chat_id = %s and id = any(%s) and deleted_at is null",
+                (chat_id, ids),
+            )
+            messages = [dict(row) for row in cursor.fetchall()]
+            if len(messages) != len(ids):
+                raise HTTPException(status_code=404, detail="Message not found.")
+            if any(str(row_value(message, "sender_id")) != str(user["id"]) for message in messages):
+                raise HTTPException(status_code=403, detail="You can delete only your own messages.")
             cursor.execute(
                 "update yachat_messages set deleted_at = now() where chat_id = %s and sender_id = %s and id = any(%s)",
                 (chat_id, user["id"], ids),
             )
-    return {"chats": list_user_chats(str(user["id"])), "messages": get_chat_messages(chat_id, str(user["id"]))}
+    return {
+        "chats": list_user_chats(str(user["id"])),
+        "messages": get_chat_messages(requested_chat_id, str(user["id"])),
+    }
 
 
 @app.post("/api/message/update")
 async def update_message(request: Request):
     user = require_user(request)
     payload = await read_json_payload(request)
-    chat_id = clean_chat_id(payload.get("chatId"))
+    requested_chat_id = clean_chat_id(payload.get("chatId"))
     message_id = str(payload.get("messageId") or "")
     text = clean_text(payload.get("text"), 4000)
     if not text:
         raise HTTPException(status_code=400, detail="Enter a message.")
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
+            if requested_chat_id.startswith("yachat-") and requested_chat_id != "yachat-favorites":
+                raise HTTPException(status_code=403, detail="This message cannot be edited.")
+            chat_id = resolve_message_chat_id(cursor, requested_chat_id, str(user["id"]))
             require_chat_member(cursor, chat_id, str(user["id"]))
+            cursor.execute(
+                "select sender_id from yachat_messages where id = %s and chat_id = %s and deleted_at is null",
+                (message_id, chat_id),
+            )
+            message = cursor.fetchone()
+            if not message:
+                raise HTTPException(status_code=404, detail="Message not found.")
+            if str(row_value(message, "sender_id")) != str(user["id"]):
+                raise HTTPException(status_code=403, detail="This message cannot be edited.")
             cursor.execute(
                 """
                 update yachat_messages
@@ -2870,20 +2909,31 @@ async def update_message(request: Request):
                 """,
                 (text, message_id, chat_id, user["id"]),
             )
-    return {"chats": list_user_chats(str(user["id"])), "messages": get_chat_messages(chat_id, str(user["id"]))}
+    return {
+        "chats": list_user_chats(str(user["id"])),
+        "messages": get_chat_messages(requested_chat_id, str(user["id"])),
+    }
 
 
 @app.post("/api/message/forward")
 async def forward_message(request: Request):
     user = require_user(request)
     payload = await read_json_payload(request)
-    from_chat_id = clean_chat_id(payload.get("fromChatId"))
-    to_chat_id = clean_chat_id(payload.get("toChatId"))
+    requested_from_chat_id = clean_chat_id(payload.get("fromChatId"))
+    requested_to_chat_id = clean_chat_id(payload.get("toChatId"))
     message_id = str(payload.get("messageId") or "")
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
+            if requested_from_chat_id.startswith("yachat-") and requested_from_chat_id != "yachat-favorites":
+                raise HTTPException(status_code=400, detail="This message cannot be forwarded.")
+            if requested_to_chat_id.startswith("yachat-") and requested_to_chat_id != "yachat-favorites":
+                raise HTTPException(status_code=400, detail="Messages cannot be forwarded to this chat.")
+            from_chat_id = resolve_message_chat_id(cursor, requested_from_chat_id, str(user["id"]))
+            to_chat_id = resolve_message_chat_id(cursor, requested_to_chat_id, str(user["id"]))
             require_chat_member(cursor, from_chat_id, str(user["id"]))
-            require_chat_member(cursor, to_chat_id, str(user["id"]))
+            target_chat = require_chat_member(cursor, to_chat_id, str(user["id"]))
+            if not bool(row_value(target_chat, "can_send") if "can_send" in target_chat else True):
+                raise HTTPException(status_code=403, detail="This chat is read-only.")
             cursor.execute("select * from yachat_messages where id = %s and chat_id = %s and deleted_at is null", (message_id, from_chat_id))
             source = cursor.fetchone()
             if not source:
@@ -2903,7 +2953,11 @@ async def forward_message(request: Request):
                 ),
             )
             cursor.execute("update yachat_chats set updated_at = now() where id = %s", (to_chat_id,))
-    return {"chatId": to_chat_id, "chats": list_user_chats(str(user["id"])), "messages": get_chat_messages(to_chat_id, str(user["id"]))}
+    return {
+        "chatId": requested_to_chat_id,
+        "chats": list_user_chats(str(user["id"])),
+        "messages": get_chat_messages(requested_to_chat_id, str(user["id"])),
+    }
 
 
 @app.post("/api/qr/create")

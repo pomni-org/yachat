@@ -2062,8 +2062,19 @@ function createLocalBackend(app, appTitle) {
       throw new Error("Сообщение не выбрано.");
     }
 
+    const messages = state.messages[chat.id] || [];
+    const selected = ids.map((id) => messages.find((message) => message.id === id));
+    if (selected.some((message) => !message)) {
+      throw new Error("Сообщение не найдено.");
+    }
+    if (selected.some((message) => (
+      message.senderId ? message.senderId !== account?.id : message.author !== "user"
+    ))) {
+      throw new Error("Можно удалять только свои сообщения.");
+    }
+
     const removing = new Set(ids);
-    state.messages[chat.id] = (state.messages[chat.id] || []).filter((message) => !removing.has(message.id));
+    state.messages[chat.id] = messages.filter((message) => !removing.has(message.id));
     await saveMessengerState(state);
     return {
       chats: summarizeChatList(state, account, usersById),
