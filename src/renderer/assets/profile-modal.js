@@ -2,7 +2,8 @@
   "use strict";
 
   const panelBody = document.querySelector("[data-panel-body]");
-  if (!panelBody) {
+  const sidePanel = document.querySelector("[data-side-panel]");
+  if (!panelBody || !sidePanel) {
     return;
   }
 
@@ -58,7 +59,7 @@
         event.preventDefault();
         closeProfileModal();
       });
-      document.body.append(backdrop);
+      sidePanel.append(backdrop);
     }
 
     requestAnimationFrame(() => backdrop?.classList.add("is-visible"));
