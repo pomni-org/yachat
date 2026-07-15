@@ -86,7 +86,27 @@
       }
       return language() === "en" ? `${firstName} is typing` : `${firstName} печатает`;
     }
-    return language() === "en" ? "typing" : "печатает";
+    return language() === "en" ? "Typing" : "Печатает";
+  }
+
+  function privateStatusLabel(status) {
+    if (language() === "en") {
+      if (status === "online") {
+        return "Online";
+      }
+      if (status === "recent") {
+        return "Last seen recently";
+      }
+      return "Last seen a long time ago";
+    }
+
+    if (status === "online") {
+      return "В сети";
+    }
+    if (status === "recent") {
+      return "Был(а) недавно";
+    }
+    return "Давно не был(а)";
   }
 
   function renderSubtitle() {
@@ -110,9 +130,7 @@
       text = typingLabel(chat, users);
       typing = true;
     } else if (chat.kind === "private") {
-      text = snapshot?.status === "online"
-        ? (language() === "en" ? "online" : "в сети")
-        : (language() === "en" ? "last seen a long time ago" : "давно не был(а)");
+      text = privateStatusLabel(snapshot?.status);
     } else if (chat.kind === "group" || chat.kind === "channel" || chat.id === "yachat-channel") {
       const fallbackCount = Array.isArray(chat.participantIds) ? chat.participantIds.length : 0;
       text = pluralSubscribers(snapshot?.subscriberCount ?? fallbackCount);
