@@ -43,7 +43,8 @@ async function injectEnhancementAssets() {
       '<script src="./app.js"></script>',
       '    <script src="./assets/chat-presence.js"></script>',
       '    <script src="./assets/username-copy.js"></script>',
-      '    <script src="./assets/profile-modal.js"></script>'
+      '    <script src="./assets/profile-modal.js"></script>',
+      '    <script src="./assets/contacts-sync.js"></script>'
     ].join("\n")
   );
   await fs.writeFile(indexPath, withScripts, "utf8");
