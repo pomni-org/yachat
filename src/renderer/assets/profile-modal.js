@@ -6,12 +6,14 @@
     return;
   }
 
-  let wasOpen = false;
-  let enhancing = false;
+  let activeSection = null;
+  let backdrop = null;
+  let modalWasOpen = false;
+  let backdropRemovalTimer = null;
 
   function closeProfileModal() {
     panelBody
-      .querySelector('.profile-edit-modal-layer [data-panel-action="cancel-profile-edit"]')
+      .querySelector('.profile-edit-section [data-panel-action="cancel-profile-edit"]')
       ?.click();
   }
 
@@ -41,77 +43,111 @@
     header.append(closeButton);
   }
 
-  function enhanceProfileEditor() {
-    if (enhancing) {
+  function ensureBackdrop() {
+    window.clearTimeout(backdropRemovalTimer);
+    backdropRemovalTimer = null;
+
+    if (!backdrop || !backdrop.isConnected) {
+      backdrop = document.createElement("div");
+      backdrop.className = "profile-edit-modal-backdrop";
+      backdrop.setAttribute("aria-hidden", "true");
+      backdrop.addEventListener("pointerdown", (event) => {
+        if (event.target !== backdrop) {
+          return;
+        }
+        event.preventDefault();
+        closeProfileModal();
+      });
+      document.body.append(backdrop);
+    }
+
+    requestAnimationFrame(() => backdrop?.classList.add("is-visible"));
+  }
+
+  function removeBackdrop() {
+    if (!backdrop) {
       return;
     }
 
-    enhancing = true;
-    try {
-      const section = panelBody.querySelector(".profile-edit-section");
+    const currentBackdrop = backdrop;
+    backdrop = null;
+    currentBackdrop.classList.remove("is-visible");
+    backdropRemovalTimer = window.setTimeout(() => {
+      currentBackdrop.remove();
+      backdropRemovalTimer = null;
+    }, 190);
+  }
 
-      if (!section) {
-        document.body.classList.remove("profile-edit-modal-open");
-        if (wasOpen) {
-          wasOpen = false;
-          requestAnimationFrame(() => {
-            document.querySelector('[data-panel-action="edit-profile"]')?.focus();
-          });
-        }
+  function openModal(section) {
+    const isFirstOpen = !modalWasOpen;
+    modalWasOpen = true;
+    activeSection = section;
+
+    document.body.classList.add("profile-edit-modal-open");
+    section.setAttribute("role", "dialog");
+    section.setAttribute("aria-modal", "true");
+    section.setAttribute("aria-labelledby", "profile-edit-modal-title");
+    addModalHeader(section);
+    ensureBackdrop();
+
+    if (typeof hydrateIcons === "function") {
+      hydrateIcons(section);
+    }
+
+    requestAnimationFrame(() => {
+      if (!section.isConnected) {
         return;
       }
-
-      wasOpen = true;
-      document.body.classList.add("profile-edit-modal-open");
-
-      let layer = section.closest(".profile-edit-modal-layer");
-      if (!layer) {
-        layer = document.createElement("div");
-        layer.className = "profile-edit-modal-layer";
-        layer.setAttribute("role", "presentation");
-        section.before(layer);
-        layer.append(section);
-
-        layer.addEventListener("pointerdown", (event) => {
-          if (event.target !== layer) {
-            return;
-          }
-
-          event.preventDefault();
-          event.stopPropagation();
-          closeProfileModal();
-        });
-      }
-
-      section.setAttribute("role", "dialog");
-      section.setAttribute("aria-modal", "true");
-      section.setAttribute("aria-labelledby", "profile-edit-modal-title");
-      addModalHeader(section);
-
-      if (typeof hydrateIcons === "function") {
-        hydrateIcons(layer);
-      }
-
-      requestAnimationFrame(() => {
-        layer.classList.add("is-visible");
+      section.classList.add("is-profile-modal-visible");
+      if (isFirstOpen) {
         section.querySelector("[data-profile-display-name]")?.focus();
+      }
+    });
+  }
+
+  function closeModalUi() {
+    if (!modalWasOpen && !activeSection) {
+      return;
+    }
+
+    activeSection?.classList.remove("is-profile-modal-visible");
+    activeSection = null;
+    document.body.classList.remove("profile-edit-modal-open");
+    removeBackdrop();
+
+    if (modalWasOpen) {
+      modalWasOpen = false;
+      requestAnimationFrame(() => {
+        document.querySelector('[data-panel-action="edit-profile"]')?.focus();
       });
-    } finally {
-      enhancing = false;
     }
   }
 
-  const observer = new MutationObserver(enhanceProfileEditor);
-  observer.observe(panelBody, { childList: true, subtree: true });
+  function syncProfileModal() {
+    const section = panelBody.querySelector(".profile-edit-section");
 
-  document.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !panelBody.querySelector(".profile-edit-modal-layer")) {
+    if (!section) {
+      closeModalUi();
       return;
     }
 
+    if (section === activeSection) {
+      return;
+    }
+
+    openModal(section);
+  }
+
+  const observer = new MutationObserver(syncProfileModal);
+  observer.observe(panelBody, { childList: true, subtree: true });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !panelBody.querySelector(".profile-edit-section")) {
+      return;
+    }
     event.preventDefault();
     closeProfileModal();
   });
 
-  enhanceProfileEditor();
+  syncProfileModal();
 })();
