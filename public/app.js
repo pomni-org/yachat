@@ -3,9 +3,6 @@ const DEFAULT_THEME = "dark";
 const THEME_STORAGE_KEY = "yachat-theme";
 const THEME_SOURCE_STORAGE_KEY = "yachat-theme-source";
 const CHAT_MUTE_STORAGE_KEY = "yachat-muted-chat-ids";
-const MESSENGER_POLL_ACTIVE_MS = 1200;
-const MESSENGER_POLL_IDLE_MS = 2600;
-const MESSENGER_POLL_BACKGROUND_MS = 8000;
 const SYSTEM_OWNER = {
   id: "murochko",
   username: "murochko",
@@ -19,8 +16,6 @@ const SYSTEM_CHAT_IDS = new Set(["yachat-favorites", "yachat-codes", "yachat-cha
 const PROTECTED_HISTORY_CHAT_IDS = new Set(["yachat-codes"]);
 const TELEGRAM_BOT_URL = "https://t.me/code_yachatBot";
 const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
-let actionFeedbackTimer = null;
-let actionFeedbackEntranceTimer = null;
 
 function systemTheme() {
   if (!systemThemeQuery) {
@@ -109,9 +104,7 @@ const state = {
   pendingAttachments: [],
   messageMenu: null,
   messagePressTimer: null,
-  messagePressStart: null,
   ignoreNextMessageClick: false,
-  transientMessagesByChat: new Map(),
   editingMessageId: null,
   replyToMessage: null,
   forwardMessage: null,
@@ -316,7 +309,6 @@ const ICONS = {
   "bell-off": '<path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.587 13.956 6 12.499 6 8a6 6 0 0 1 .713-2.837" /><path d="M8.668 2.973A6 6 0 0 1 18 8c0 1.568.172 2.775.446 3.74" /><path d="m2 2 20 20" />',
   paperclip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />',
   smile: '<circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" x2="9.01" y1="9" y2="9" /><line x1="15" x2="15.01" y1="9" y2="9" />',
-  "arrow-up": '<path d="m5 12 7-7 7 7" /><path d="M12 19V5" />',
   "send-horizontal": '<path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z" /><path d="M6 12h16" />',
   pencil: '<path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />',
   reply: '<polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" />',
@@ -341,10 +333,6 @@ const ICONS = {
   "user-round": '<circle cx="12" cy="8" r="5" /><path d="M20 21a8 8 0 0 0-16 0" />',
   x: '<path d="M18 6 6 18" /><path d="m6 6 12 12" />',
   check: '<path d="M20 6 9 17l-5-5" />',
-  "check-check": '<path d="m18 6-9.5 9.5L4 11" /><path d="m22 10-7.5 7.5-2-2" />',
-  "circle-alert": '<circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" />',
-  ban: '<circle cx="12" cy="12" r="10" /><path d="m4.9 4.9 14.2 14.2" />',
-  "rotate-ccw": '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />',
   "monitor-smartphone": '<path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" /><path d="M10 19v-3.96 3.15" /><path d="M7 19h5" /><rect width="6" height="10" x="16" y="12" rx="2" />',
   "scan-line": '<path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" />',
   "share-2": '<circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.59 13.51 6.83 3.98" /><path d="m15.41 6.51-6.82 3.98" />',
@@ -373,7 +361,7 @@ const ICON_CLASS_MAP = {
   "gg-more": "ellipsis-vertical",
   "gg-paperclip": "paperclip",
   "gg-sticker": "smile",
-  "gg-send": "arrow-up",
+  "gg-send": "send-horizontal",
   "gg-x": "x"
 };
 
@@ -673,64 +661,12 @@ const translations = {
     menuCopyText: "Скопировать текст",
     menuSelect: "Выбрать",
     menuDelete: "Удалить",
-    deleteMessageTitle: "Удалить сообщение",
-    deleteMessagesTitle: "Удалить сообщения",
-    deleteForMe: "Удалить у себя",
-    deleteForEveryone: "Удалить у всех",
-    feedbackCopiedText: "Вы скопировали текст",
-    feedbackCopiedUsername: "Юзернейм скопирован",
-    feedbackCopiedInvite: "Приглашение скопировано",
-    feedbackCopyFailed: "Не удалось скопировать",
-    feedbackMarkedUnread: "Чат отмечен непрочитанным",
-    feedbackMessageEdited: "Сообщение изменено",
-    feedbackMessageDeleted: "Сообщение удалено",
-    feedbackMessagesDeleted: "Выбранные сообщения удалены",
-    feedbackDeletedForMe: "Удалено только у вас",
-    feedbackDeletedForEveryone: "Удалено у всех",
-    feedbackMessageForwarded: "Сообщение переслано",
-    feedbackEditFailed: "Не удалось изменить сообщение",
-    feedbackDeleteFailed: "Не удалось удалить сообщение",
-    feedbackForwardFailed: "Не удалось переслать сообщение",
-    feedbackMarkUnreadFailed: "Не удалось отметить чат непрочитанным",
-    feedbackActionFailed: "Не удалось выполнить действие",
-    feedbackSendFailed: "Сообщение не отправлено",
-    messageSending: "Отправляется",
-    messageSent: "Отправлено",
-    messageRead: "Прочитано",
-    messageFailed: "Ошибка отправки",
-    retrySend: "Повторить отправку",
     editMessage: "Редактирование",
     replyMessage: "Ответ",
     forwardedMessage: "Переслано",
     forwardTitle: "Переслать в чат",
     cancel: "Отмена",
     damagedText: "Текст повреждён",
-    errChatUnavailable: "Этот чат больше недоступен. Обновите список чатов.",
-    errMessageNotFound: "Сообщение не найдено. Возможно, оно уже удалено.",
-    errMessageEmpty: "Сообщение не может быть пустым.",
-    errMessageCannotEdit: "Можно редактировать только свои сообщения.",
-    errMessageCannotDelete: "Можно удалять только свои сообщения.",
-    errMessageCannotDeleteEveryone: "У всех можно удалить только свои сообщения.",
-    errMessageNotSelected: "Сначала выберите сообщение.",
-    errMessageCannotForward: "Это сообщение нельзя переслать.",
-    errForwardTargetUnavailable: "В этот чат нельзя переслать сообщение.",
-    errMessageCannotMarkUnread: "Это сообщение нельзя отметить непрочитанным.",
-    errChatReadonly: "В этот чат нельзя отправлять сообщения.",
-    errMessageConflict: "Не удалось завершить отправку. Повторите попытку.",
-    errChatCannotDelete: "Этот чат нельзя удалить.",
-    blockUser: "Заблокировать",
-    unblockUser: "Разблокировать",
-    blockUserHint: "Пользователь не сможет писать вам, а отправка сообщений в этом чате будет отключена.",
-    unblockUserHint: "После разблокировки отправка сообщений снова станет доступна.",
-    blockUserConfirm: "Заблокировать этого пользователя?",
-    unblockUserConfirm: "Разблокировать этого пользователя?",
-    feedbackUserBlocked: "Пользователь заблокирован",
-    feedbackUserUnblocked: "Пользователь разблокирован",
-    feedbackBlockFailed: "Не удалось изменить блокировку",
-    errBlockPrivateOnly: "Блокировка доступна только в личных чатах.",
-    errBlockedConversation: "Сначала разблокируйте пользователя, чтобы отправить сообщение.",
-    blockedByMeComposer: "Пользователь заблокирован",
-    blockedMeComposer: "Отправка сообщений недоступна",
     errSendMessage: "Не удалось отправить сообщение.",
     bootCheckingAccount: "Проверяем вход",
     bootPreparingChats: "Готовим чаты",
@@ -1014,64 +950,12 @@ const translations = {
     menuCopyText: "Copy text",
     menuSelect: "Select",
     menuDelete: "Delete",
-    deleteMessageTitle: "Delete message",
-    deleteMessagesTitle: "Delete messages",
-    deleteForMe: "Delete for me",
-    deleteForEveryone: "Delete for everyone",
-    feedbackCopiedText: "Text copied",
-    feedbackCopiedUsername: "Username copied",
-    feedbackCopiedInvite: "Invite copied",
-    feedbackCopyFailed: "Could not copy",
-    feedbackMarkedUnread: "Chat marked unread",
-    feedbackMessageEdited: "Message updated",
-    feedbackMessageDeleted: "Message deleted",
-    feedbackMessagesDeleted: "Selected messages deleted",
-    feedbackDeletedForMe: "Deleted only for you",
-    feedbackDeletedForEveryone: "Deleted for everyone",
-    feedbackMessageForwarded: "Message forwarded",
-    feedbackEditFailed: "Could not update the message",
-    feedbackDeleteFailed: "Could not delete the message",
-    feedbackForwardFailed: "Could not forward the message",
-    feedbackMarkUnreadFailed: "Could not mark the chat unread",
-    feedbackActionFailed: "Could not complete the action",
-    feedbackSendFailed: "Message was not sent",
-    messageSending: "Sending",
-    messageSent: "Sent",
-    messageRead: "Read",
-    messageFailed: "Send failed",
-    retrySend: "Retry sending",
     editMessage: "Editing",
     replyMessage: "Reply",
     forwardedMessage: "Forwarded",
     forwardTitle: "Forward to chat",
     cancel: "Cancel",
     damagedText: "Text is damaged",
-    errChatUnavailable: "This chat is no longer available. Refresh the chat list.",
-    errMessageNotFound: "The message was not found. It may have already been deleted.",
-    errMessageEmpty: "The message cannot be empty.",
-    errMessageCannotEdit: "You can edit only your own messages.",
-    errMessageCannotDelete: "You can delete only your own messages.",
-    errMessageCannotDeleteEveryone: "You can delete only your own messages for everyone.",
-    errMessageNotSelected: "Select a message first.",
-    errMessageCannotForward: "This message cannot be forwarded.",
-    errForwardTargetUnavailable: "Messages cannot be forwarded to this chat.",
-    errMessageCannotMarkUnread: "This message cannot be marked unread.",
-    errChatReadonly: "Messages cannot be sent to this chat.",
-    errMessageConflict: "Sending could not be completed. Try again.",
-    errChatCannotDelete: "This chat cannot be deleted.",
-    blockUser: "Block",
-    unblockUser: "Unblock",
-    blockUserHint: "This user will not be able to message you, and sending in this chat will be disabled.",
-    unblockUserHint: "Messaging will become available again after unblocking.",
-    blockUserConfirm: "Block this user?",
-    unblockUserConfirm: "Unblock this user?",
-    feedbackUserBlocked: "User blocked",
-    feedbackUserUnblocked: "User unblocked",
-    feedbackBlockFailed: "Could not update the block setting",
-    errBlockPrivateOnly: "Blocking is available only in private chats.",
-    errBlockedConversation: "Unblock the user before sending a message.",
-    blockedByMeComposer: "User blocked",
-    blockedMeComposer: "Messaging unavailable",
     errSendMessage: "Could not send the message.",
     bootCheckingAccount: "Checking sign-in",
     bootPreparingChats: "Preparing chats",
@@ -1103,59 +987,6 @@ const serverMessageKeys = new Map([
   ["Username is already taken.", "errUsernameTaken"],
   ["Description must be no longer than 140 characters.", "errBio"],
   ["Could not open the image.", "errAvatar"],
-  ["Attachment is too large.", "attachLimit"],
-  ["Request is too large.", "attachLimit"],
-  ["Файл слишком большой. Лимит 8 МБ.", "attachLimit"],
-  ["Choose one person.", "errChoosePerson"],
-  ["Выберите одного человека для личного чата.", "errChoosePerson"],
-  ["Add at least one person.", "errChooseGroupMember"],
-  ["Добавьте в группу хотя бы одного человека.", "errChooseGroupMember"],
-  ["Enter a group name.", "errGroupName"],
-  ["Введите название группы.", "errGroupName"],
-  ["User not found.", "noPeopleFound"],
-  ["Chat not found.", "errChatUnavailable"],
-  ["Чат не найден.", "errChatUnavailable"],
-  ["Invalid chat id.", "errChatUnavailable"],
-  ["Message not found.", "errMessageNotFound"],
-  ["Сообщение не найдено.", "errMessageNotFound"],
-  ["Enter a message.", "errMessageEmpty"],
-  ["Введите сообщение.", "errMessageEmpty"],
-  ["This message cannot be edited.", "errMessageCannotEdit"],
-  ["Это сообщение нельзя редактировать.", "errMessageCannotEdit"],
-  ["This message cannot be deleted.", "errMessageCannotDelete"],
-  ["Это сообщение нельзя удалить.", "errMessageCannotDelete"],
-  ["You can delete only your own messages.", "errMessageCannotDelete"],
-  ["Можно удалять только свои сообщения.", "errMessageCannotDelete"],
-  ["You can delete only your own messages for everyone.", "errMessageCannotDeleteEveryone"],
-  ["У всех можно удалить только свои сообщения.", "errMessageCannotDeleteEveryone"],
-  ["Choose how to delete the message.", "feedbackDeleteFailed"],
-  ["Select a message first.", "errMessageNotSelected"],
-  ["Сообщение не выбрано.", "errMessageNotSelected"],
-  ["This message cannot be forwarded.", "errMessageCannotForward"],
-  ["Это сообщение нельзя переслать.", "errMessageCannotForward"],
-  ["Messages cannot be forwarded to this chat.", "errForwardTargetUnavailable"],
-  ["В этот чат нельзя переслать сообщение.", "errForwardTargetUnavailable"],
-  ["This message cannot be marked unread.", "errMessageCannotMarkUnread"],
-  ["Это сообщение нельзя отметить непрочитанным.", "errMessageCannotMarkUnread"],
-  ["This chat is read-only.", "errChatReadonly"],
-  ["System chats are local only.", "errChatReadonly"],
-  ["Only Murochko can post to the YaChat channel.", "errChatReadonly"],
-  ["В этот канал нельзя писать.", "errChatReadonly"],
-  ["Message id conflict.", "errMessageConflict"],
-  ["System chats cannot be left.", "cannotLeave"],
-  ["This chat cannot be left.", "cannotLeave"],
-  ["Из этого чата нельзя выйти.", "cannotLeave"],
-  ["System chats cannot be deleted.", "errChatCannotDelete"],
-  ["Only groups can be deleted.", "errChatCannotDelete"],
-  ["Only the group owner can delete this chat.", "errChatCannotDelete"],
-  ["Удалить группу может только владелец.", "errChatCannotDelete"],
-  ["Only the group owner can edit this chat.", "ownerOnly"],
-  ["Only Murochko can edit the YaChat channel.", "ownerOnly"],
-  ["Only the group owner can invite people.", "ownerOnly"],
-  ["Нет прав на изменение этого чата.", "ownerOnly"],
-  ["Only private chat users can be blocked.", "errBlockPrivateOnly"],
-  ["Only private chat users can be unblocked.", "errBlockPrivateOnly"],
-  ["Messages cannot be sent while this user is blocked.", "errBlockedConversation"],
   ["This system chat history cannot be cleared.", "clearHistoryLocked"],
   ["Only Murochko can clear the YaChat channel history.", "clearHistoryOwnerOnly"],
   ["Историю этого системного чата нельзя очистить.", "clearHistoryLocked"],
@@ -1192,57 +1023,6 @@ function t(key, params = {}) {
 
   return text;
 }
-
-function hideActionFeedback() {
-  window.clearTimeout(actionFeedbackTimer);
-  window.clearTimeout(actionFeedbackEntranceTimer);
-  actionFeedbackTimer = null;
-  actionFeedbackEntranceTimer = null;
-  const feedback = document.querySelector("[data-action-feedback]");
-  feedback?.classList.remove("is-entering");
-  feedback?.classList.remove("is-visible");
-}
-
-function showActionFeedback(message, options = {}) {
-  const text = cleanDisplayText(message, "");
-  if (!text) {
-    return;
-  }
-
-  let feedback = document.querySelector("[data-action-feedback]");
-  if (!feedback) {
-    feedback = document.createElement("div");
-    feedback.className = "action-feedback";
-    feedback.dataset.actionFeedback = "";
-    feedback.setAttribute("role", "status");
-    feedback.setAttribute("aria-live", "polite");
-    feedback.setAttribute("aria-atomic", "true");
-    document.body.append(feedback);
-  }
-
-  const tone = options.tone === "error" ? "error" : "success";
-  const icon = options.icon || (tone === "error" ? "circle-alert" : "circle-check");
-  feedback.innerHTML = `${iconSvg(icon, "action-feedback-icon")}<span>${escapeHtml(text)}</span>`;
-  feedback.classList.toggle("is-error", tone === "error");
-  feedback.classList.remove("is-visible", "is-entering");
-  void feedback.offsetWidth;
-  feedback.classList.add("is-visible", "is-entering");
-
-  window.clearTimeout(actionFeedbackEntranceTimer);
-  actionFeedbackEntranceTimer = window.setTimeout(() => {
-    feedback.classList.remove("is-entering");
-    actionFeedbackEntranceTimer = null;
-  }, 320);
-
-  window.clearTimeout(actionFeedbackTimer);
-  const duration = Math.min(Math.max(Number(options.duration) || 2200, 900), 8000);
-  actionFeedbackTimer = window.setTimeout(hideActionFeedback, duration);
-}
-
-window.yachatFeedback = Object.freeze({
-  show: showActionFeedback,
-  hide: hideActionFeedback
-});
 
 function setText(selector, key, root = document) {
   const element = root.querySelector(selector);
@@ -1626,14 +1406,6 @@ function getChatSubtitle(chat) {
     return cleanDisplayText(chat?.description, t("codesChat"));
   }
 
-  if (chat?.blockedByMe) {
-    return t("blockedByMeComposer");
-  }
-
-  if (chat?.blockedMe) {
-    return t("blockedMeComposer");
-  }
-
   const fallback = chat?.kind === "group"
     ? t("groupChat")
     : chat?.kind === "channel"
@@ -1824,7 +1596,7 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
   const kindLabel = chatProfileKindLabel(chat);
   const aboutText = chatProfileAboutText(chat);
   const muted = isChatMuted(chat?.id);
-  const hasMore = Boolean(sections.editSection || sections.groupSection || sections.historySection || sections.blockSection || sections.leaveSection || sections.deleteGroupSection);
+  const hasMore = Boolean(sections.editSection || sections.groupSection || sections.historySection || sections.leaveSection || sections.deleteGroupSection);
   const ownerProfile = chat?.ownerName || chat?.ownerUsername || chat?.ownerAvatarDataUrl
     ? decorateVerifiedEntity({
         id: chat.ownerId || SYSTEM_OWNER.id,
@@ -1919,7 +1691,6 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
         ${sections.editSection || ""}
         ${sections.groupSection || ""}
         ${sections.historySection || ""}
-        ${sections.blockSection || ""}
         ${sections.leaveSection || ""}
         ${sections.deleteGroupSection || ""}
         ${hasMore ? "" : `<section class="panel-section"><p>${t("chatProfileMoreEmpty")}</p></section>`}
@@ -2141,14 +1912,9 @@ function renderActiveChat() {
   dialogIntroTitle.textContent = chat.id === "yachat-favorites"
     ? getChatTitle(chat)
     : t("continueChat", { name: getChatTitle(chat) });
-  const blockedText = chat.blockedByMe
-    ? t("blockedByMeComposer")
-    : chat.blockedMe
-      ? t("blockedMeComposer")
-      : "";
   dialogIntroText.textContent = chat.id === "yachat-favorites"
     ? getChatSubtitle(chat)
-    : blockedText || (chat.locked ? t("lockedChat") : t("writeMessage"));
+    : chat.locked ? t("lockedChat") : t("writeMessage");
   if (dialogIntro) {
     dialogIntro.hidden = state.messages.length > 0;
   }
@@ -2162,7 +1928,7 @@ function renderActiveChat() {
 
   if (messageInput && sendButton) {
     messageInput.disabled = readonly;
-    messageInput.placeholder = readonly ? blockedText || t("readonlyChannel") : t("messagePlaceholder");
+    messageInput.placeholder = readonly ? t("readonlyChannel") : t("messagePlaceholder");
     sendButton.disabled = readonly || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
   }
 }
@@ -2262,77 +2028,6 @@ function formatMessageDayLabel(value) {
   });
 }
 
-function transientMessagesForChat(chatId = state.activeChatId) {
-  return [...(state.transientMessagesByChat.get(String(chatId || ""))?.values() || [])];
-}
-
-function setTransientMessage(chatId, message) {
-  const key = String(chatId || "");
-  if (!key || !message?.id) {
-    return;
-  }
-
-  let messages = state.transientMessagesByChat.get(key);
-  if (!messages) {
-    messages = new Map();
-    state.transientMessagesByChat.set(key, messages);
-  }
-  messages.set(message.id, message);
-}
-
-function removeTransientMessage(chatId, messageId) {
-  const key = String(chatId || "");
-  const messages = state.transientMessagesByChat.get(key);
-  if (!messages) {
-    return;
-  }
-
-  messages.delete(messageId);
-  if (messages.size === 0) {
-    state.transientMessagesByChat.delete(key);
-  }
-}
-
-function displayedMessages() {
-  const persisted = Array.isArray(state.messages) ? state.messages : [];
-  const ids = new Set(persisted.map((message) => message.id));
-  const transientMessages = transientMessagesForChat();
-  transientMessages.filter((message) => ids.has(message.id)).forEach((message) => {
-    removeTransientMessage(state.activeChatId, message.id);
-  });
-  const transient = transientMessages.filter((message) => !ids.has(message.id));
-  return [...persisted, ...transient].sort((left, right) => {
-    const leftTime = new Date(left?.createdAt || 0).valueOf();
-    const rightTime = new Date(right?.createdAt || 0).valueOf();
-    return (Number.isNaN(leftTime) ? 0 : leftTime) - (Number.isNaN(rightTime) ? 0 : rightTime);
-  });
-}
-
-function messageDeliveryStatus(message) {
-  const status = String(message?.deliveryStatus || "").toLowerCase();
-  if (["sending", "sent", "read", "failed"].includes(status)) {
-    return status;
-  }
-  return "sent";
-}
-
-function renderMessageDelivery(message) {
-  const status = messageDeliveryStatus(message);
-  const label = t({
-    sending: "messageSending",
-    sent: "messageSent",
-    read: "messageRead",
-    failed: "messageFailed"
-  }[status]);
-
-  if (status === "sending") {
-    return `<span class="message-status is-sending" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span class="message-status-spinner"></span></span>`;
-  }
-
-  const icon = status === "read" ? "check-check" : status === "failed" ? "circle-alert" : "check";
-  return `<span class="message-status is-${status}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${iconSvg(icon, "message-status-icon")}</span>`;
-}
-
 function renderMessages() {
   if (!messageList) {
     return;
@@ -2341,18 +2036,17 @@ function renderMessages() {
   let lastDay = "";
   const items = [];
 
-  displayedMessages().forEach((message) => {
+  state.messages.forEach((message) => {
     const mine = message.author === "user";
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     const text = cleanDisplayText(message.text, message.text ? t("damagedText") : "");
     const selected = state.selectedMessageIds.has(message.id);
     const date = new Date(message.createdAt);
     const dayKey = Number.isNaN(date.valueOf()) ? "" : date.toDateString();
-    const deliveryStatus = mine ? messageDeliveryStatus(message) : "";
     const timeHtml = `
       <time>
         ${escapeHtml(formatChatTime(message.createdAt))}
-        ${mine ? renderMessageDelivery(message) : ""}
+        ${mine ? '<span class="message-status" aria-hidden="true">✓</span>' : ""}
       </time>
     `;
 
@@ -2362,8 +2056,7 @@ function renderMessages() {
     }
 
     items.push(`
-      <article class="message-bubble${mine ? " is-mine" : ""}${selected ? " is-selected" : ""}${deliveryStatus === "failed" ? " is-delivery-failed" : ""}" data-message-id="${escapeHtml(message.id)}" tabindex="0">
-        ${deliveryStatus === "failed" ? `<button class="message-retry" type="button" data-message-retry="${escapeHtml(message.id)}" aria-label="${escapeHtml(t("retrySend"))}" title="${escapeHtml(t("retrySend"))}">${iconSvg("rotate-ccw")}</button>` : ""}
+      <article class="message-bubble${mine ? " is-mine" : ""}${selected ? " is-selected" : ""}" data-message-id="${escapeHtml(message.id)}">
         ${message.forwardedFrom ? `<div class="message-forwarded">${escapeHtml(t("forwardedMessage"))}</div>` : ""}
         ${message.replyTo ? renderMessageReference(message.replyTo) : ""}
         ${text ? `<p>${escapeHtml(text)}</p>` : ""}
@@ -2381,17 +2074,12 @@ function renderMessages() {
 }
 
 function getMessageById(messageId) {
-  return displayedMessages().find((message) => message.id === messageId) || null;
+  return state.messages.find((message) => message.id === messageId) || null;
 }
 
 function canEditMessage(message) {
   const chat = getActiveChat();
-  return Boolean(
-    message?.author === "user"
-    && !["sending", "failed"].includes(messageDeliveryStatus(message))
-    && (canSendToChat(chat) || chat?.kind === "private")
-    && messagePreviewText(message)
-  );
+  return Boolean(message?.author === "user" && canSendToChat(chat) && messagePreviewText(message));
 }
 
 function ensureMessageMenu() {
@@ -2400,79 +2088,21 @@ function ensureMessageMenu() {
     return menu;
   }
 
-  const layer = document.createElement("div");
-  layer.className = "message-context-layer";
-  layer.dataset.messageMenuLayer = "";
-  layer.hidden = true;
-
-  menu = document.createElement("nav");
+  menu = document.createElement("div");
   menu.className = "message-context-menu";
   menu.dataset.messageMenu = "";
-  menu.setAttribute("role", "menu");
   menu.hidden = true;
-  layer.append(menu);
-  document.body.append(layer);
+  document.body.append(menu);
   return menu;
 }
 
 function closeMessageMenu() {
   state.messageMenu = null;
-  const layer = document.querySelector("[data-message-menu-layer]");
   const menu = document.querySelector("[data-message-menu]");
-  if (layer) {
-    layer.hidden = true;
-  }
   if (menu) {
     menu.hidden = true;
     menu.innerHTML = "";
-    menu.style.removeProperty("left");
-    menu.style.removeProperty("top");
   }
-}
-
-function positionMessageMenu(menu, message, messageId, x, y) {
-  menu.style.left = "0px";
-  menu.style.top = "0px";
-
-  requestAnimationFrame(() => {
-    const rect = menu.getBoundingClientRect();
-    const isMobile = window.matchMedia("(max-width: 640px)").matches;
-    const anchor = isMobile
-      ? Array.from(messageList?.querySelectorAll("[data-message-id]") || [])
-        .find((element) => element.dataset.messageId === messageId)
-      : null;
-
-    if (anchor) {
-      const anchorRect = anchor.getBoundingClientRect();
-      const margin = 8;
-      const gap = 6;
-      const maxLeft = Math.max(margin, window.innerWidth - rect.width - margin);
-      const preferredLeft = message.author === "user"
-        ? anchorRect.right - rect.width
-        : anchorRect.left;
-      const left = Math.min(Math.max(margin, preferredLeft), maxLeft);
-      let top = anchorRect.bottom + gap;
-
-      if (top + rect.height > window.innerHeight - margin) {
-        top = anchorRect.top - rect.height - gap;
-      }
-
-      top = Math.min(
-        Math.max(margin, top),
-        Math.max(margin, window.innerHeight - rect.height - margin)
-      );
-      menu.style.left = `${left}px`;
-      menu.style.top = `${top}px`;
-      menu.querySelector("button")?.focus({ preventScroll: true });
-      return;
-    }
-
-    const left = Math.min(Math.max(8, x), window.innerWidth - rect.width - 8);
-    const top = Math.min(Math.max(8, y), window.innerHeight - rect.height - 8);
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
-    menu.querySelector("button")?.focus({ preventScroll: true });
-  });
 }
 
 function openMessageMenu(messageId, x, y) {
@@ -2481,72 +2111,35 @@ function openMessageMenu(messageId, x, y) {
     return;
   }
 
-  const transient = ["sending", "failed"].includes(messageDeliveryStatus(message));
   const items = [
-    !transient ? ["reply", "reply", t("menuReply")] : null,
     canEditMessage(message) ? ["edit", "pencil", t("menuEdit")] : null,
-    !transient ? ["forward", "forward", t("menuForward")] : null,
-    !transient ? ["unread", "message-unread", t("menuMarkUnread")] : null,
+    ["reply", "reply", t("menuReply")],
+    ["forward", "forward", t("menuForward")],
+    ["unread", "message-unread", t("menuMarkUnread")],
     ["copy", "copy", t("menuCopyText")],
-    ["delete", "trash", t("menuDelete"), "is-danger"],
-    ["select", "circle-check", t("menuSelect"), "is-separated"]
+    ["select", "circle-check", t("menuSelect")],
+    ["delete", "trash", t("menuDelete"), "is-danger"]
   ].filter(Boolean);
   const menu = ensureMessageMenu();
-  const layer = menu.closest("[data-message-menu-layer]");
 
-  state.messageMenu = { messageId, x, y };
+  state.messageMenu = { messageId };
   menu.innerHTML = items.map(([action, icon, label, dangerClass]) => `
-    <button class="${dangerClass || ""}" type="button" role="menuitem" data-message-action="${action}">
-      <span>${escapeHtml(label)}</span>
+    <button class="${dangerClass || ""}" type="button" data-message-action="${action}">
       ${iconSvg(icon)}
+      <span>${escapeHtml(label)}</span>
     </button>
   `).join("");
-  if (layer) {
-    layer.hidden = false;
-  }
   menu.hidden = false;
-  positionMessageMenu(menu, message, messageId, x, y);
-}
+  menu.style.left = "0px";
+  menu.style.top = "0px";
 
-function openMessageDeleteMenu(messageId, messageIds) {
-  const message = getMessageById(messageId);
-  const ids = [...new Set(messageIds)].filter(Boolean);
-  const messages = ids.map(getMessageById).filter(Boolean);
-  if (!message || messages.length !== ids.length) {
-    closeMessageMenu();
-    return;
-  }
-
-  const currentMenu = state.messageMenu || {};
-  const canDeleteForEveryone = messages.every((item) => (
-    item.author === "user"
-    && !["sending", "failed"].includes(messageDeliveryStatus(item))
-  ));
-  const menu = ensureMessageMenu();
-  state.messageMenu = {
-    messageId,
-    deleteIds: ids,
-    x: currentMenu.x,
-    y: currentMenu.y
-  };
-  menu.innerHTML = `
-    <div class="message-context-heading">${escapeHtml(t(ids.length > 1 ? "deleteMessagesTitle" : "deleteMessageTitle"))}</div>
-    <button type="button" role="menuitem" data-message-action="delete-self">
-      <span>${escapeHtml(t("deleteForMe"))}</span>
-      ${iconSvg("trash")}
-    </button>
-    ${canDeleteForEveryone ? `
-      <button class="is-danger" type="button" role="menuitem" data-message-action="delete-everyone">
-        <span>${escapeHtml(t("deleteForEveryone"))}</span>
-        ${iconSvg("users")}
-      </button>
-    ` : ""}
-    <button class="is-separated" type="button" role="menuitem" data-message-action="delete-cancel">
-      <span>${escapeHtml(t("cancel"))}</span>
-      ${iconSvg("x")}
-    </button>
-  `;
-  positionMessageMenu(menu, message, messageId, currentMenu.x, currentMenu.y);
+  requestAnimationFrame(() => {
+    const rect = menu.getBoundingClientRect();
+    const left = Math.min(Math.max(8, x), window.innerWidth - rect.width - 8);
+    const top = Math.min(Math.max(8, y), window.innerHeight - rect.height - 8);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  });
 }
 
 function clearMessageSelection() {
@@ -2572,7 +2165,6 @@ function resetComposerMode() {
   state.editingMessageId = null;
   state.replyToMessage = null;
   renderComposerContext();
-  renderActiveChat();
 }
 
 function startEditMessage(message) {
@@ -2586,8 +2178,6 @@ function startEditMessage(message) {
   renderAttachmentTray();
   renderComposerContext();
   if (messageInput) {
-    setComposerReadonly(false);
-    messageInput.disabled = false;
     messageInput.value = messagePreviewText(message);
     messageInput.focus();
     messageInput.setSelectionRange(messageInput.value.length, messageInput.value.length);
@@ -2653,36 +2243,23 @@ async function copyTextToClipboard(text) {
   textarea.style.opacity = "0";
   document.body.append(textarea);
   textarea.select();
-  const copied = document.execCommand("copy");
+  document.execCommand("copy");
   textarea.remove();
-  if (!copied) {
-    throw new Error(t("feedbackCopyFailed"));
-  }
 }
 
-async function deleteMessages(messageIds, scope = "self") {
+async function deleteMessages(messageIds) {
   const chat = getActiveChat();
   const ids = [...new Set(messageIds)].filter(Boolean);
-  if (!chat || ids.length === 0) {
+  if (!chat || ids.length === 0 || !yachatApi.messenger?.deleteMessage) {
     return;
   }
 
-  const transientIds = new Set(transientMessagesForChat(chat.id).map((message) => message.id));
-  if (scope === "self") {
-    ids.filter((id) => transientIds.has(id)).forEach((id) => removeTransientMessage(chat.id, id));
-  }
-  const persistedIds = ids.filter((id) => !transientIds.has(id));
-
-  if (persistedIds.length > 0 && yachatApi.messenger?.deleteMessage) {
-    const result = await yachatApi.messenger.deleteMessage({
-      chatId: chat.id,
-      messageIds: persistedIds,
-      scope
-    });
-    state.chats = result.chats || await yachatApi.messenger.chats();
-    state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
-  }
-
+  const result = await yachatApi.messenger.deleteMessage({
+    chatId: chat.id,
+    messageIds: ids
+  });
+  state.chats = result.chats || await yachatApi.messenger.chats();
+  state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
   ids.forEach((id) => state.selectedMessageIds.delete(id));
   if (state.editingMessageId && ids.includes(state.editingMessageId)) {
     state.editingMessageId = null;
@@ -2779,36 +2356,17 @@ async function forwardMessageTo(chatId) {
   renderChatList();
   renderActiveChat();
   renderMessages();
-  showActionFeedback(t("feedbackMessageForwarded"), { icon: "forward" });
 }
 
 async function handleMessageAction(action) {
-  const menuState = state.messageMenu || {};
-  const messageId = menuState.messageId;
+  const messageId = state.messageMenu?.messageId;
   const message = messageId ? getMessageById(messageId) : null;
   if (!message) {
     closeMessageMenu();
     return;
   }
 
-  state.ignoreNextMessageClick = false;
-
-  if (action === "delete") {
-    const selected = state.selectedMessageIds.size > 0 && state.selectedMessageIds.has(message.id)
-      ? [...state.selectedMessageIds]
-      : [message.id];
-    openMessageDeleteMenu(message.id, selected);
-    return;
-  }
-
-  const deleteIds = Array.isArray(menuState.deleteIds) && menuState.deleteIds.length > 0
-    ? menuState.deleteIds
-    : [message.id];
   closeMessageMenu();
-
-  if (action === "delete-cancel") {
-    return;
-  }
 
   try {
     if (action === "edit") {
@@ -2820,107 +2378,19 @@ async function handleMessageAction(action) {
       renderForwardPicker();
     } else if (action === "unread") {
       await markMessageUnread(message.id);
-      showActionFeedback(t("feedbackMarkedUnread"), { icon: "message-unread" });
     } else if (action === "copy") {
       await copyTextToClipboard(messagePreviewText(message));
-      showActionFeedback(t("feedbackCopiedText"), { icon: "copy" });
     } else if (action === "select") {
       toggleSelectedMessage(message.id);
-    } else if (action === "delete-self" || action === "delete-everyone") {
-      const scope = action === "delete-everyone" ? "everyone" : "self";
-      await deleteMessages(deleteIds, scope);
-      showActionFeedback(t(scope === "everyone" ? "feedbackDeletedForEveryone" : "feedbackDeletedForMe"), {
-        icon: "trash"
-      });
+    } else if (action === "delete") {
+      const selected = state.selectedMessageIds.size > 0 && state.selectedMessageIds.has(message.id)
+        ? [...state.selectedMessageIds]
+        : [message.id];
+      await deleteMessages(selected);
     }
   } catch (error) {
-    const fallbackKey = {
-      copy: "feedbackCopyFailed",
-      "delete-self": "feedbackDeleteFailed",
-      "delete-everyone": "feedbackDeleteFailed",
-      forward: "feedbackForwardFailed",
-      unread: "feedbackMarkUnreadFailed"
-    }[action] || "feedbackActionFailed";
-    showActionFeedback(translatedServerMessage(error.message, fallbackKey), {
-      tone: "error",
-      icon: "circle-alert"
-    });
+    alert(translatedServerMessage(error.message, "errSendMessage"));
   }
-}
-
-function createTransientOutgoingMessage(chat, payload) {
-  const id = globalThis.crypto?.randomUUID
-    ? globalThis.crypto.randomUUID()
-    : `outgoing-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-  return {
-    id,
-    chatId: chat.id,
-    author: "user",
-    authorId: state.account?.id || "",
-    text: String(payload.text || "").trim(),
-    attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
-    replyToMessageId: payload.replyToMessageId || null,
-    replyTo: payload.replyTo || null,
-    forwardedFrom: "",
-    createdAt: new Date().toISOString(),
-    editedAt: null,
-    deliveryStatus: "sending",
-    clientOnly: true
-  };
-}
-
-async function deliverTransientMessage(chat, message) {
-  if (!chat || !message || !yachatApi.messenger?.send) {
-    return false;
-  }
-
-  message.deliveryStatus = "sending";
-  setTransientMessage(chat.id, message);
-  if (state.activeChatId === chat.id) {
-    renderMessages();
-  }
-
-  try {
-    const result = await yachatApi.messenger.send({
-      chatId: chat.id,
-      clientMessageId: message.id,
-      text: message.text,
-      attachments: message.attachments,
-      replyToMessageId: message.replyToMessageId || null
-    });
-    removeTransientMessage(chat.id, message.id);
-    state.chats = result.chats || await yachatApi.messenger.chats();
-    if (state.activeChatId === chat.id) {
-      state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
-      renderActiveChat();
-      renderMessages();
-    }
-    renderChatList();
-    return true;
-  } catch (error) {
-    message.deliveryStatus = "failed";
-    setTransientMessage(chat.id, message);
-    if (state.activeChatId === chat.id) {
-      renderMessages();
-    }
-    showActionFeedback(translatedServerMessage(error.message, "feedbackSendFailed"), {
-      tone: "error",
-      icon: "circle-alert",
-      duration: 3200
-    });
-    return false;
-  }
-}
-
-async function retryFailedMessage(messageId) {
-  const message = getMessageById(messageId);
-  const chat = state.chats.find((item) => item.id === message?.chatId) || getActiveChat();
-  if (!message || !chat || messageDeliveryStatus(message) !== "failed") {
-    return;
-  }
-
-  await deliverTransientMessage(chat, message);
 }
 
 function readAttachmentFile(file) {
@@ -2986,7 +2456,7 @@ async function addAttachments(files) {
     state.pendingAttachments = [...state.pendingAttachments, ...next].slice(0, 8);
     renderAttachmentTray();
   } catch (error) {
-    alert(translatedServerMessage(error.message, "errSendMessage"));
+    alert(error.message || t("errSendMessage"));
   } finally {
     if (attachmentInput) {
       attachmentInput.value = "";
@@ -3144,35 +2614,6 @@ function stopMessengerPolling() {
   state.messengerPollTimer = null;
 }
 
-function messengerPollDelay() {
-  if (document.visibilityState !== "visible") {
-    return MESSENGER_POLL_BACKGROUND_MS;
-  }
-  return activeChatIsVisible()
-    ? MESSENGER_POLL_ACTIVE_MS
-    : MESSENGER_POLL_IDLE_MS;
-}
-
-function activeChatIsVisible() {
-  const desktop = !window.matchMedia("(max-width: 640px)").matches;
-  return document.visibilityState === "visible"
-    && !state.activePanel
-    && (desktop || state.mobileDialogOpen);
-}
-
-async function markActiveChatReadIfVisible() {
-  const chat = getActiveChat();
-  if (!chat || Number(chat.unread || 0) <= 0 || !activeChatIsVisible() || !yachatApi.messenger?.markRead) {
-    return;
-  }
-
-  const result = await yachatApi.messenger.markRead({ chatId: chat.id });
-  state.chats = result.chats || state.chats;
-  state.messages = result.messages || state.messages;
-  renderChatList();
-  renderMessages();
-}
-
 async function refreshMessengerFromServer() {
   if (!state.account || !yachatApi.messenger || state.pendingSearchChat) {
     return;
@@ -3184,7 +2625,6 @@ async function refreshMessengerFromServer() {
       chatId: selectedChatId,
       username: ""
     }), selectedChatId, { followRoute: false });
-    await markActiveChatReadIfVisible();
     return;
   }
 
@@ -3199,7 +2639,6 @@ async function refreshMessengerFromServer() {
   renderChatList();
   renderActiveChat();
   renderMessages();
-  await markActiveChatReadIfVisible();
 }
 
 function startMessengerPolling() {
@@ -3212,12 +2651,12 @@ function startMessengerPolling() {
       // Keep the UI alive during transient serverless cold starts or network loss.
     } finally {
       if (state.account) {
-        state.messengerPollTimer = window.setTimeout(tick, messengerPollDelay());
+        state.messengerPollTimer = window.setTimeout(tick, 4000);
       }
     }
   };
 
-  state.messengerPollTimer = window.setTimeout(tick, messengerPollDelay());
+  state.messengerPollTimer = window.setTimeout(tick, 4000);
 }
 
 async function selectChat(chatId, options = {}) {
@@ -3278,7 +2717,6 @@ function resetAccountSessionUi() {
   state.accountTextMode = "default";
   state.chats = [];
   state.messages = [];
-  state.transientMessagesByChat.clear();
   state.activeChatId = "yachat-codes";
   state.pendingSearchChat = null;
   state.chatSearchUsers = [];
@@ -3909,7 +3347,7 @@ async function lookupContacts(phones, sourceButton = null) {
       : t("contactsNoMatches");
     return state.contactMatches;
   } catch (error) {
-    state.contactLookupMessage = translatedServerMessage(error.message, "contactsUnavailable");
+    state.contactLookupMessage = error.message || t("contactsUnavailable");
     return [];
   } finally {
     state.contactLookupLoading = false;
@@ -3927,7 +3365,7 @@ async function importDeviceContacts(sourceButton) {
   } catch (error) {
     state.contactLookupMessage = error.name === "NotAllowedError"
       ? t("contactsPermissionDenied")
-      : translatedServerMessage(error.message, "contactsUnavailable");
+      : error.message || t("contactsUnavailable");
     state.contactLookupLoading = false;
     renderPanel();
   }
@@ -3960,7 +3398,7 @@ async function searchContactsDirectory(query, sourceButton = null) {
       : t("contactsNoMatches");
     return state.contactMatches;
   } catch (error) {
-    state.contactLookupMessage = translatedServerMessage(error.message, "contactsUnavailable");
+    state.contactLookupMessage = error.message || t("contactsUnavailable");
     return [];
   } finally {
     state.contactLookupLoading = false;
@@ -4104,7 +3542,7 @@ async function openPrivateChatWithContact(userId, sourceButton = null) {
   try {
     await openPendingPrivateChat(user, { closePanelOnOpen: true });
   } catch (error) {
-    state.contactLookupMessage = translatedServerMessage(error.message, "errSendMessage");
+    state.contactLookupMessage = error.message || t("errSendMessage");
     renderPanel();
   } finally {
     if (sourceButton) {
@@ -4597,9 +4035,9 @@ async function scanCapturedSessionImage(file) {
     await confirmQrPayload(payload);
   } catch (error) {
     if (message) {
-      message.textContent = translatedServerMessage(error.message, "cameraQrUnavailable");
+      message.textContent = error.message || t("cameraQrUnavailable");
     } else {
-      alert(translatedServerMessage(error.message, "cameraQrUnavailable"));
+      alert(error.message || t("cameraQrUnavailable"));
     }
   }
 }
@@ -4662,7 +4100,7 @@ async function startQrScanner() {
   } catch (error) {
     stopQrScanner();
     if (!openSessionCaptureFallback()) {
-      alert(translatedServerMessage(error.message, "cameraQrUnavailable"));
+      alert(error.message || t("cameraQrUnavailable"));
     }
   }
 }
@@ -4672,7 +4110,7 @@ async function confirmQrPayload(payload) {
     await yachatApi.qr.confirm({ payload });
     alert(t("qrApproved"));
   } catch (error) {
-    alert(translatedServerMessage(error.message, "errVerify"));
+    alert(error.message || t("errVerify"));
   }
 }
 
@@ -4760,16 +4198,6 @@ function renderPanel() {
       </section>
     `;
 
-    const blockSection = chat.kind === "private" && !chat.pendingSearchUserId ? `
-      <section class="panel-section">
-        <h3>${t(chat.blockedByMe ? "unblockUser" : "blockUser")}</h3>
-        <p>${t(chat.blockedByMe ? "unblockUserHint" : "blockUserHint")}</p>
-        <button class="panel-primary ${chat.blockedByMe ? "is-secondary" : "is-danger"}" type="button" data-panel-action="${chat.blockedByMe ? "unblock-user" : "block-user"}">
-          ${iconSvg("ban", "button-icon")}<span>${t(chat.blockedByMe ? "unblockUser" : "blockUser")}</span>
-        </button>
-      </section>
-    ` : "";
-
     const leaveSection = chat.locked ? "" : `
       <section class="panel-section">
         <h3>${t("leaveChat")}</h3>
@@ -4790,7 +4218,6 @@ function renderPanel() {
       editSection,
       groupSection,
       historySection,
-      blockSection,
       leaveSection,
       deleteGroupSection
     });
@@ -4989,7 +4416,7 @@ async function searchCreateChatUsers(query, requestId) {
       return;
     }
 
-    state.createChatSearchError = translatedServerMessage(error.message, "contactsUnavailable");
+    state.createChatSearchError = error.message || t("contactsUnavailable");
     state.createChatUsers = mergeUsers(getCreateChatSelectedUsers(), historicalChatUsers(query));
   } finally {
     if (requestId === state.createChatSearchRequestId) {
@@ -5052,7 +4479,7 @@ async function searchChatUserDirectory(query, requestId) {
     }
 
     state.chatSearchUsers = [];
-    state.chatSearchError = translatedServerMessage(error.message, "contactsUnavailable");
+    state.chatSearchError = error.message || t("contactsUnavailable");
   } finally {
     if (requestId === state.chatSearchRequestId) {
       state.chatSearchLoading = false;
@@ -5244,7 +4671,7 @@ async function createChatFromForm(submitButton) {
     renderMessages();
     setMobileDialogOpen(true);
   } catch (error) {
-    setMessage("create-chat", translatedServerMessage(error.message, "errSendMessage"));
+    setMessage("create-chat", error.message || t("errSendMessage"));
   } finally {
     setLoading(submitButton, false);
     renderCreateChatForm();
@@ -5370,10 +4797,9 @@ async function copyActiveInvite() {
   }
 
   try {
-    await copyTextToClipboard(invite);
-    showActionFeedback(t("feedbackCopiedInvite"), { icon: "copy" });
+    await navigator.clipboard?.writeText(invite);
   } catch {
-    showActionFeedback(t("feedbackCopyFailed"), { tone: "error", icon: "circle-alert" });
+    // Clipboard may be unavailable in some desktop shells.
   }
 }
 
@@ -5412,12 +4838,8 @@ async function shareChatProfileLink(button) {
     }
   }
 
-  try {
-    await copyTextToClipboard(url);
-    showActionFeedback(t("chatProfileLinkCopied"), { icon: "copy" });
-  } catch {
-    showActionFeedback(t("feedbackCopyFailed"), { tone: "error", icon: "circle-alert" });
-  }
+  await copyTextToClipboard(url);
+  alert(t("chatProfileLinkCopied"));
 }
 
 function toggleChatProfileQr(button) {
@@ -5439,39 +4861,6 @@ function toggleChatProfileMore() {
   stack.hidden = !stack.hidden;
   if (!stack.hidden) {
     stack.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }
-}
-
-async function setActiveChatBlocked(blocked, button) {
-  const chat = getActiveChat();
-  const action = blocked ? yachatApi.messenger?.blockUser : yachatApi.messenger?.unblockUser;
-  if (!chat || chat.kind !== "private" || !action) {
-    return;
-  }
-
-  if (!window.confirm(t(blocked ? "blockUserConfirm" : "unblockUserConfirm"))) {
-    return;
-  }
-
-  setLoading(button, true);
-  try {
-    const result = await action({ chatId: chat.id });
-    state.chats = mergeChatIntoList(result.chats || await yachatApi.messenger.chats(), result.chat);
-    state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
-    renderChatList();
-    renderActiveChat();
-    renderMessages();
-    renderPanel();
-    showActionFeedback(t(blocked ? "feedbackUserBlocked" : "feedbackUserUnblocked"), {
-      icon: "ban"
-    });
-  } catch (error) {
-    showActionFeedback(translatedServerMessage(error.message, "feedbackBlockFailed"), {
-      tone: "error",
-      icon: "circle-alert"
-    });
-  } finally {
-    setLoading(button, false);
   }
 }
 
@@ -5630,7 +5019,7 @@ async function startQrLogin() {
     qrStatus.textContent = t("qrWaiting");
     pollQrSession();
   } catch (error) {
-    qrStatus.textContent = translatedServerMessage(error.message, "errCreateCode");
+    qrStatus.textContent = error.message || t("errCreateCode");
   }
 }
 
@@ -5797,17 +5186,12 @@ function applyTranslations() {
 }
 
 function translatedServerMessage(message, fallbackKey) {
-  const normalized = cleanDisplayText(message, "").replace(/\s+/g, " ").trim();
-  const key = serverMessageKeys.get(normalized);
+  const key = serverMessageKeys.get(message);
   if (key) {
     return t(key);
   }
 
-  if (state.language === "ru" && /[а-яё]/i.test(normalized)) {
-    return normalized;
-  }
-
-  return t(fallbackKey);
+  return state.language === "ru" && message ? message : t(fallbackKey);
 }
 
 function isLoopbackHostname(hostname) {
@@ -6098,14 +5482,6 @@ function createHttpYachatApi(fallbackApi = null) {
       clearHistory: (payload) => withFallback(
         () => post("/api/chat/clear-history", payload),
         () => fallbackApi?.messenger?.clearHistory?.(payload)
-      ),
-      blockUser: (payload) => withFallback(
-        () => post("/api/chat/block", payload),
-        () => fallbackApi?.messenger?.blockUser?.(payload)
-      ),
-      unblockUser: (payload) => withFallback(
-        () => post("/api/chat/unblock", payload),
-        () => fallbackApi?.messenger?.unblockUser?.(payload)
       ),
       send: (payload) => withFallback(
         () => post("/api/message", payload),
@@ -6430,27 +5806,6 @@ function createLocalYachatApi() {
     return startIndex >= 0 ? messages.length - startIndex : 1;
   }
 
-  function localVisibleMessagesForAccount(messages, account) {
-    const accountId = String(account?.id || "");
-    return (Array.isArray(messages) ? messages : []).filter((message) => (
-      !accountId || !(Array.isArray(message?.hiddenFor) && message.hiddenFor.map(String).includes(accountId))
-    ));
-  }
-
-  function localChatBlockState(chat, account) {
-    if (chat?.kind !== "private" || !account?.id) {
-      return { blockedByMe: false, blockedMe: false, peerId: "" };
-    }
-    const ids = localParticipantIds(chat);
-    const peerId = ids.find((id) => id !== account.id) || "";
-    const blockedBy = new Set(Array.isArray(chat.blockedBy) ? chat.blockedBy.map(String) : []);
-    return {
-      blockedByMe: blockedBy.has(String(account.id)),
-      blockedMe: Boolean(peerId && blockedBy.has(String(peerId))),
-      peerId
-    };
-  }
-
   function summarizeLocalChats(data) {
     const account = readAccount()?.account || null;
     const localChannelOwner = isMurochkoEntity(account) ? account : null;
@@ -6458,7 +5813,7 @@ function createLocalYachatApi() {
       const ids = localParticipantIds(chat);
       return ids.length === 0 || Boolean(account?.id && ids.includes(account.id));
     }).map((chat) => {
-      const messages = localVisibleMessagesForAccount(data.messages[chat.id] || [], account);
+      const messages = data.messages[chat.id] || [];
       const last = messages[messages.length - 1];
       const attachment = last?.attachments?.[0];
       const attachmentText = attachment?.kind === "image"
@@ -6492,13 +5847,6 @@ function createLocalYachatApi() {
         unread: countUnreadMessages(chat, messages)
       };
 
-      const blockState = localChatBlockState(chat, account);
-      summary.blockedByMe = blockState.blockedByMe;
-      summary.blockedMe = blockState.blockedMe;
-      if (chat.kind === "private") {
-        summary.canSend = chat.canSend !== false && !blockState.blockedByMe && !blockState.blockedMe;
-      }
-
       if (chat.id === "yachat-channel") {
         summary.canSend = isMurochkoEntity(account);
         if (localChannelOwner) {
@@ -6518,34 +5866,6 @@ function createLocalYachatApi() {
 
       return String(b.lastAt || "").localeCompare(String(a.lastAt || ""));
     });
-  }
-
-  async function updateLocalUserBlock(payload, blocked) {
-    const data = readMessenger();
-    const account = readAccount()?.account || null;
-    const chat = data.chats.find((item) => item.id === payload?.chatId);
-    if (!chat || chat.kind !== "private" || !account?.id) {
-      throw new Error(t("errBlockPrivateOnly"));
-    }
-    const blockState = localChatBlockState(chat, account);
-    if (!blockState.peerId) {
-      throw new Error(t("noPeopleFound"));
-    }
-    const blockedBy = new Set(Array.isArray(chat.blockedBy) ? chat.blockedBy.map(String) : []);
-    if (blocked) {
-      blockedBy.add(String(account.id));
-    } else {
-      blockedBy.delete(String(account.id));
-    }
-    chat.blockedBy = [...blockedBy];
-    chat.updatedAt = new Date().toISOString();
-    writeMessenger(data);
-    const summary = summarizeLocalChats(data).find((item) => item.id === chat.id) || chat;
-    return {
-      chat: summary,
-      chats: summarizeLocalChats(data),
-      messages: localVisibleMessagesForAccount(data.messages[chat.id] || [], account)
-    };
   }
 
   return {
@@ -6797,10 +6117,7 @@ function createLocalYachatApi() {
     },
     messenger: {
       chats: async () => summarizeLocalChats(readMessenger()),
-      messages: async (chatId) => localVisibleMessagesForAccount(
-        readMessenger().messages[chatId] || [],
-        readAccount()?.account
-      ),
+      messages: async (chatId) => readMessenger().messages[chatId] || [],
       createChat: async (payload) => {
         const data = readMessenger();
         const account = readAccount()?.account;
@@ -6875,7 +6192,7 @@ function createLocalYachatApi() {
             return {
               chat: existing,
               chats: summarizeLocalChats(data),
-              messages: localVisibleMessagesForAccount(data.messages[existing.id] || [], account)
+              messages: data.messages[existing.id] || []
             };
           }
         }
@@ -7050,11 +6367,8 @@ function createLocalYachatApi() {
           messages: data.messages[chat.id] || []
         };
       },
-      blockUser: (payload) => updateLocalUserBlock(payload, true),
-      unblockUser: (payload) => updateLocalUserBlock(payload, false),
       send: async (payload) => {
         const data = readMessenger();
-        const account = readAccount()?.account || null;
         const chat = data.chats.find((item) => item.id === payload?.chatId);
         const text = String(payload?.text || "").trim();
         const attachments = Array.isArray(payload?.attachments) ? payload.attachments : [];
@@ -7069,13 +6383,8 @@ function createLocalYachatApi() {
           throw new Error("Чат не найден.");
         }
 
-        if (chat.canSend === false && !(chat.id === "yachat-channel" && isMurochkoEntity(account))) {
+        if (chat.canSend === false && !(chat.id === "yachat-channel" && isMurochkoEntity(readAccount()?.account))) {
           throw new Error("В этот канал нельзя писать.");
-        }
-
-        const blockState = localChatBlockState(chat, account);
-        if (blockState.blockedByMe || blockState.blockedMe) {
-          throw new Error(t("errBlockedConversation"));
         }
 
         if (!text && attachments.length === 0) {
@@ -7085,9 +6394,8 @@ function createLocalYachatApi() {
         data.messages[chat.id] = [
           ...(data.messages[chat.id] || []),
           createLocalMessage(chat.id, text, chat.id === "yachat-channel" ? "channel" : "user", {
-            senderId: account?.id || "",
+            senderId: readAccount()?.account?.id || "",
             attachments,
-            ...(payload?.clientMessageId ? { id: String(payload.clientMessageId) } : {}),
             ...(replyTo ? { replyTo } : {})
           })
         ];
@@ -7136,9 +6444,7 @@ function createLocalYachatApi() {
       },
       deleteMessage: async (payload) => {
         const data = readMessenger();
-        const account = readAccount()?.account;
         const chat = data.chats.find((item) => item.id === payload?.chatId);
-        const scope = payload?.scope === "self" ? "self" : "everyone";
         const ids = [...new Set((Array.isArray(payload?.messageIds) ? payload.messageIds : [payload?.messageId])
           .map((id) => String(id || "").trim())
           .filter(Boolean))];
@@ -7147,42 +6453,12 @@ function createLocalYachatApi() {
           throw new Error("Чат не найден.");
         }
 
-        if (ids.length === 0) {
-          throw new Error("Сообщение не выбрано.");
-        }
-
-        const messages = data.messages[chat.id] || [];
-        const selected = ids.map((id) => messages.find((message) => message.id === id));
-        if (selected.some((message) => !message)) {
-          throw new Error("Сообщение не найдено.");
-        }
-
-        if (scope === "everyone") {
-          if (selected.some((message) => (
-            message.senderId ? message.senderId !== account?.id : message.author !== "user"
-          ))) {
-            throw new Error("У всех можно удалить только свои сообщения.");
-          }
-
-          const removing = new Set(ids);
-          data.messages[chat.id] = messages.filter((message) => !removing.has(message.id));
-        } else {
-          const accountId = String(account?.id || "");
-          if (!accountId) {
-            throw new Error(t("errConfirmCodeFirst"));
-          }
-          selected.forEach((message) => {
-            message.hiddenFor = [...new Set([
-              ...(Array.isArray(message.hiddenFor) ? message.hiddenFor.map(String) : []),
-              accountId
-            ])];
-          });
-        }
-
+        const removing = new Set(ids);
+        data.messages[chat.id] = (data.messages[chat.id] || []).filter((message) => !removing.has(message.id));
         writeMessenger(data);
         return {
           chats: summarizeLocalChats(data),
-          messages: localVisibleMessagesForAccount(data.messages[chat.id] || [], account)
+          messages: data.messages[chat.id] || []
         };
       },
       markUnread: async (payload) => {
@@ -7227,7 +6503,6 @@ function createLocalYachatApi() {
       },
       forwardMessage: async (payload) => {
         const data = readMessenger();
-        const account = readAccount()?.account || null;
         const fromChat = data.chats.find((item) => item.id === payload?.fromChatId);
         const toChat = data.chats.find((item) => item.id === payload?.toChatId);
         const source = (data.messages[fromChat?.id] || []).find((item) => item.id === payload?.messageId);
@@ -7236,19 +6511,13 @@ function createLocalYachatApi() {
           throw new Error("Сообщение не найдено.");
         }
 
-        const blockState = localChatBlockState(toChat, account);
-        if (blockState.blockedByMe || blockState.blockedMe) {
-          throw new Error(t("errBlockedConversation"));
-        }
-
-        if (toChat.canSend === false && !(toChat.id === "yachat-channel" && isMurochkoEntity(account))) {
+        if (toChat.canSend === false && !(toChat.id === "yachat-channel" && isMurochkoEntity(readAccount()?.account))) {
           throw new Error("В этот канал нельзя писать.");
         }
 
         data.messages[toChat.id] = [
           ...(data.messages[toChat.id] || []),
           createLocalMessage(toChat.id, source.text || "", "user", {
-            senderId: account?.id || "",
             attachments: Array.isArray(source.attachments) ? source.attachments : [],
             forwardedFrom: fromChat.title || ""
           })
@@ -7258,7 +6527,7 @@ function createLocalYachatApi() {
         writeMessenger(data);
         return {
           chats: summarizeLocalChats(data),
-          messages: localVisibleMessagesForAccount(data.messages[toChat.id] || [], account),
+          messages: data.messages[toChat.id] || [],
           chatId: toChat.id
         };
       }
@@ -7489,7 +6758,7 @@ function applyServerSettings(settings = {}) {
   setCountry(settings.country || "RU", settings.countryCode || "+7", false);
 }
 
-async function showSignedOutRouteErrorIfNeeded(resolvedRouteUser = null, routeAlreadyResolved = false) {
+async function showSignedOutRouteErrorIfNeeded() {
   if (!canUseHistoryRoutes()) {
     return false;
   }
@@ -7501,14 +6770,6 @@ async function showSignedOutRouteErrorIfNeeded(resolvedRouteUser = null, routeAl
 
   const routeUsername = routeUsernameFromLocation();
   if (!routeUsername || systemRouteChatIds.has(routeUsername)) {
-    return false;
-  }
-
-  if (routeAlreadyResolved) {
-    if (!resolvedRouteUser) {
-      showErrorPage("404", t("error404Title"), t("error404Text"));
-      return true;
-    }
     return false;
   }
 
@@ -7546,7 +6807,6 @@ async function initializeApp() {
         boot = null;
       }
 
-      const bootLoaded = Boolean(boot && typeof boot === "object");
       applyServerSettings(boot?.settings || {});
 
       if (boot?.account) {
@@ -7555,17 +6815,15 @@ async function initializeApp() {
         setBootText("bootPreparingChats");
         await showMessenger(boot.account, { snapshot: boot });
       } else {
-        if (await showSignedOutRouteErrorIfNeeded(boot?.routeUser || null, bootLoaded)) {
+        if (await showSignedOutRouteErrorIfNeeded()) {
           return;
         }
-        if (!bootLoaded) {
-          const account = await yachatApi.account.get();
-          if (account) {
-            state.account = normalizeAccount(account);
-            state.accountTextMode = "existing";
-            setBootText("bootPreparingChats");
-            await showMessenger(account);
-          }
+        const account = await yachatApi.account.get();
+        if (account) {
+          state.account = normalizeAccount(account);
+          state.accountTextMode = "existing";
+          setBootText("bootPreparingChats");
+          await showMessenger(account);
         }
       }
       return;
@@ -8343,14 +7601,6 @@ chatList?.addEventListener("click", (event) => {
 });
 
 messageList?.addEventListener("click", (event) => {
-  const retryButton = event.target.closest("[data-message-retry]");
-  if (retryButton) {
-    event.preventDefault();
-    event.stopPropagation();
-    void retryFailedMessage(retryButton.dataset.messageRetry);
-    return;
-  }
-
   const bubble = event.target.closest("[data-message-id]");
   if (!bubble) {
     return;
@@ -8364,7 +7614,10 @@ messageList?.addEventListener("click", (event) => {
   const messageId = bubble.dataset.messageId;
   if (state.selectingMessages) {
     toggleSelectedMessage(messageId);
+    return;
   }
+
+  openMessageMenu(messageId, event.clientX, event.clientY);
 });
 
 messageList?.addEventListener("contextmenu", (event) => {
@@ -8384,59 +7637,22 @@ messageList?.addEventListener("pointerdown", (event) => {
   }
 
   window.clearTimeout(state.messagePressTimer);
-  state.messagePressStart = {
-    pointerId: event.pointerId,
-    x: event.clientX,
-    y: event.clientY
-  };
   state.messagePressTimer = window.setTimeout(() => {
     state.ignoreNextMessageClick = true;
-    state.messagePressTimer = null;
     openMessageMenu(bubble.dataset.messageId, event.clientX, event.clientY);
   }, 520);
-});
-
-messageList?.addEventListener("pointermove", (event) => {
-  const start = state.messagePressStart;
-  if (!start || start.pointerId !== event.pointerId) {
-    return;
-  }
-
-  if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) {
-    window.clearTimeout(state.messagePressTimer);
-    state.messagePressTimer = null;
-    state.messagePressStart = null;
-  }
 });
 
 ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => {
   messageList?.addEventListener(eventName, () => {
     window.clearTimeout(state.messagePressTimer);
     state.messagePressTimer = null;
-    state.messagePressStart = null;
   });
-});
-
-messageList?.addEventListener("keydown", (event) => {
-  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
-    return;
-  }
-
-  const bubble = event.target.closest("[data-message-id]");
-  if (!bubble) {
-    return;
-  }
-
-  event.preventDefault();
-  const rect = bubble.getBoundingClientRect();
-  openMessageMenu(bubble.dataset.messageId, rect.left + rect.width / 2, rect.top + rect.height / 2);
 });
 
 messageInput?.addEventListener("input", () => {
   const chat = getActiveChat();
-  sendButton.disabled = state.editingMessageId
-    ? !messageInput.value.trim()
-    : !canSendToChat(chat) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
+  sendButton.disabled = !canSendToChat(chat) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
 });
 
 composerContext?.addEventListener("click", (event) => {
@@ -8550,10 +7766,7 @@ document.addEventListener("click", (event) => {
   const chatButton = event.target.closest("[data-forward-chat]");
   if (chatButton) {
     forwardMessageTo(chatButton.dataset.forwardChat).catch((error) => {
-      showActionFeedback(translatedServerMessage(error.message, "feedbackForwardFailed"), {
-        tone: "error",
-        icon: "circle-alert"
-      });
+      alert(translatedServerMessage(error.message, "errSendMessage"));
     });
     return;
   }
@@ -8592,17 +7805,6 @@ window.addEventListener("popstate", () => {
   openRouteTargetFromLocation().catch(() => {});
 });
 
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && state.account) {
-    stopMessengerPolling();
-    refreshMessengerFromServer()
-      .catch(() => {})
-      .finally(startMessengerPolling);
-  } else if (state.account) {
-    startMessengerPolling();
-  }
-});
-
 attachmentButton?.addEventListener("click", () => {
   if (!canSendToChat(getActiveChat())) {
     return;
@@ -8637,58 +7839,42 @@ messageForm?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const chat = getActiveChat();
   const text = messageInput.value.trim();
-  const editing = Boolean(state.editingMessageId);
 
-  if (!chat || (!editing && !canSendToChat(chat)) || (!text && state.pendingAttachments.length === 0 && !editing)) {
+  if (!chat || !canSendToChat(chat) || (!text && state.pendingAttachments.length === 0 && !state.editingMessageId)) {
     return;
   }
 
   sendButton.disabled = true;
 
   try {
-    if (state.editingMessageId && yachatApi.messenger.updateMessage) {
-      const result = await yachatApi.messenger.updateMessage({
+    const targetChat = state.editingMessageId ? chat : await ensureRealChatForMessage(chat);
+    const result = state.editingMessageId && yachatApi.messenger.updateMessage
+      ? await yachatApi.messenger.updateMessage({
           chatId: chat.id,
           messageId: state.editingMessageId,
           text
+        })
+      : await yachatApi.messenger.send({
+          chatId: targetChat.id,
+          text,
+          attachments: state.pendingAttachments,
+          replyToMessageId: state.replyToMessage?.messageId || null
         });
-      messageInput.value = "";
-      state.editingMessageId = null;
-      renderComposerContext();
-      state.chats = result.chats || await yachatApi.messenger.chats();
-      state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
-      renderChatList();
-      renderActiveChat();
-      renderMessages();
-      showActionFeedback(t("feedbackMessageEdited"), { icon: "pencil" });
-      return;
-    }
-
-    const targetChat = await ensureRealChatForMessage(chat);
-    const outgoing = createTransientOutgoingMessage(targetChat, {
-      text,
-      attachments: [...state.pendingAttachments],
-      replyToMessageId: state.replyToMessage?.messageId || null,
-      replyTo: state.replyToMessage ? { ...state.replyToMessage } : null
-    });
-
     messageInput.value = "";
     state.pendingAttachments = [];
+    state.editingMessageId = null;
     state.replyToMessage = null;
     renderAttachmentTray();
     renderComposerContext();
-    await deliverTransientMessage(targetChat, outgoing);
+    state.chats = result.chats || await yachatApi.messenger.chats();
+    state.messages = result.messages || await yachatApi.messenger.messages(targetChat.id);
+    renderChatList();
+    renderActiveChat();
+    renderMessages();
   } catch (error) {
-    const fallbackKey = state.editingMessageId ? "feedbackEditFailed" : "feedbackSendFailed";
-    showActionFeedback(translatedServerMessage(error.message, fallbackKey), {
-      tone: "error",
-      icon: "circle-alert",
-      duration: 3200
-    });
+    alert(translatedServerMessage(error.message, "errSendMessage"));
   } finally {
-    sendButton.disabled = state.editingMessageId
-      ? !messageInput.value.trim()
-      : !canSendToChat(getActiveChat()) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
+    sendButton.disabled = !canSendToChat(getActiveChat()) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
   }
 });
 
@@ -8900,16 +8086,6 @@ panelBody?.addEventListener("click", async (event) => {
     return;
   }
 
-  if (action === "block-user") {
-    await setActiveChatBlocked(true, actionButton);
-    return;
-  }
-
-  if (action === "unblock-user") {
-    await setActiveChatBlocked(false, actionButton);
-    return;
-  }
-
   if (action === "delete-chat") {
     await deleteActiveChat(actionButton);
     return;
@@ -8968,7 +8144,7 @@ panelBody?.addEventListener("change", async (event) => {
     if (error.cancelled) {
       return;
     }
-    alert(translatedServerMessage(error.message, "errAvatar"));
+    alert(error.message || t("errAvatar"));
   }
 });
 
@@ -9039,7 +8215,7 @@ createChatForm?.querySelector("[data-create-chat-avatar-input]")?.addEventListen
     if (error.cancelled) {
       return;
     }
-    alert(translatedServerMessage(error.message, "errAvatar"));
+    alert(error.message || t("errAvatar"));
   } finally {
     event.target.value = "";
   }
