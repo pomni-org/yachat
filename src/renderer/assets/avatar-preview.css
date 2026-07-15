@@ -1,0 +1,60 @@
+:root {
+  --avatar-preview-edge: rgba(255, 255, 255, 0.16);
+}
+
+:root[data-theme="light"] {
+  --avatar-preview-edge: rgba(6, 6, 8, 0.12);
+}
+
+.avatar-preview,
+.profile-edit-avatar-preview,
+.done-mark,
+.settings-profile-card .panel-avatar {
+  aspect-ratio: 1;
+  border-radius: 50% !important;
+  clip-path: circle(50% at 50% 50%);
+  box-shadow: inset 0 0 0 1px var(--avatar-preview-edge);
+}
+
+.avatar-preview img,
+.profile-edit-avatar-preview img,
+.done-mark img,
+.settings-profile-card .panel-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  object-position: 50% 50%;
+}
+
+.profile-edit-avatar {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.profile-edit-avatar-preview {
+  width: 72px;
+  height: 72px;
+}
+
+.screen[data-screen="profile"] .avatar-picker {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.screen[data-screen="profile"] .avatar-preview {
+  width: 72px;
+  height: 72px;
+}
+
+@media (max-width: 360px) {
+  .profile-edit-avatar,
+  .screen[data-screen="profile"] .avatar-picker {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .profile-edit-avatar-preview,
+  .screen[data-screen="profile"] .avatar-preview {
+    width: 64px;
+    height: 64px;
+  }
+}
