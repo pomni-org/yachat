@@ -25,12 +25,8 @@ function canonicalIconLinks() {
   return [
     '    <link rel="apple-touch-icon" sizes="180x180" href="/api/icon?variant=shortcut&size=180&v=4" />',
     '    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/api/icon?variant=shortcut&size=180&v=4" />',
-    '    <link rel="icon" type="image/png" sizes="256x256" href="/api/icon?variant=shortcut&size=256&v=4" />',
-    '    <link rel="icon" type="image/png" sizes="48x48" href="/api/icon?variant=shortcut&size=48&v=4" />',
-    '    <link rel="icon" type="image/png" sizes="32x32" href="/api/icon?variant=shortcut&size=32&v=4" />',
-    '    <link rel="icon" type="image/png" sizes="16x16" href="/api/icon?variant=shortcut&size=16&v=4" />',
     '    <link rel="icon" type="image/svg+xml" sizes="any" href="/assets/yachat-shortcut.svg?v=4" />',
-    '    <link rel="shortcut icon" href="/api/icon?variant=shortcut&size=32&v=4" />'
+    '    <link rel="shortcut icon" href="/assets/yachat-shortcut.svg?v=4" />'
   ].join("\n");
 }
 
@@ -39,7 +35,7 @@ function rewriteIconMetadata(html) {
     .replace(/\s*<meta\s+name=["']msapplication-TileImage["'][^>]*\/?>/gi, "")
     .replace(/\s*<link\s+rel=["'](?:apple-touch-icon(?:-precomposed)?|icon|shortcut icon)["'][^>]*\/?>/gi, "");
 
-  const tileMeta = '    <meta name="msapplication-TileImage" content="/api/icon?variant=shortcut&size=256&v=4" />';
+  const tileMeta = '    <meta name="msapplication-TileImage" content="/api/icon?variant=shortcut&size=180&v=4" />';
 
   let rewritten = withoutLegacyIcons.replace(
     /(\s*<title>)/i,
