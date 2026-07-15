@@ -12,31 +12,31 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/assets/yachat-app-icon-v2-192.png",
+      "src": "/assets/yachat-shortcut-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/assets/yachat-app-icon-v2-512.png",
+      "src": "/assets/yachat-shortcut-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/assets/yachat-app-icon-v2-maskable-192.png",
+      "src": "/assets/yachat-shortcut-maskable-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/assets/yachat-app-icon-v2-maskable-512.png",
+      "src": "/assets/yachat-shortcut-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/assets/yachat-app-icon-v2-1024.png",
+      "src": "/assets/yachat-shortcut-1024.png",
       "sizes": "1024x1024",
       "type": "image/png",
       "purpose": "any"

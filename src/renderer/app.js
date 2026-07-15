@@ -6229,7 +6229,7 @@ function createLocalYachatApi() {
           pinned: true,
           canSend: false,
           avatar: "codes",
-          avatarDataUrl: "./assets/yachat-codes-avatar-v2.jpeg",
+          avatarDataUrl: "./assets/yachat-avatar.svg",
           createdAt
         },
         {
@@ -6269,7 +6269,7 @@ function createLocalYachatApi() {
 
   function systemChannelAvatar(avatarDataUrl, fallbackAvatarDataUrl) {
     const value = String(avatarDataUrl || "");
-    return value.includes("yachat-logo-COLOR") || value.includes("yachat-icon.svg") || value.includes("yachat-SVG-color")
+    return value.includes("yachat-logo-COLOR") || value.includes("yachat-avatar.svg") || value.includes("yachat-SVG-color")
       ? fallbackAvatarDataUrl
       : value || fallbackAvatarDataUrl;
   }

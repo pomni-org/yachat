@@ -22,20 +22,10 @@
   font-display: swap;
 }
 
-@font-face {
-  font-family: "Max Sans";
-  src:
-    local("Max Sans Bold"),
-    url("./assets/MaxSans-Bold.ttf") format("truetype");
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-}
-
 :root {
   --font-main: "Roboto", "Segoe UI", Arial, sans-serif;
   --font-display: "Roboto", "Segoe UI", Arial, sans-serif;
-  --font-logo: "Max Sans", "Arial Black", Arial, "Segoe UI", sans-serif;
+  --font-logo: "Roboto", "Segoe UI", Arial, sans-serif;
   --max-blue: #471AFF;
   --max-purple: #9500FF;
   --max-white: #FFFFFF;
@@ -78,7 +68,7 @@
   --bubble-out-end: var(--max-purple);
   --bubble-meta: rgba(255, 255, 255, 0.6);
   --space-pattern: url("./assets/yachat-space-dark.png");
-  --brand-logo: url("./assets/yachat-logo-LIGHT.png");
+  --brand-logo: url("./assets/yachat-logo-light.svg");
   --brand-logo-x: 5px;
   --brand-logo-mark: calc(var(--brand-logo-x) * 8);
   --brand-logo-gap: calc(var(--brand-logo-x) * 2);
@@ -114,7 +104,7 @@
   --bubble-out-end: var(--max-purple);
   --bubble-meta: rgba(6, 6, 8, 0.46);
   --space-pattern: url("./assets/yachat-space-light.png");
-  --brand-logo: url("./assets/yachat-logo-DARK.png");
+  --brand-logo: url("./assets/yachat-logo-dark.svg");
   color-scheme: light;
 }
 
