@@ -31,7 +31,9 @@ async function injectEnhancementAssets() {
     [
       '<link rel="stylesheet" href="./styles.css" />',
       '    <link rel="stylesheet" href="./assets/chat-presence.css" />',
-      '    <link rel="stylesheet" href="./assets/username-copy.css" />'
+      '    <link rel="stylesheet" href="./assets/username-copy.css" />',
+      '    <link rel="stylesheet" href="./assets/profile-modal.css" />',
+      '    <link rel="stylesheet" href="./assets/loading-shine.css" />'
     ].join("\n")
   );
   const withScripts = withStyles.replace(
@@ -39,7 +41,8 @@ async function injectEnhancementAssets() {
     [
       '<script src="./app.js"></script>',
       '    <script src="./assets/chat-presence.js"></script>',
-      '    <script src="./assets/username-copy.js"></script>'
+      '    <script src="./assets/username-copy.js"></script>',
+      '    <script src="./assets/profile-modal.js"></script>'
     ].join("\n")
   );
   await fs.writeFile(indexPath, withScripts, "utf8");
