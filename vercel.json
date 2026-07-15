@@ -20,10 +20,6 @@
       "destination": "/api/contacts.py"
     },
     {
-      "source": "/api/contacts/lookup",
-      "destination": "/api/contacts.py"
-    },
-    {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     },
