@@ -1,0 +1,41 @@
+name: Sync YaChat brand into public once
+
+on:
+  push:
+    branches:
+      - codex/yachat-brand-icons
+    paths:
+      - ".github/workflows/sync-yachat-brand-public.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  sync-public:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild Vercel public output from canonical sources
+        run: npm run build:vercel
+
+      - name: Validate source files
+        run: |
+          npm run check
+          python -m py_compile api/index.py
+
+      - name: Remove one-shot workflow and commit public assets
+        run: |
+          rm -f .github/workflows/sync-yachat-brand-public.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No public changes"
+            exit 0
+          fi
+          git commit -m "chore: sync complete ЯЧат icon set to public [brand-public-synced]"
+          git push origin HEAD:codex/yachat-brand-icons
