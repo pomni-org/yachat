@@ -1264,7 +1264,7 @@ def system_chats(
     channel_avatar = str(row_value(channel_settings, "avatar_url"))
     if not channel_avatar or any(
         legacy_icon in channel_avatar
-        for legacy_icon in ("yachat-logo-COLOR", "yachat-icon.svg", "yachat-SVG-color")
+        for legacy_icon in ("yachat-logo-COLOR", "yachat-avatar.svg", "yachat-SVG-color")
     ):
         channel_avatar = "./assets/yachat-icon-square.png"
     return [
@@ -1302,7 +1302,7 @@ def system_chats(
             "pinned": True,
             "canSend": False,
             "avatar": "codes",
-            "avatarDataUrl": "./assets/yachat-codes-avatar-v2.jpeg",
+            "avatarDataUrl": "./assets/yachat-avatar.svg",
             "createdAt": created_at,
             "lastAt": row_value(codes_latest, "created_at") or created_at,
             "lastMessage": str(row_value(codes_latest, "text")),
