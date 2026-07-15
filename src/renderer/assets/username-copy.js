@@ -45,9 +45,19 @@
     return element.matches("input, textarea, select, [contenteditable='true']");
   }
 
+  function isUsernameCopyExcluded(element) {
+    if (!(element instanceof Element)) {
+      return false;
+    }
+
+    return Boolean(element.closest(
+      '[data-panel-action="edit-profile"], .settings-profile-card, .profile-edit-modal-layer'
+    ));
+  }
+
   function decorateElement(element) {
     const username = ownUsername(element);
-    if (!username || isFormControl(element)) {
+    if (!username || isFormControl(element) || isUsernameCopyExcluded(element)) {
       return;
     }
 
@@ -82,8 +92,17 @@
   }
 
   function usernameFromTarget(target) {
-    let element = target instanceof Element ? target : null;
+    const targetElement = target instanceof Element ? target : null;
+    if (!targetElement || isUsernameCopyExcluded(targetElement)) {
+      return null;
+    }
+
+    let element = targetElement;
     for (let depth = 0; element && depth < 4; depth += 1, element = element.parentElement) {
+      if (isUsernameCopyExcluded(element)) {
+        return null;
+      }
+
       const stored = normalizeUsername(element.dataset.copyUsernameValue || "");
       if (stored) {
         return { element, username: stored };
