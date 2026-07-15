@@ -154,8 +154,9 @@
       return;
     }
     event.preventDefault();
+    event.stopPropagation();
     void copyUsername(match);
-  });
+  }, true);
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") {
@@ -166,8 +167,9 @@
       return;
     }
     event.preventDefault();
+    event.stopPropagation();
     void copyUsername(match);
-  });
+  }, true);
 
   const observer = new MutationObserver((records) => {
     for (const record of records) {
