@@ -12,6 +12,18 @@
       "destination": "/api/presence.py"
     },
     {
+      "source": "/api/contacts",
+      "destination": "/api/contacts.py"
+    },
+    {
+      "source": "/api/contacts/import",
+      "destination": "/api/contacts.py"
+    },
+    {
+      "source": "/api/contacts/lookup",
+      "destination": "/api/contacts.py"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     },
@@ -76,6 +88,9 @@
       "maxDuration": 10
     },
     "api/presence.py": {
+      "maxDuration": 10
+    },
+    "api/contacts.py": {
       "maxDuration": 10
     }
   }
