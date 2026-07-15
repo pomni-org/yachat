@@ -3,13 +3,14 @@ body.profile-edit-modal-open {
 }
 
 body.profile-edit-modal-open .side-panel {
+  z-index: 100 !important;
   transform: none !important;
   animation: none !important;
 }
 
 .profile-edit-modal-backdrop {
   position: fixed;
-  z-index: 100;
+  z-index: 1;
   inset: 0;
   background: rgba(0, 0, 0, 0);
   backdrop-filter: blur(0);
@@ -35,7 +36,7 @@ body.profile-edit-modal-open .side-panel {
 
 body.profile-edit-modal-open .profile-edit-section {
   position: fixed;
-  z-index: 101;
+  z-index: 2;
   top: 50%;
   left: 50%;
   display: grid;
