@@ -1692,12 +1692,17 @@ def require_chat_member(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
     return dict(row)
 
 
-def message_payload(row: dict[str, Any], current_user_id: str) -> dict[str, Any]:
-    return {
+def message_payload(
+    row: dict[str, Any],
+    current_user_id: str,
+    recipient_read_times: list[datetime] | None = None,
+) -> dict[str, Any]:
+    sender_id = str(row_value(row, "sender_id"))
+    payload = {
         "id": str(row_value(row, "id")),
         "chatId": str(row_value(row, "chat_id")),
-        "author": "user" if str(row_value(row, "sender_id")) == current_user_id else "contact",
-        "authorId": str(row_value(row, "sender_id")),
+        "author": "user" if sender_id == current_user_id else "contact",
+        "authorId": sender_id,
         "text": str(row_value(row, "text")),
         "attachments": row_value(row, "attachments") if isinstance(row_value(row, "attachments"), list) else [],
         "replyToMessageId": row_value(row, "reply_to_message_id") or None,
@@ -1705,6 +1710,14 @@ def message_payload(row: dict[str, Any], current_user_id: str) -> dict[str, Any]
         "createdAt": row_value(row, "created_at"),
         "editedAt": row_value(row, "edited_at") or None,
     }
+
+    if sender_id == current_user_id:
+        created_at = row_value(row, "created_at")
+        read_times = [value for value in (recipient_read_times or []) if value is not None]
+        read_by_every_recipient = bool(read_times) and all(value >= created_at for value in read_times)
+        payload["deliveryStatus"] = "read" if read_by_every_recipient else "sent"
+
+    return payload
 
 
 def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
@@ -1736,7 +1749,17 @@ def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
                 """,
                 (chat_id,),
             )
-            return [message_payload(dict(row), user_id) for row in cursor.fetchall()]
+            message_rows = [dict(row) for row in cursor.fetchall()]
+            cursor.execute(
+                """
+                select last_read_at
+                from yachat_chat_members
+                where chat_id = %s and user_id <> %s
+                """,
+                (chat_id, user_id),
+            )
+            recipient_read_times = [row["last_read_at"] for row in cursor.fetchall()]
+            return [message_payload(row, user_id, recipient_read_times) for row in message_rows]
 
 
 def messenger_snapshot(user_id: str, chat_id: str = "", username: str = "") -> dict[str, Any]:
@@ -2698,7 +2721,12 @@ async def send_message(request: Request):
     if chat_id.startswith("yachat-") and not is_saved_chat:
         raise HTTPException(status_code=400, detail="System chats are local only.")
 
-    message_id = str(uuid.uuid4())
+    client_message_id = str(payload.get("clientMessageId") or "").strip()
+    try:
+        message_id = str(uuid.UUID(client_message_id)) if client_message_id else str(uuid.uuid4())
+    except (ValueError, AttributeError, TypeError):
+        message_id = str(uuid.uuid4())
+
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
             if is_saved_chat:
@@ -2711,6 +2739,7 @@ async def send_message(request: Request):
                 """
                 insert into yachat_messages(id, chat_id, sender_id, text, attachments, reply_to_message_id, created_at)
                 values (%s, %s, %s, %s, %s::jsonb, %s, now())
+                on conflict(id) do nothing
                 returning *
                 """,
                 (
@@ -2722,7 +2751,24 @@ async def send_message(request: Request):
                     payload.get("replyToMessageId") or None,
                 ),
             )
-            message = dict(cursor.fetchone())
+            inserted_row = cursor.fetchone()
+            inserted = inserted_row is not None
+            if inserted:
+                message = dict(inserted_row)
+            else:
+                cursor.execute(
+                    """
+                    select *
+                    from yachat_messages
+                    where id = %s and chat_id = %s and sender_id = %s and deleted_at is null
+                    limit 1
+                    """,
+                    (message_id, chat_id, user["id"]),
+                )
+                existing_row = cursor.fetchone()
+                if not existing_row:
+                    raise HTTPException(status_code=409, detail="Message id conflict.")
+                message = dict(existing_row)
             cursor.execute("update yachat_chats set updated_at = now() where id = %s", (chat_id,))
             cursor.execute(
                 "update yachat_chat_members set last_read_at = now() where chat_id = %s and user_id = %s",
@@ -2736,7 +2782,7 @@ async def send_message(request: Request):
                 """,
                 (chat_id, user["id"]),
             )
-            recipients = [] if is_saved_chat else [str(row["user_id"]) for row in cursor.fetchall()]
+            recipients = [] if is_saved_chat or not inserted else [str(row["user_id"]) for row in cursor.fetchall()]
 
     sender_name = str(row_value(user, "display_name", "preview_name", "username")) or "YaChat"
     body = text or "Новое вложение"

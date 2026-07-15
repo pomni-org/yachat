@@ -16,6 +16,7 @@ const SYSTEM_CHAT_IDS = new Set(["yachat-favorites", "yachat-codes", "yachat-cha
 const PROTECTED_HISTORY_CHAT_IDS = new Set(["yachat-codes"]);
 const TELEGRAM_BOT_URL = "https://t.me/code_yachatBot";
 const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
+let actionFeedbackTimer = null;
 
 function systemTheme() {
   if (!systemThemeQuery) {
@@ -104,7 +105,9 @@ const state = {
   pendingAttachments: [],
   messageMenu: null,
   messagePressTimer: null,
+  messagePressStart: null,
   ignoreNextMessageClick: false,
+  transientMessagesByChat: new Map(),
   editingMessageId: null,
   replyToMessage: null,
   forwardMessage: null,
@@ -333,6 +336,9 @@ const ICONS = {
   "user-round": '<circle cx="12" cy="8" r="5" /><path d="M20 21a8 8 0 0 0-16 0" />',
   x: '<path d="M18 6 6 18" /><path d="m6 6 12 12" />',
   check: '<path d="M20 6 9 17l-5-5" />',
+  "check-check": '<path d="m18 6-9.5 9.5L4 11" /><path d="m22 10-7.5 7.5-2-2" />',
+  "circle-alert": '<circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" />',
+  "rotate-ccw": '<path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" />',
   "monitor-smartphone": '<path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8" /><path d="M10 19v-3.96 3.15" /><path d="M7 19h5" /><rect width="6" height="10" x="16" y="12" rx="2" />',
   "scan-line": '<path d="M3 7V5a2 2 0 0 1 2-2h2" /><path d="M17 3h2a2 2 0 0 1 2 2v2" /><path d="M21 17v2a2 2 0 0 1-2 2h-2" /><path d="M7 21H5a2 2 0 0 1-2-2v-2" /><path d="M7 12h10" />',
   "share-2": '<circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.59 13.51 6.83 3.98" /><path d="m15.41 6.51-6.82 3.98" />',
@@ -661,6 +667,17 @@ const translations = {
     menuCopyText: "Скопировать текст",
     menuSelect: "Выбрать",
     menuDelete: "Удалить",
+    feedbackCopiedText: "Вы скопировали текст",
+    feedbackCopiedUsername: "Юзернейм скопирован",
+    feedbackCopiedInvite: "Приглашение скопировано",
+    feedbackCopyFailed: "Не удалось скопировать",
+    feedbackMarkedUnread: "Чат отмечен непрочитанным",
+    feedbackSendFailed: "Сообщение не отправлено",
+    messageSending: "Отправляется",
+    messageSent: "Отправлено",
+    messageRead: "Прочитано",
+    messageFailed: "Ошибка отправки",
+    retrySend: "Повторить отправку",
     editMessage: "Редактирование",
     replyMessage: "Ответ",
     forwardedMessage: "Переслано",
@@ -950,6 +967,17 @@ const translations = {
     menuCopyText: "Copy text",
     menuSelect: "Select",
     menuDelete: "Delete",
+    feedbackCopiedText: "Text copied",
+    feedbackCopiedUsername: "Username copied",
+    feedbackCopiedInvite: "Invite copied",
+    feedbackCopyFailed: "Could not copy",
+    feedbackMarkedUnread: "Chat marked unread",
+    feedbackSendFailed: "Message was not sent",
+    messageSending: "Sending",
+    messageSent: "Sent",
+    messageRead: "Read",
+    messageFailed: "Send failed",
+    retrySend: "Retry sending",
     editMessage: "Editing",
     replyMessage: "Reply",
     forwardedMessage: "Forwarded",
@@ -1023,6 +1051,47 @@ function t(key, params = {}) {
 
   return text;
 }
+
+function hideActionFeedback() {
+  window.clearTimeout(actionFeedbackTimer);
+  actionFeedbackTimer = null;
+  document.querySelector("[data-action-feedback]")?.classList.remove("is-visible");
+}
+
+function showActionFeedback(message, options = {}) {
+  const text = cleanDisplayText(message, "");
+  if (!text) {
+    return;
+  }
+
+  let feedback = document.querySelector("[data-action-feedback]");
+  if (!feedback) {
+    feedback = document.createElement("div");
+    feedback.className = "action-feedback";
+    feedback.dataset.actionFeedback = "";
+    feedback.setAttribute("role", "status");
+    feedback.setAttribute("aria-live", "polite");
+    feedback.setAttribute("aria-atomic", "true");
+    document.body.append(feedback);
+  }
+
+  const tone = options.tone === "error" ? "error" : "success";
+  const icon = options.icon || (tone === "error" ? "circle-alert" : "circle-check");
+  feedback.innerHTML = `${iconSvg(icon, "action-feedback-icon")}<span>${escapeHtml(text)}</span>`;
+  feedback.classList.toggle("is-error", tone === "error");
+  feedback.classList.remove("is-visible");
+  void feedback.offsetWidth;
+  feedback.classList.add("is-visible");
+
+  window.clearTimeout(actionFeedbackTimer);
+  const duration = Math.min(Math.max(Number(options.duration) || 2200, 900), 8000);
+  actionFeedbackTimer = window.setTimeout(hideActionFeedback, duration);
+}
+
+window.yachatFeedback = Object.freeze({
+  show: showActionFeedback,
+  hide: hideActionFeedback
+});
 
 function setText(selector, key, root = document) {
   const element = root.querySelector(selector);
@@ -2028,6 +2097,77 @@ function formatMessageDayLabel(value) {
   });
 }
 
+function transientMessagesForChat(chatId = state.activeChatId) {
+  return [...(state.transientMessagesByChat.get(String(chatId || ""))?.values() || [])];
+}
+
+function setTransientMessage(chatId, message) {
+  const key = String(chatId || "");
+  if (!key || !message?.id) {
+    return;
+  }
+
+  let messages = state.transientMessagesByChat.get(key);
+  if (!messages) {
+    messages = new Map();
+    state.transientMessagesByChat.set(key, messages);
+  }
+  messages.set(message.id, message);
+}
+
+function removeTransientMessage(chatId, messageId) {
+  const key = String(chatId || "");
+  const messages = state.transientMessagesByChat.get(key);
+  if (!messages) {
+    return;
+  }
+
+  messages.delete(messageId);
+  if (messages.size === 0) {
+    state.transientMessagesByChat.delete(key);
+  }
+}
+
+function displayedMessages() {
+  const persisted = Array.isArray(state.messages) ? state.messages : [];
+  const ids = new Set(persisted.map((message) => message.id));
+  const transientMessages = transientMessagesForChat();
+  transientMessages.filter((message) => ids.has(message.id)).forEach((message) => {
+    removeTransientMessage(state.activeChatId, message.id);
+  });
+  const transient = transientMessages.filter((message) => !ids.has(message.id));
+  return [...persisted, ...transient].sort((left, right) => {
+    const leftTime = new Date(left?.createdAt || 0).valueOf();
+    const rightTime = new Date(right?.createdAt || 0).valueOf();
+    return (Number.isNaN(leftTime) ? 0 : leftTime) - (Number.isNaN(rightTime) ? 0 : rightTime);
+  });
+}
+
+function messageDeliveryStatus(message) {
+  const status = String(message?.deliveryStatus || "").toLowerCase();
+  if (["sending", "sent", "read", "failed"].includes(status)) {
+    return status;
+  }
+  return "sent";
+}
+
+function renderMessageDelivery(message) {
+  const status = messageDeliveryStatus(message);
+  const label = t({
+    sending: "messageSending",
+    sent: "messageSent",
+    read: "messageRead",
+    failed: "messageFailed"
+  }[status]);
+
+  if (status === "sending") {
+    return `<span class="message-status is-sending" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><span class="message-status-spinner"></span></span>`;
+  }
+
+  const icon = status === "read" ? "check-check" : status === "failed" ? "circle-alert" : "check";
+  return `<span class="message-status is-${status}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${iconSvg(icon, "message-status-icon")}</span>`;
+}
+
 function renderMessages() {
   if (!messageList) {
     return;
@@ -2036,17 +2176,18 @@ function renderMessages() {
   let lastDay = "";
   const items = [];
 
-  state.messages.forEach((message) => {
+  displayedMessages().forEach((message) => {
     const mine = message.author === "user";
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     const text = cleanDisplayText(message.text, message.text ? t("damagedText") : "");
     const selected = state.selectedMessageIds.has(message.id);
     const date = new Date(message.createdAt);
     const dayKey = Number.isNaN(date.valueOf()) ? "" : date.toDateString();
+    const deliveryStatus = mine ? messageDeliveryStatus(message) : "";
     const timeHtml = `
       <time>
         ${escapeHtml(formatChatTime(message.createdAt))}
-        ${mine ? '<span class="message-status" aria-hidden="true">✓</span>' : ""}
+        ${mine ? renderMessageDelivery(message) : ""}
       </time>
     `;
 
@@ -2056,7 +2197,8 @@ function renderMessages() {
     }
 
     items.push(`
-      <article class="message-bubble${mine ? " is-mine" : ""}${selected ? " is-selected" : ""}" data-message-id="${escapeHtml(message.id)}">
+      <article class="message-bubble${mine ? " is-mine" : ""}${selected ? " is-selected" : ""}${deliveryStatus === "failed" ? " is-delivery-failed" : ""}" data-message-id="${escapeHtml(message.id)}" tabindex="0">
+        ${deliveryStatus === "failed" ? `<button class="message-retry" type="button" data-message-retry="${escapeHtml(message.id)}" aria-label="${escapeHtml(t("retrySend"))}" title="${escapeHtml(t("retrySend"))}">${iconSvg("rotate-ccw")}</button>` : ""}
         ${message.forwardedFrom ? `<div class="message-forwarded">${escapeHtml(t("forwardedMessage"))}</div>` : ""}
         ${message.replyTo ? renderMessageReference(message.replyTo) : ""}
         ${text ? `<p>${escapeHtml(text)}</p>` : ""}
@@ -2074,12 +2216,17 @@ function renderMessages() {
 }
 
 function getMessageById(messageId) {
-  return state.messages.find((message) => message.id === messageId) || null;
+  return displayedMessages().find((message) => message.id === messageId) || null;
 }
 
 function canEditMessage(message) {
   const chat = getActiveChat();
-  return Boolean(message?.author === "user" && canSendToChat(chat) && messagePreviewText(message));
+  return Boolean(
+    message?.author === "user"
+    && !["sending", "failed"].includes(messageDeliveryStatus(message))
+    && canSendToChat(chat)
+    && messagePreviewText(message)
+  );
 }
 
 function ensureMessageMenu() {
@@ -2088,20 +2235,33 @@ function ensureMessageMenu() {
     return menu;
   }
 
-  menu = document.createElement("div");
+  const layer = document.createElement("div");
+  layer.className = "message-context-layer";
+  layer.dataset.messageMenuLayer = "";
+  layer.hidden = true;
+
+  menu = document.createElement("nav");
   menu.className = "message-context-menu";
   menu.dataset.messageMenu = "";
+  menu.setAttribute("role", "menu");
   menu.hidden = true;
-  document.body.append(menu);
+  layer.append(menu);
+  document.body.append(layer);
   return menu;
 }
 
 function closeMessageMenu() {
   state.messageMenu = null;
+  const layer = document.querySelector("[data-message-menu-layer]");
   const menu = document.querySelector("[data-message-menu]");
+  if (layer) {
+    layer.hidden = true;
+  }
   if (menu) {
     menu.hidden = true;
     menu.innerHTML = "";
+    menu.style.removeProperty("left");
+    menu.style.removeProperty("top");
   }
 }
 
@@ -2111,34 +2271,47 @@ function openMessageMenu(messageId, x, y) {
     return;
   }
 
+  const transient = ["sending", "failed"].includes(messageDeliveryStatus(message));
   const items = [
+    !transient ? ["reply", "reply", t("menuReply")] : null,
     canEditMessage(message) ? ["edit", "pencil", t("menuEdit")] : null,
-    ["reply", "reply", t("menuReply")],
-    ["forward", "forward", t("menuForward")],
-    ["unread", "message-unread", t("menuMarkUnread")],
+    !transient ? ["forward", "forward", t("menuForward")] : null,
+    !transient ? ["unread", "message-unread", t("menuMarkUnread")] : null,
     ["copy", "copy", t("menuCopyText")],
-    ["select", "circle-check", t("menuSelect")],
-    ["delete", "trash", t("menuDelete"), "is-danger"]
+    ["delete", "trash", t("menuDelete"), "is-danger"],
+    ["select", "circle-check", t("menuSelect"), "is-separated"]
   ].filter(Boolean);
   const menu = ensureMessageMenu();
+  const layer = menu.closest("[data-message-menu-layer]");
 
   state.messageMenu = { messageId };
   menu.innerHTML = items.map(([action, icon, label, dangerClass]) => `
-    <button class="${dangerClass || ""}" type="button" data-message-action="${action}">
-      ${iconSvg(icon)}
+    <button class="${dangerClass || ""}" type="button" role="menuitem" data-message-action="${action}">
       <span>${escapeHtml(label)}</span>
+      ${iconSvg(icon)}
     </button>
   `).join("");
+  if (layer) {
+    layer.hidden = false;
+  }
   menu.hidden = false;
   menu.style.left = "0px";
   menu.style.top = "0px";
 
   requestAnimationFrame(() => {
+    if (window.matchMedia("(max-width: 640px)").matches) {
+      menu.style.removeProperty("left");
+      menu.style.removeProperty("top");
+      menu.querySelector("button")?.focus({ preventScroll: true });
+      return;
+    }
+
     const rect = menu.getBoundingClientRect();
     const left = Math.min(Math.max(8, x), window.innerWidth - rect.width - 8);
     const top = Math.min(Math.max(8, y), window.innerHeight - rect.height - 8);
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
+    menu.querySelector("button")?.focus({ preventScroll: true });
   });
 }
 
@@ -2243,23 +2416,33 @@ async function copyTextToClipboard(text) {
   textarea.style.opacity = "0";
   document.body.append(textarea);
   textarea.select();
-  document.execCommand("copy");
+  const copied = document.execCommand("copy");
   textarea.remove();
+  if (!copied) {
+    throw new Error(t("feedbackCopyFailed"));
+  }
 }
 
 async function deleteMessages(messageIds) {
   const chat = getActiveChat();
   const ids = [...new Set(messageIds)].filter(Boolean);
-  if (!chat || ids.length === 0 || !yachatApi.messenger?.deleteMessage) {
+  if (!chat || ids.length === 0) {
     return;
   }
 
-  const result = await yachatApi.messenger.deleteMessage({
-    chatId: chat.id,
-    messageIds: ids
-  });
-  state.chats = result.chats || await yachatApi.messenger.chats();
-  state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
+  const transientIds = new Set(transientMessagesForChat(chat.id).map((message) => message.id));
+  ids.filter((id) => transientIds.has(id)).forEach((id) => removeTransientMessage(chat.id, id));
+  const persistedIds = ids.filter((id) => !transientIds.has(id));
+
+  if (persistedIds.length > 0 && yachatApi.messenger?.deleteMessage) {
+    const result = await yachatApi.messenger.deleteMessage({
+      chatId: chat.id,
+      messageIds: persistedIds
+    });
+    state.chats = result.chats || await yachatApi.messenger.chats();
+    state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
+  }
+
   ids.forEach((id) => state.selectedMessageIds.delete(id));
   if (state.editingMessageId && ids.includes(state.editingMessageId)) {
     state.editingMessageId = null;
@@ -2378,8 +2561,10 @@ async function handleMessageAction(action) {
       renderForwardPicker();
     } else if (action === "unread") {
       await markMessageUnread(message.id);
+      showActionFeedback(t("feedbackMarkedUnread"), { icon: "message-unread" });
     } else if (action === "copy") {
       await copyTextToClipboard(messagePreviewText(message));
+      showActionFeedback(t("feedbackCopiedText"), { icon: "copy" });
     } else if (action === "select") {
       toggleSelectedMessage(message.id);
     } else if (action === "delete") {
@@ -2389,8 +2574,86 @@ async function handleMessageAction(action) {
       await deleteMessages(selected);
     }
   } catch (error) {
-    alert(translatedServerMessage(error.message, "errSendMessage"));
+    showActionFeedback(translatedServerMessage(error.message, "errSendMessage"), {
+      tone: "error",
+      icon: "circle-alert"
+    });
   }
+}
+
+function createTransientOutgoingMessage(chat, payload) {
+  const id = globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : `outgoing-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return {
+    id,
+    chatId: chat.id,
+    author: "user",
+    authorId: state.account?.id || "",
+    text: String(payload.text || "").trim(),
+    attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
+    replyToMessageId: payload.replyToMessageId || null,
+    replyTo: payload.replyTo || null,
+    forwardedFrom: "",
+    createdAt: new Date().toISOString(),
+    editedAt: null,
+    deliveryStatus: "sending",
+    clientOnly: true
+  };
+}
+
+async function deliverTransientMessage(chat, message) {
+  if (!chat || !message || !yachatApi.messenger?.send) {
+    return false;
+  }
+
+  message.deliveryStatus = "sending";
+  setTransientMessage(chat.id, message);
+  if (state.activeChatId === chat.id) {
+    renderMessages();
+  }
+
+  try {
+    const result = await yachatApi.messenger.send({
+      chatId: chat.id,
+      clientMessageId: message.id,
+      text: message.text,
+      attachments: message.attachments,
+      replyToMessageId: message.replyToMessageId || null
+    });
+    removeTransientMessage(chat.id, message.id);
+    state.chats = result.chats || await yachatApi.messenger.chats();
+    if (state.activeChatId === chat.id) {
+      state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
+      renderActiveChat();
+      renderMessages();
+    }
+    renderChatList();
+    return true;
+  } catch (error) {
+    message.deliveryStatus = "failed";
+    setTransientMessage(chat.id, message);
+    if (state.activeChatId === chat.id) {
+      renderMessages();
+    }
+    showActionFeedback(translatedServerMessage(error.message, "feedbackSendFailed"), {
+      tone: "error",
+      icon: "circle-alert",
+      duration: 3200
+    });
+    return false;
+  }
+}
+
+async function retryFailedMessage(messageId) {
+  const message = getMessageById(messageId);
+  const chat = state.chats.find((item) => item.id === message?.chatId) || getActiveChat();
+  if (!message || !chat || messageDeliveryStatus(message) !== "failed") {
+    return;
+  }
+
+  await deliverTransientMessage(chat, message);
 }
 
 function readAttachmentFile(file) {
@@ -2614,6 +2877,26 @@ function stopMessengerPolling() {
   state.messengerPollTimer = null;
 }
 
+function activeChatIsVisible() {
+  const desktop = !window.matchMedia("(max-width: 640px)").matches;
+  return document.visibilityState === "visible"
+    && !state.activePanel
+    && (desktop || state.mobileDialogOpen);
+}
+
+async function markActiveChatReadIfVisible() {
+  const chat = getActiveChat();
+  if (!chat || Number(chat.unread || 0) <= 0 || !activeChatIsVisible() || !yachatApi.messenger?.markRead) {
+    return;
+  }
+
+  const result = await yachatApi.messenger.markRead({ chatId: chat.id });
+  state.chats = result.chats || state.chats;
+  state.messages = result.messages || state.messages;
+  renderChatList();
+  renderMessages();
+}
+
 async function refreshMessengerFromServer() {
   if (!state.account || !yachatApi.messenger || state.pendingSearchChat) {
     return;
@@ -2625,6 +2908,7 @@ async function refreshMessengerFromServer() {
       chatId: selectedChatId,
       username: ""
     }), selectedChatId, { followRoute: false });
+    await markActiveChatReadIfVisible();
     return;
   }
 
@@ -2639,6 +2923,7 @@ async function refreshMessengerFromServer() {
   renderChatList();
   renderActiveChat();
   renderMessages();
+  await markActiveChatReadIfVisible();
 }
 
 function startMessengerPolling() {
@@ -2717,6 +3002,7 @@ function resetAccountSessionUi() {
   state.accountTextMode = "default";
   state.chats = [];
   state.messages = [];
+  state.transientMessagesByChat.clear();
   state.activeChatId = "yachat-codes";
   state.pendingSearchChat = null;
   state.chatSearchUsers = [];
@@ -4797,9 +5083,10 @@ async function copyActiveInvite() {
   }
 
   try {
-    await navigator.clipboard?.writeText(invite);
+    await copyTextToClipboard(invite);
+    showActionFeedback(t("feedbackCopiedInvite"), { icon: "copy" });
   } catch {
-    // Clipboard may be unavailable in some desktop shells.
+    showActionFeedback(t("feedbackCopyFailed"), { tone: "error", icon: "circle-alert" });
   }
 }
 
@@ -4838,8 +5125,12 @@ async function shareChatProfileLink(button) {
     }
   }
 
-  await copyTextToClipboard(url);
-  alert(t("chatProfileLinkCopied"));
+  try {
+    await copyTextToClipboard(url);
+    showActionFeedback(t("chatProfileLinkCopied"), { icon: "copy" });
+  } catch {
+    showActionFeedback(t("feedbackCopyFailed"), { tone: "error", icon: "circle-alert" });
+  }
 }
 
 function toggleChatProfileQr(button) {
@@ -6396,6 +6687,7 @@ function createLocalYachatApi() {
           createLocalMessage(chat.id, text, chat.id === "yachat-channel" ? "channel" : "user", {
             senderId: readAccount()?.account?.id || "",
             attachments,
+            ...(payload?.clientMessageId ? { id: String(payload.clientMessageId) } : {}),
             ...(replyTo ? { replyTo } : {})
           })
         ];
@@ -7601,6 +7893,14 @@ chatList?.addEventListener("click", (event) => {
 });
 
 messageList?.addEventListener("click", (event) => {
+  const retryButton = event.target.closest("[data-message-retry]");
+  if (retryButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    void retryFailedMessage(retryButton.dataset.messageRetry);
+    return;
+  }
+
   const bubble = event.target.closest("[data-message-id]");
   if (!bubble) {
     return;
@@ -7614,10 +7914,7 @@ messageList?.addEventListener("click", (event) => {
   const messageId = bubble.dataset.messageId;
   if (state.selectingMessages) {
     toggleSelectedMessage(messageId);
-    return;
   }
-
-  openMessageMenu(messageId, event.clientX, event.clientY);
 });
 
 messageList?.addEventListener("contextmenu", (event) => {
@@ -7637,17 +7934,52 @@ messageList?.addEventListener("pointerdown", (event) => {
   }
 
   window.clearTimeout(state.messagePressTimer);
+  state.messagePressStart = {
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY
+  };
   state.messagePressTimer = window.setTimeout(() => {
     state.ignoreNextMessageClick = true;
+    state.messagePressTimer = null;
     openMessageMenu(bubble.dataset.messageId, event.clientX, event.clientY);
   }, 520);
+});
+
+messageList?.addEventListener("pointermove", (event) => {
+  const start = state.messagePressStart;
+  if (!start || start.pointerId !== event.pointerId) {
+    return;
+  }
+
+  if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 12) {
+    window.clearTimeout(state.messagePressTimer);
+    state.messagePressTimer = null;
+    state.messagePressStart = null;
+  }
 });
 
 ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => {
   messageList?.addEventListener(eventName, () => {
     window.clearTimeout(state.messagePressTimer);
     state.messagePressTimer = null;
+    state.messagePressStart = null;
   });
+});
+
+messageList?.addEventListener("keydown", (event) => {
+  if (event.key !== "ContextMenu" && !(event.shiftKey && event.key === "F10")) {
+    return;
+  }
+
+  const bubble = event.target.closest("[data-message-id]");
+  if (!bubble) {
+    return;
+  }
+
+  event.preventDefault();
+  const rect = bubble.getBoundingClientRect();
+  openMessageMenu(bubble.dataset.messageId, rect.left + rect.width / 2, rect.top + rect.height / 2);
 });
 
 messageInput?.addEventListener("input", () => {
@@ -7805,6 +8137,12 @@ window.addEventListener("popstate", () => {
   openRouteTargetFromLocation().catch(() => {});
 });
 
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.account) {
+    refreshMessengerFromServer().catch(() => {});
+  }
+});
+
 attachmentButton?.addEventListener("click", () => {
   if (!canSendToChat(getActiveChat())) {
     return;
@@ -7847,32 +8185,43 @@ messageForm?.addEventListener("submit", async (event) => {
   sendButton.disabled = true;
 
   try {
-    const targetChat = state.editingMessageId ? chat : await ensureRealChatForMessage(chat);
-    const result = state.editingMessageId && yachatApi.messenger.updateMessage
-      ? await yachatApi.messenger.updateMessage({
+    if (state.editingMessageId && yachatApi.messenger.updateMessage) {
+      const result = await yachatApi.messenger.updateMessage({
           chatId: chat.id,
           messageId: state.editingMessageId,
           text
-        })
-      : await yachatApi.messenger.send({
-          chatId: targetChat.id,
-          text,
-          attachments: state.pendingAttachments,
-          replyToMessageId: state.replyToMessage?.messageId || null
         });
+      messageInput.value = "";
+      state.editingMessageId = null;
+      renderComposerContext();
+      state.chats = result.chats || await yachatApi.messenger.chats();
+      state.messages = result.messages || await yachatApi.messenger.messages(chat.id);
+      renderChatList();
+      renderActiveChat();
+      renderMessages();
+      return;
+    }
+
+    const targetChat = await ensureRealChatForMessage(chat);
+    const outgoing = createTransientOutgoingMessage(targetChat, {
+      text,
+      attachments: [...state.pendingAttachments],
+      replyToMessageId: state.replyToMessage?.messageId || null,
+      replyTo: state.replyToMessage ? { ...state.replyToMessage } : null
+    });
+
     messageInput.value = "";
     state.pendingAttachments = [];
-    state.editingMessageId = null;
     state.replyToMessage = null;
     renderAttachmentTray();
     renderComposerContext();
-    state.chats = result.chats || await yachatApi.messenger.chats();
-    state.messages = result.messages || await yachatApi.messenger.messages(targetChat.id);
-    renderChatList();
-    renderActiveChat();
-    renderMessages();
+    await deliverTransientMessage(targetChat, outgoing);
   } catch (error) {
-    alert(translatedServerMessage(error.message, "errSendMessage"));
+    showActionFeedback(translatedServerMessage(error.message, "feedbackSendFailed"), {
+      tone: "error",
+      icon: "circle-alert",
+      duration: 3200
+    });
   } finally {
     sendButton.disabled = !canSendToChat(getActiveChat()) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
   }

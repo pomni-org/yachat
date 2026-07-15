@@ -1996,6 +1996,7 @@ function createLocalBackend(app, appTitle) {
     const userMessage = createMessage(chat.id, text, chat.id === "yachat-channel" ? "channel" : "user", {
       senderId: account.id,
       attachments,
+      ...(payload?.clientMessageId ? { id: String(payload.clientMessageId) } : {}),
       ...(replyTo ? { replyTo } : {})
     });
     state.messages[chat.id] = [...(state.messages[chat.id] || []), userMessage];

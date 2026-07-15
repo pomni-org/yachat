@@ -118,6 +118,18 @@
   }
 
   function showToast(success) {
+    const message = success
+      ? (language() === "en" ? "Username copied" : "Юзернейм скопирован")
+      : (language() === "en" ? "Could not copy username" : "Не удалось скопировать юзернейм");
+
+    if (window.yachatFeedback?.show) {
+      window.yachatFeedback.show(message, {
+        icon: success ? "copy" : "circle-alert",
+        tone: success ? "success" : "error"
+      });
+      return;
+    }
+
     let toast = document.querySelector("[data-username-copy-toast]");
     if (!toast) {
       toast = document.createElement("div");
@@ -128,9 +140,7 @@
       document.body.append(toast);
     }
 
-    toast.textContent = success
-      ? (language() === "en" ? "Username copied" : "Юзернейм скопирован")
-      : (language() === "en" ? "Could not copy username" : "Не удалось скопировать юзернейм");
+    toast.textContent = message;
     toast.classList.toggle("is-error", !success);
     toast.classList.add("is-visible");
     window.clearTimeout(toastTimer);

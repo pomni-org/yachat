@@ -41,6 +41,7 @@
   --max-white: #FFFFFF;
   --max-comet: #00BFFF;
   --max-pulsar: #6E1AFF;
+  --nav-active: #168BFF;
   --max-dark: #0D001A;
   --accent: var(--max-blue);
   --accent-hover: var(--max-pulsar);
@@ -401,7 +402,7 @@ body.messenger-mode .app-shell {
   position: relative;
   display: grid;
   place-items: center;
-  gap: 5px;
+  gap: 2px;
   width: 100%;
   min-width: 0;
   min-height: 58px;
@@ -421,9 +422,21 @@ body.messenger-mode .app-shell {
   background: var(--field);
 }
 
+.rail-button.is-active,
+.rail-button.is-active:hover {
+  background: transparent;
+  color: var(--nav-active);
+}
+
 :root[data-theme="light"] .rail-button:hover,
 :root[data-theme="light"] .rail-button.is-active {
   background: rgba(71, 26, 255, 0.08);
+}
+
+:root[data-theme="light"] .rail-button.is-active,
+:root[data-theme="light"] .rail-button.is-active:hover {
+  background: transparent;
+  color: var(--nav-active);
 }
 
 .rail-button:hover {
@@ -440,6 +453,7 @@ body.messenger-mode .app-shell {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.05;
 }
 
 .rail-bottom {
@@ -977,6 +991,7 @@ body.messenger-mode .app-shell {
 }
 
 .message-bubble {
+  position: relative;
   max-width: min(440px, 74%);
   align-self: flex-start;
   padding: 8px 11px 6px;
@@ -1124,8 +1139,80 @@ body.messenger-mode .app-shell {
 }
 
 .message-status {
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 14px;
+  margin-left: 1px;
   line-height: 1;
+}
+
+.message-status-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  stroke-width: 2.35;
+}
+
+.message-status.is-read {
+  width: 18px;
+  color: #bdeaff;
+}
+
+.message-status.is-read .message-status-icon {
+  width: 18px;
+  flex-basis: 18px;
+}
+
+.message-status.is-failed {
+  color: #ffd0d4;
+}
+
+.message-status-spinner {
+  width: 11px;
+  height: 11px;
+  border: 1.6px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: messageStatusSpin 720ms linear infinite;
+}
+
+.message-retry {
+  position: absolute;
+  top: 50%;
+  left: -42px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--max-dark), var(--max-white) 16%);
+  color: #ffffff;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: color 160ms var(--ease), background 160ms var(--ease), transform 160ms var(--ease);
+}
+
+.message-retry:hover,
+.message-retry:focus-visible {
+  background: var(--danger);
+  color: #ffffff;
+  transform: translateY(-50%) scale(1.06);
+}
+
+.message-retry .lucide-icon {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2.2;
+}
+
+@keyframes messageStatusSpin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .composer {
@@ -1308,18 +1395,31 @@ body.messenger-mode .app-shell {
   cursor: default;
 }
 
-.message-context-menu {
+.message-context-layer {
   position: fixed;
   z-index: 80;
+  inset: 0;
+  pointer-events: none;
+}
+
+.message-context-layer[hidden] {
+  display: none;
+}
+
+.message-context-menu {
+  position: fixed;
+  z-index: 1;
   display: grid;
-  gap: 2px;
+  gap: 0;
   min-width: 268px;
-  padding: 6px;
+  overflow: hidden;
+  padding: 5px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--max-dark);
   color: #f4f4f5;
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+  pointer-events: auto;
 }
 
 .message-context-menu[hidden] {
@@ -1328,17 +1428,17 @@ body.messenger-mode .app-shell {
 
 .message-context-menu button {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 24px;
   align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  padding: 6px 8px;
-  border-radius: 8px;
+  gap: 18px;
+  min-height: 42px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 9px;
   background: transparent;
   color: inherit;
   cursor: pointer;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 400;
   text-align: left;
 }
 
@@ -1350,9 +1450,79 @@ body.messenger-mode .app-shell {
   color: #ff4655;
 }
 
+.message-context-menu button.is-separated {
+  margin-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0 0 9px 9px;
+}
+
 .message-context-menu .lucide-icon {
-  width: 19px;
-  height: 19px;
+  width: 22px;
+  height: 22px;
+  justify-self: center;
+  stroke-width: 2.05;
+}
+
+:root[data-theme="light"] .message-context-menu {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: rgba(249, 250, 253, 0.98);
+  color: #08090c;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+}
+
+:root[data-theme="light"] .message-context-menu button:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+:root[data-theme="light"] .message-context-menu button.is-separated {
+  border-top-color: rgba(15, 23, 42, 0.1);
+}
+
+.action-feedback {
+  position: fixed;
+  z-index: 10000;
+  left: 50%;
+  bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px));
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 13px;
+  align-items: center;
+  width: max-content;
+  max-width: min(92vw, 520px);
+  min-height: 62px;
+  padding: 13px 20px 13px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background: linear-gradient(110deg, rgba(55, 45, 75, 0.98), rgba(48, 49, 54, 0.98));
+  color: #ffffff;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.32);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 12px) scale(0.97);
+  transition: opacity 180ms var(--ease), transform 180ms var(--ease);
+}
+
+.action-feedback.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.action-feedback.is-error {
+  border-color: rgba(255, 92, 105, 0.34);
+  background: linear-gradient(110deg, rgba(91, 37, 51, 0.98), rgba(52, 37, 43, 0.98));
+}
+
+.action-feedback-icon {
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.15;
+}
+
+.action-feedback span {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1.25;
 }
 
 .forward-picker-layer {
@@ -4665,6 +4835,66 @@ body.messenger-mode .app-shell {
     right: calc(50% - 24px);
   }
 
+  .message-context-layer {
+    display: grid;
+    align-items: end;
+    background: rgba(0, 0, 0, 0.28);
+    pointer-events: auto;
+  }
+
+  .message-context-menu {
+    position: relative;
+    left: auto;
+    top: auto;
+    width: 100%;
+    min-width: 0;
+    max-height: min(82dvh, 720px);
+    overflow: auto;
+    padding: 5px 0 max(7px, env(safe-area-inset-bottom));
+    border-width: 1px 0 0;
+    border-radius: 22px 22px 0 0;
+    box-shadow: 0 -16px 46px rgba(0, 0, 0, 0.25);
+  }
+
+  .message-context-menu button {
+    min-height: 62px;
+    padding: 11px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0;
+    font-size: 19px;
+  }
+
+  :root[data-theme="light"] .message-context-menu button {
+    border-bottom-color: rgba(15, 23, 42, 0.1);
+  }
+
+  .message-context-menu button:last-child {
+    border-bottom: 0;
+  }
+
+  .message-context-menu button.is-separated {
+    margin-top: 8px;
+    border-top-width: 8px;
+    border-radius: 0;
+  }
+
+  .message-context-menu .lucide-icon {
+    width: 27px;
+    height: 27px;
+  }
+
+  .action-feedback {
+    bottom: max(78px, calc(env(safe-area-inset-bottom) + 72px));
+    min-height: 58px;
+    padding: 12px 17px 12px 14px;
+    border-radius: 18px;
+  }
+
+  body.mobile-dialog-open .action-feedback,
+  body.chat-profile-open .action-feedback {
+    bottom: max(22px, calc(env(safe-area-inset-bottom) + 14px));
+  }
+
   .chat-pane,
   .dialog-pane {
     grid-column: 1;
@@ -4762,6 +4992,14 @@ body.messenger-mode .app-shell {
   .message-bubble {
     max-width: min(86%, 420px);
     padding: 9px 11px 7px;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .message-retry {
+    left: -39px;
+    width: 30px;
+    height: 30px;
   }
 
   .message-bubble p {
