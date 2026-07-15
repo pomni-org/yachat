@@ -8,6 +8,10 @@
       "destination": "/index.html"
     },
     {
+      "source": "/api/presence",
+      "destination": "/api/presence.py"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     },
@@ -69,6 +73,9 @@
   ],
   "functions": {
     "api/index.py": {
+      "maxDuration": 10
+    },
+    "api/presence.py": {
       "maxDuration": 10
     }
   }
