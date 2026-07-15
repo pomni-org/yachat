@@ -7,38 +7,38 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0d001a",
+  "background_color": "#ffffff",
   "theme_color": "#4f46f7",
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/assets/yachat-app-icon-v2-192.png",
+      "src": "/api/icon?variant=shortcut&size=192&v=4",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/assets/yachat-app-icon-v2-512.png",
+      "src": "/api/icon?variant=shortcut&size=512&v=4",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/assets/yachat-app-icon-v2-maskable-192.png",
+      "src": "/api/icon?variant=shortcut&size=192&v=4",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/assets/yachat-app-icon-v2-maskable-512.png",
+      "src": "/api/icon?variant=shortcut&size=512&v=4",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/assets/yachat-app-icon-v2-1024.png",
-      "sizes": "1024x1024",
-      "type": "image/png",
+      "src": "/assets/yachat-shortcut.svg?v=4",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any"
     }
   ]
