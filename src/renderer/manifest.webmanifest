@@ -12,26 +12,14 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/api/icon?variant=shortcut&size=192&v=4",
-      "sizes": "192x192",
+      "src": "/api/icon?variant=shortcut&size=180&v=4",
+      "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/api/icon?variant=shortcut&size=512&v=4",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "/api/icon?variant=shortcut&size=192&v=4",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/api/icon?variant=shortcut&size=512&v=4",
-      "sizes": "512x512",
+      "src": "/api/icon?variant=shortcut&size=180&v=4",
+      "sizes": "180x180",
       "type": "image/png",
       "purpose": "maskable"
     },
