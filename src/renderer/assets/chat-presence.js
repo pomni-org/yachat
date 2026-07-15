@@ -1,9 +1,11 @@
 (() => {
   "use strict";
 
-  const PRESENCE_POLL_MS = 2500;
-  const TYPING_RENEW_MS = 3500;
-  const TYPING_STOP_DELAY_MS = 900;
+  const PRESENCE_POLL_MS = 600;
+  const PRESENCE_BACKGROUND_POLL_MS = 4000;
+  const TYPING_RENEW_MS = 3000;
+  const TYPING_STOP_DELAY_MS = 850;
+  const TYPING_MIN_PULSE_MS = 1500;
   const presenceState = {
     chatId: "",
     snapshot: null,
@@ -12,6 +14,7 @@
     typingStopTimer: null,
     typingChatId: "",
     typingSent: false,
+    typingStartedAt: 0,
     requestId: 0,
     rendering: false
   };
@@ -238,18 +241,26 @@
       renderPresenceUi();
     } catch {
       if (requestId === presenceState.requestId) {
-        presenceState.chatId = chatId;
-        presenceState.snapshot = null;
-        renderPresenceUi();
+        if (presenceState.chatId !== chatId) {
+          presenceState.chatId = chatId;
+          presenceState.snapshot = null;
+          renderPresenceUi();
+        }
       }
     }
   }
 
-  function schedulePresencePoll(delay = PRESENCE_POLL_MS) {
+  function presencePollDelay() {
+    return document.visibilityState === "visible"
+      ? PRESENCE_POLL_MS
+      : PRESENCE_BACKGROUND_POLL_MS;
+  }
+
+  function schedulePresencePoll(delay = presencePollDelay()) {
     window.clearTimeout(presenceState.pollTimer);
     presenceState.pollTimer = window.setTimeout(async () => {
       await fetchPresence();
-      schedulePresencePoll();
+      schedulePresencePoll(presencePollDelay());
     }, delay);
   }
 
@@ -269,15 +280,28 @@
     }
   }
 
-  function stopTyping({ keepalive = false } = {}) {
+  function stopTyping({ keepalive = false, force = false } = {}) {
     window.clearTimeout(presenceState.typingStopTimer);
-    window.clearInterval(presenceState.typingRenewTimer);
     presenceState.typingStopTimer = null;
-    presenceState.typingRenewTimer = null;
     const chatId = presenceState.typingChatId;
     const shouldNotify = presenceState.typingSent && chatId;
+    const elapsed = Date.now() - presenceState.typingStartedAt;
+    const remainingPulse = shouldNotify && !force
+      ? Math.max(0, TYPING_MIN_PULSE_MS - elapsed)
+      : 0;
+
+    if (remainingPulse > 0) {
+      presenceState.typingStopTimer = window.setTimeout(() => {
+        stopTyping({ keepalive, force: true });
+      }, remainingPulse);
+      return;
+    }
+
+    window.clearInterval(presenceState.typingRenewTimer);
+    presenceState.typingRenewTimer = null;
     presenceState.typingSent = false;
     presenceState.typingChatId = "";
+    presenceState.typingStartedAt = 0;
     if (shouldNotify) {
       void postTyping(chatId, false, keepalive);
     }
@@ -292,7 +316,7 @@
     }
 
     if (presenceState.typingChatId && presenceState.typingChatId !== chat.id) {
-      stopTyping();
+      stopTyping({ force: true });
     }
 
     presenceState.typingChatId = chat.id;
@@ -301,6 +325,7 @@
 
     if (!presenceState.typingSent) {
       presenceState.typingSent = true;
+      presenceState.typingStartedAt = Date.now();
       void postTyping(chat.id, true);
     }
 
@@ -320,7 +345,7 @@
 
   document.addEventListener("click", (event) => {
     if (event.target.closest("[data-chat-id]")) {
-      stopTyping();
+      stopTyping({ force: true });
       window.setTimeout(() => {
         void fetchPresence();
       }, 80);
@@ -329,12 +354,14 @@
 
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      stopTyping({ keepalive: true });
+      stopTyping({ keepalive: true, force: true });
+      schedulePresencePoll(PRESENCE_BACKGROUND_POLL_MS);
     } else {
       void fetchPresence();
+      schedulePresencePoll(PRESENCE_POLL_MS);
     }
   });
-  window.addEventListener("pagehide", () => stopTyping({ keepalive: true }));
+  window.addEventListener("pagehide", () => stopTyping({ keepalive: true, force: true }));
 
   const subtitleObserver = subtitleTarget
     ? new MutationObserver(() => renderSubtitle())

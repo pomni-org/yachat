@@ -3,6 +3,9 @@ const DEFAULT_THEME = "dark";
 const THEME_STORAGE_KEY = "yachat-theme";
 const THEME_SOURCE_STORAGE_KEY = "yachat-theme-source";
 const CHAT_MUTE_STORAGE_KEY = "yachat-muted-chat-ids";
+const MESSENGER_POLL_ACTIVE_MS = 1200;
+const MESSENGER_POLL_IDLE_MS = 2600;
+const MESSENGER_POLL_BACKGROUND_MS = 8000;
 const SYSTEM_OWNER = {
   id: "murochko",
   username: "murochko",
@@ -17,6 +20,7 @@ const PROTECTED_HISTORY_CHAT_IDS = new Set(["yachat-codes"]);
 const TELEGRAM_BOT_URL = "https://t.me/code_yachatBot";
 const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
 let actionFeedbackTimer = null;
+let actionFeedbackEntranceTimer = null;
 
 function systemTheme() {
   if (!systemThemeQuery) {
@@ -312,6 +316,7 @@ const ICONS = {
   "bell-off": '<path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M17 17H4a1 1 0 0 1-.74-1.673C4.587 13.956 6 12.499 6 8a6 6 0 0 1 .713-2.837" /><path d="M8.668 2.973A6 6 0 0 1 18 8c0 1.568.172 2.775.446 3.74" /><path d="m2 2 20 20" />',
   paperclip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />',
   smile: '<circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><line x1="9" x2="9.01" y1="9" y2="9" /><line x1="15" x2="15.01" y1="9" y2="9" />',
+  "arrow-up": '<path d="m5 12 7-7 7 7" /><path d="M12 19V5" />',
   "send-horizontal": '<path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904z" /><path d="M6 12h16" />',
   pencil: '<path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />',
   reply: '<polyline points="9 17 4 12 9 7" /><path d="M20 18v-2a4 4 0 0 0-4-4H4" />',
@@ -368,7 +373,7 @@ const ICON_CLASS_MAP = {
   "gg-more": "ellipsis-vertical",
   "gg-paperclip": "paperclip",
   "gg-sticker": "smile",
-  "gg-send": "send-horizontal",
+  "gg-send": "arrow-up",
   "gg-x": "x"
 };
 
@@ -1190,8 +1195,12 @@ function t(key, params = {}) {
 
 function hideActionFeedback() {
   window.clearTimeout(actionFeedbackTimer);
+  window.clearTimeout(actionFeedbackEntranceTimer);
   actionFeedbackTimer = null;
-  document.querySelector("[data-action-feedback]")?.classList.remove("is-visible");
+  actionFeedbackEntranceTimer = null;
+  const feedback = document.querySelector("[data-action-feedback]");
+  feedback?.classList.remove("is-entering");
+  feedback?.classList.remove("is-visible");
 }
 
 function showActionFeedback(message, options = {}) {
@@ -1215,9 +1224,15 @@ function showActionFeedback(message, options = {}) {
   const icon = options.icon || (tone === "error" ? "circle-alert" : "circle-check");
   feedback.innerHTML = `${iconSvg(icon, "action-feedback-icon")}<span>${escapeHtml(text)}</span>`;
   feedback.classList.toggle("is-error", tone === "error");
-  feedback.classList.remove("is-visible");
+  feedback.classList.remove("is-visible", "is-entering");
   void feedback.offsetWidth;
-  feedback.classList.add("is-visible");
+  feedback.classList.add("is-visible", "is-entering");
+
+  window.clearTimeout(actionFeedbackEntranceTimer);
+  actionFeedbackEntranceTimer = window.setTimeout(() => {
+    feedback.classList.remove("is-entering");
+    actionFeedbackEntranceTimer = null;
+  }, 320);
 
   window.clearTimeout(actionFeedbackTimer);
   const duration = Math.min(Math.max(Number(options.duration) || 2200, 900), 8000);
@@ -3129,6 +3144,15 @@ function stopMessengerPolling() {
   state.messengerPollTimer = null;
 }
 
+function messengerPollDelay() {
+  if (document.visibilityState !== "visible") {
+    return MESSENGER_POLL_BACKGROUND_MS;
+  }
+  return activeChatIsVisible()
+    ? MESSENGER_POLL_ACTIVE_MS
+    : MESSENGER_POLL_IDLE_MS;
+}
+
 function activeChatIsVisible() {
   const desktop = !window.matchMedia("(max-width: 640px)").matches;
   return document.visibilityState === "visible"
@@ -3188,12 +3212,12 @@ function startMessengerPolling() {
       // Keep the UI alive during transient serverless cold starts or network loss.
     } finally {
       if (state.account) {
-        state.messengerPollTimer = window.setTimeout(tick, 4000);
+        state.messengerPollTimer = window.setTimeout(tick, messengerPollDelay());
       }
     }
   };
 
-  state.messengerPollTimer = window.setTimeout(tick, 4000);
+  state.messengerPollTimer = window.setTimeout(tick, messengerPollDelay());
 }
 
 async function selectChat(chatId, options = {}) {
@@ -7465,7 +7489,7 @@ function applyServerSettings(settings = {}) {
   setCountry(settings.country || "RU", settings.countryCode || "+7", false);
 }
 
-async function showSignedOutRouteErrorIfNeeded() {
+async function showSignedOutRouteErrorIfNeeded(resolvedRouteUser = null, routeAlreadyResolved = false) {
   if (!canUseHistoryRoutes()) {
     return false;
   }
@@ -7477,6 +7501,14 @@ async function showSignedOutRouteErrorIfNeeded() {
 
   const routeUsername = routeUsernameFromLocation();
   if (!routeUsername || systemRouteChatIds.has(routeUsername)) {
+    return false;
+  }
+
+  if (routeAlreadyResolved) {
+    if (!resolvedRouteUser) {
+      showErrorPage("404", t("error404Title"), t("error404Text"));
+      return true;
+    }
     return false;
   }
 
@@ -7514,6 +7546,7 @@ async function initializeApp() {
         boot = null;
       }
 
+      const bootLoaded = Boolean(boot && typeof boot === "object");
       applyServerSettings(boot?.settings || {});
 
       if (boot?.account) {
@@ -7522,15 +7555,17 @@ async function initializeApp() {
         setBootText("bootPreparingChats");
         await showMessenger(boot.account, { snapshot: boot });
       } else {
-        if (await showSignedOutRouteErrorIfNeeded()) {
+        if (await showSignedOutRouteErrorIfNeeded(boot?.routeUser || null, bootLoaded)) {
           return;
         }
-        const account = await yachatApi.account.get();
-        if (account) {
-          state.account = normalizeAccount(account);
-          state.accountTextMode = "existing";
-          setBootText("bootPreparingChats");
-          await showMessenger(account);
+        if (!bootLoaded) {
+          const account = await yachatApi.account.get();
+          if (account) {
+            state.account = normalizeAccount(account);
+            state.accountTextMode = "existing";
+            setBootText("bootPreparingChats");
+            await showMessenger(account);
+          }
         }
       }
       return;
@@ -8559,7 +8594,12 @@ window.addEventListener("popstate", () => {
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.account) {
-    refreshMessengerFromServer().catch(() => {});
+    stopMessengerPolling();
+    refreshMessengerFromServer()
+      .catch(() => {})
+      .finally(startMessengerPolling);
+  } else if (state.account) {
+    startMessengerPolling();
   }
 });
 
