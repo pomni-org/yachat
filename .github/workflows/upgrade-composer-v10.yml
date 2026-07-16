@@ -1,0 +1,346 @@
+name: upgrade composer v10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/upgrade-composer-v10.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: patch renderer and api
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new, count=1):
+              text = path.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"missing patch anchor in {path}: {old[:90]!r}")
+              path.write_text(text.replace(old, new, count), encoding="utf-8")
+
+          index = Path("src/renderer/index.html")
+          app = Path("src/renderer/app.js")
+          api = Path("api/index.py")
+          build = Path("scripts/build-vercel.cjs")
+
+          old_rail = '''        <aside class="messenger-rail" aria-label="Навигация">
+          <button class="rail-button is-active" type="button" data-rail="all" aria-label="Все чаты">
+            <span class="rail-badge" data-total-unread hidden>0</span>
+            <span class="css-icon gg-chat"></span>
+            <strong>Все</strong>
+          </button>
+          <button class="rail-button" type="button" data-rail="contacts" aria-label="Контакты">
+            <span class="css-icon gg-contacts"></span>
+            <strong>Контакты</strong>
+          </button>
+          <button class="rail-button" type="button" data-rail="calls" aria-label="Звонки">
+            <span class="css-icon gg-call"></span>
+            <strong>Звонки</strong>
+          </button>
+          <button class="rail-button rail-bottom" type="button" data-rail="settings" aria-label="Настройки">
+            <span class="css-icon gg-settings"></span>
+            <strong>Настройки</strong>
+          </button>
+        </aside>'''
+          new_rail = '''        <aside class="messenger-rail" aria-label="Навигация">
+          <button class="rail-button" type="button" data-rail="contacts" aria-label="Контакты">
+            <span class="css-icon gg-contacts"></span>
+            <strong>Контакты</strong>
+          </button>
+          <button class="rail-button" type="button" data-rail="calls" aria-label="Звонки">
+            <span class="css-icon gg-call"></span>
+            <strong>Звонки</strong>
+          </button>
+          <button class="rail-button is-active" type="button" data-rail="all" aria-label="Чаты">
+            <span class="rail-badge" data-total-unread hidden>0</span>
+            <span class="css-icon gg-chat"></span>
+            <strong>Чаты</strong>
+          </button>
+          <button class="rail-button rail-bottom" type="button" data-rail="settings" aria-label="Настройки">
+            <span class="css-icon gg-settings"></span>
+            <strong>Настройки</strong>
+          </button>
+        </aside>'''
+          replace(index, old_rail, new_rail)
+
+          old_composer = '''          <form class="composer" data-form="message">
+            <div class="composer-context" data-composer-context hidden></div>
+            <button class="composer-tool" type="button" data-action="attach-file" aria-label="Вложения">
+              <span class="css-icon gg-paperclip"></span>
+            </button>
+            <input class="visually-hidden" type="file" multiple data-attachment-input />
+            <input name="message" autocomplete="off" placeholder="Сообщение" data-message-input />
+            <button class="composer-tool" type="button" data-action="open-stickers" aria-label="Стикеры">
+              <span class="css-icon gg-sticker"></span>
+            </button>
+            <button class="send-button" type="submit" aria-label="Отправить" disabled>
+              <span class="css-icon gg-send"></span>
+            </button>
+            <div class="attachment-tray" data-attachment-tray hidden></div>
+          </form>'''
+          new_composer = '''          <form class="composer" data-form="message">
+            <div class="composer-context" data-composer-context hidden></div>
+            <p class="attachment-policy-note" data-attachment-policy hidden></p>
+            <div class="attachment-tray" data-attachment-tray hidden></div>
+            <button class="composer-tool" type="button" data-action="attach-file" aria-label="Добавить фото или видео">
+              <span class="css-icon gg-paperclip"></span>
+            </button>
+            <input class="visually-hidden" type="file" accept="image/*,video/*" multiple data-attachment-input />
+            <button class="composer-tool composer-document-tool" type="button" data-action="attach-document" aria-label="Отправить как документ без потерь">
+              <span class="css-icon gg-file"></span>
+            </button>
+            <input class="visually-hidden" type="file" multiple data-document-input />
+            <input name="message" autocomplete="off" placeholder="Сообщение" data-message-input />
+            <button class="composer-tool" type="button" data-action="open-stickers" aria-label="Стикеры">
+              <span class="css-icon gg-sticker"></span>
+            </button>
+            <button class="send-button" type="submit" aria-label="Отправить" disabled>
+              <span class="css-icon gg-send"></span>
+            </button>
+          </form>'''
+          replace(index, old_composer, new_composer)
+
+          replace(app,
+              'const TELEGRAM_BOT_URL = "https://t.me/code_yachatBot";',
+              'const TELEGRAM_BOT_URL = "https://t.me/code_yachatBot";\nconst PHOTO_RULE_LIMIT_BYTES = 20 * 1024 * 1024 * 1024;\nconst DOCUMENT_TRANSPORT_LIMIT_BYTES = 8 * 1024 * 1024;\nconst PHOTO_OUTPUT_MAX_SIDE = 2048;')
+
+          replace(app,
+              '''const attachmentButton = document.querySelector('[data-action="attach-file"]');
+const attachmentInput = document.querySelector("[data-attachment-input]");
+const stickersButton = document.querySelector('[data-action="open-stickers"]');
+const attachmentTray = document.querySelector("[data-attachment-tray]");''',
+              '''const attachmentButton = document.querySelector('[data-action="attach-file"]');
+const attachmentInput = document.querySelector("[data-attachment-input]");
+const documentButton = document.querySelector('[data-action="attach-document"]');
+const documentInput = document.querySelector("[data-document-input]");
+const stickersButton = document.querySelector('[data-action="open-stickers"]');
+const attachmentTray = document.querySelector("[data-attachment-tray]");
+const attachmentPolicy = document.querySelector("[data-attachment-policy]");''')
+
+          replace(app, '    allChats: "Все",', '    allChats: "Чаты",')
+          replace(app, '    attachLimit: "Файл слишком большой. Лимит 8 МБ.",', '''    attachLimit: "Этот файл пока нельзя отправить через сервер ЯЧата. Лимит документа — 8 МБ.",
+    attachmentPhoto: "Фото",
+    attachmentVideo: "Видео",
+    attachmentDocument: "Документ без потерь",
+    attachmentPolicyTitle: "Фото до 20 ГБ.",
+    attachmentPolicyText: "Слишком большое фото ЯЧат уменьшит. Для исходного качества нажмите кнопку листика и отправьте его как документ.",''')
+          replace(app, '    allChats: "All",', '    allChats: "Chats",')
+          replace(app, '    attachLimit: "The file is too large. Limit is 8 MB.",', '''    attachLimit: "This file cannot yet pass through the YaChat server. Document limit is 8 MB.",
+    attachmentPhoto: "Photo",
+    attachmentVideo: "Video",
+    attachmentDocument: "Lossless document",
+    attachmentPolicyTitle: "Photos up to 20 GB.",
+    attachmentPolicyText: "YaChat will reduce an oversized photo. Use the sheet button to send the original as a document.",''')
+
+          replace(app,
+              'function iconSvg(name, className = "lucide-icon") {\n  const body = ICONS[name] || ICONS.file;\n  return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;\n}',
+              'function iconSvg(name, className = "iconoir-icon") {\n  const body = ICONS[name] || ICONS.file;\n  return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" aria-hidden="true">${body}</svg>`;\n}')
+
+          replace(app,
+              '  [attachmentButton, stickersButton, attachmentInput].forEach((control) => {',
+              '  [attachmentButton, documentButton, stickersButton, attachmentInput, documentInput].forEach((control) => {')
+
+          old_avatar = '''  const side = 256;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");'''
+          new_avatar = '''  const naturalSide = Math.max(256, Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height));
+  const side = Math.min(1024, naturalSide);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";'''
+          replace(app, old_avatar, new_avatar)
+          replace(app,
+              '  return canvas.toDataURL("image/jpeg", 0.9);',
+              '  const outputType = String(source || "").startsWith("data:image/png") ? "image/png" : "image/jpeg";\n  return canvas.toDataURL(outputType, outputType === "image/jpeg" ? 0.97 : undefined);')
+
+          start = app.read_text(encoding="utf-8").index('function readAttachmentFile(file) {')
+          end = app.read_text(encoding="utf-8").index('\nasync function loadMessenger', start)
+          replacement = r'''function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(t("errSendMessage")));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function encodePhotoAttachment(file) {
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImageElement(objectUrl);
+    const oversized = file.size > PHOTO_RULE_LIMIT_BYTES;
+    const maxSide = oversized ? 1280 : PHOTO_OUTPUT_MAX_SIDE;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+    const width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+    const height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    canvas.width = width;
+    canvas.height = height;
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, width, height);
+    const preservePng = file.type === "image/png" && !oversized && file.size <= 2.5 * 1024 * 1024;
+    let dataUrl = canvas.toDataURL(preservePng ? "image/png" : "image/jpeg", oversized ? 0.68 : 0.86);
+    if (dataUrl.length > 4_200_000 && !preservePng) {
+      dataUrl = canvas.toDataURL("image/jpeg", oversized ? 0.58 : 0.72);
+    }
+    return { dataUrl, degraded: oversized || dataUrl.length < Math.ceil(file.size * 1.28) };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function readAttachmentFile(file, mode = "media") {
+  if (!file) {
+    throw new Error(t("errSendMessage"));
+  }
+
+  const mime = file.type || "application/octet-stream";
+  const asDocument = mode === "document";
+  if (asDocument && file.size > DOCUMENT_TRANSPORT_LIMIT_BYTES) {
+    throw new Error(t("attachLimit"));
+  }
+  if (!asDocument && !mime.startsWith("image/") && file.size > DOCUMENT_TRANSPORT_LIMIT_BYTES) {
+    throw new Error(t("attachLimit"));
+  }
+
+  const encoded = !asDocument && mime.startsWith("image/")
+    ? await encodePhotoAttachment(file)
+    : { dataUrl: await readFileAsDataUrl(file), degraded: false };
+
+  return {
+    id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `att-${Date.now()}-${Math.random()}`,
+    name: file.name || "file",
+    mime,
+    kind: asDocument ? "file" : mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "file",
+    size: file.size,
+    originalSize: file.size,
+    sendAsDocument: asDocument,
+    degraded: encoded.degraded,
+    dataUrl: encoded.dataUrl
+  };
+}
+
+function attachmentTypeLabel(attachment) {
+  if (attachment.sendAsDocument || attachment.kind === "file") {
+    return t("attachmentDocument");
+  }
+  return t(attachment.kind === "video" ? "attachmentVideo" : "attachmentPhoto");
+}
+
+function renderAttachmentTray() {
+  if (!attachmentTray) {
+    return;
+  }
+
+  const hasAttachments = state.pendingAttachments.length > 0;
+  attachmentTray.hidden = !hasAttachments;
+  if (attachmentPolicy) {
+    attachmentPolicy.hidden = !hasAttachments;
+    attachmentPolicy.innerHTML = hasAttachments
+      ? `<strong>${escapeHtml(t("attachmentPolicyTitle"))}</strong> ${escapeHtml(t("attachmentPolicyText"))}`
+      : "";
+  }
+
+  attachmentTray.innerHTML = state.pendingAttachments.map((attachment) => {
+    const isPhoto = attachment.kind === "image" && !attachment.sendAsDocument;
+    const isVideo = attachment.kind === "video" && !attachment.sendAsDocument;
+    const preview = isPhoto
+      ? `<img src="${escapeHtml(attachment.dataUrl)}" alt="" />`
+      : isVideo
+        ? `<video src="${escapeHtml(attachment.dataUrl)}" muted playsinline></video>`
+        : iconSvg("file-text");
+    return `
+      <article class="attachment-preview${attachment.sendAsDocument ? " is-document" : ""}">
+        <button class="attachment-preview-delete" type="button" data-remove-attachment="${escapeHtml(attachment.id)}" aria-label="${escapeHtml(t("menuDelete"))}">${iconSvg("trash")}</button>
+        <div class="attachment-preview-media">${preview}</div>
+        <button class="attachment-preview-remove" type="button" data-remove-attachment="${escapeHtml(attachment.id)}" aria-label="${escapeHtml(t("cancel"))}">${iconSvg("x")}</button>
+        <div class="attachment-preview-copy">
+          <strong>${escapeHtml(attachment.name)}</strong>
+          <small>${escapeHtml(attachmentTypeLabel(attachment))} · ${escapeHtml(formatFileSize(attachment.size))}</small>
+        </div>
+      </article>`;
+  }).join("");
+
+  const chat = getActiveChat();
+  if (sendButton) {
+    sendButton.disabled = !canSendToChat(chat) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
+  }
+}
+
+async function addAttachments(files, mode = "media") {
+  if (!canSendToChat(getActiveChat())) {
+    [attachmentInput, documentInput].forEach((input) => {
+      if (input) input.value = "";
+    });
+    return;
+  }
+
+  const selected = [...(files || [])].slice(0, 8 - state.pendingAttachments.length);
+  try {
+    const next = await Promise.all(selected.map((file) => readAttachmentFile(file, mode)));
+    state.pendingAttachments = [...state.pendingAttachments, ...next].slice(0, 8);
+    renderAttachmentTray();
+  } catch (error) {
+    showActionFeedback(translatedServerMessage(error.message, "errSendMessage"), { tone: "error", icon: "circle-alert", duration: 4200 });
+  } finally {
+    [attachmentInput, documentInput].forEach((input) => {
+      if (input) input.value = "";
+    });
+  }
+}
+'''
+          text = app.read_text(encoding="utf-8")
+          app.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+
+          replace(app,
+              '''attachmentInput?.addEventListener("change", () => {
+  addAttachments(attachmentInput.files);
+});''',
+              '''documentButton?.addEventListener("click", () => {
+  if (!canSendToChat(getActiveChat())) {
+    return;
+  }
+  documentInput?.click();
+});
+
+attachmentInput?.addEventListener("change", () => {
+  addAttachments(attachmentInput.files, "media");
+});
+
+documentInput?.addEventListener("change", () => {
+  addAttachments(documentInput.files, "document");
+});''')
+
+          replace(api,
+              'MAX_JSON_BODY_BYTES = int(os.getenv("YACHAT_MAX_JSON_BODY_BYTES", "6000000"))\nMAX_ATTACHMENT_DATA_URL_BYTES = int(os.getenv("YACHAT_MAX_ATTACHMENT_DATA_URL_BYTES", "1200000"))',
+              'MAX_JSON_BODY_BYTES = int(os.getenv("YACHAT_MAX_JSON_BODY_BYTES", "12000000"))\nMAX_ATTACHMENT_DATA_URL_BYTES = int(os.getenv("YACHAT_MAX_ATTACHMENT_DATA_URL_BYTES", "9000000"))')
+
+          replace(build, 'const BRAND_VERSION = "9";', 'const BRAND_VERSION = "10";')
+          replace(build,
+              '      `    <link rel="stylesheet" href="/assets/verification-scope.css?v=${BRAND_VERSION}" />`',
+              '      `    <link rel="stylesheet" href="/assets/verification-scope.css?v=${BRAND_VERSION}" />`,\n      `    <link rel="stylesheet" href="/assets/composer-upgrade.css?v=${BRAND_VERSION}" />`')
+
+          workflow = Path(".github/workflows/upgrade-composer-v10.yml")
+          workflow.unlink()
+          PY
+
+          git config user.name "YaChat Builder"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(composer): превью вложений, документы и новые иконки [skip ci]"
+          git push
