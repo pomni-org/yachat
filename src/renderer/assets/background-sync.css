@@ -1,0 +1,35 @@
+/* ЯЧат: тихая фоновая синхронизация и исправленная сетка списка чатов. */
+
+/* После появления строки папок у панели становится четыре реальных ряда.
+   Без этого вкладки занимали minmax(0, 1fr), а список чатов уезжал вниз. */
+.chat-pane:has(> .chat-folder-bar-fixed) {
+  grid-template-rows: auto auto 48px minmax(0, 1fr) !important;
+}
+
+.chat-pane > .chat-folder-bar-fixed {
+  align-self: start !important;
+  margin: 0 0 4px !important;
+}
+
+.chat-pane > .chat-list {
+  min-height: 0 !important;
+  align-self: stretch !important;
+}
+
+/* Эти элементы были созданы именно фоновым обновлением. Они не должны заново
+   проигрывать анимацию появления, но hover, нажатия и остальные переходы живы. */
+.chat-row.is-background-sync-render,
+.message-bubble.is-background-sync-render,
+.message-day.is-background-sync-render {
+  animation: none !important;
+}
+
+@media (max-width: 640px) {
+  .chat-pane:has(> .chat-folder-bar-fixed) {
+    grid-template-rows: auto auto 48px minmax(0, 1fr) !important;
+  }
+
+  .chat-pane > .chat-folder-bar-fixed {
+    margin-bottom: 2px !important;
+  }
+}
