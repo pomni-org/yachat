@@ -20,7 +20,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "12";
+const BRAND_VERSION = "13";
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
   ["/assets/yachat-shortcut-180.png", `/assets/yachat-brand-180.png?v=${BRAND_VERSION}`],
@@ -66,7 +66,8 @@ async function injectEnhancementAssets() {
       `    <link rel="stylesheet" href="/assets/loading-shine.css?v=${BRAND_VERSION}" />`,
       `    <link rel="stylesheet" href="/assets/verification-scope.css?v=${BRAND_VERSION}" />`,
       `    <link rel="stylesheet" href="/assets/composer-upgrade.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/icon-size-fix.css?v=${BRAND_VERSION}" />`
+      `    <link rel="stylesheet" href="/assets/icon-size-fix.css?v=${BRAND_VERSION}" />`,
+      `    <link rel="stylesheet" href="/assets/settings-redesign.css?v=${BRAND_VERSION}" />`
     ].join("\n")
   );
   const withScripts = withStyles.replace(
@@ -77,7 +78,8 @@ async function injectEnhancementAssets() {
       `    <script src="/assets/username-copy.js?v=${BRAND_VERSION}"></script>`,
       `    <script src="/assets/profile-modal.js?v=${BRAND_VERSION}"></script>`,
       `    <script src="/assets/contacts-sync-v2.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/verification-scope.js?v=${BRAND_VERSION}"></script>`
+      `    <script src="/assets/verification-scope.js?v=${BRAND_VERSION}"></script>`,
+      `    <script src="/assets/settings-redesign.js?v=${BRAND_VERSION}"></script>`
     ].join("\n")
   );
   await fs.writeFile(indexPath, withScripts, "utf8");
