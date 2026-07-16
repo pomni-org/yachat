@@ -62,6 +62,10 @@
   function setActiveFolder(id) {
     const folders = readFolders();
     const nextId = folders.some((folder) => folder.id === id) ? id : "";
+    if (nextId === activeFolderId) {
+      return false;
+    }
+
     activeFolderId = nextId;
     if (nextId) {
       localStorage.setItem(ACTIVE_FOLDER_KEY, nextId);
@@ -70,6 +74,7 @@
     }
     renderFolderBar();
     applyFolderFilter();
+    return true;
   }
 
   function renderFolderBar() {
@@ -225,7 +230,13 @@
   document.addEventListener("click", (event) => {
     const folderTab = event.target.closest("[data-chat-folder]");
     if (folderTab) {
-      setActiveFolder(String(folderTab.dataset.chatFolder || ""));
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const requestedId = String(folderTab.dataset.chatFolder || "");
+      if (requestedId === activeFolderId) {
+        return;
+      }
+      setActiveFolder(requestedId);
       return;
     }
 
@@ -248,7 +259,8 @@
       const nextFolders = folders.filter((folder) => folder.id !== id);
       writeFolders(nextFolders);
       if (activeFolderId === id) {
-        setActiveFolder("");
+        activeFolderId = "";
+        localStorage.removeItem(ACTIVE_FOLDER_KEY);
       }
       selectedFolderId = nextFolders[0]?.id || "";
       renderFolderManager();
