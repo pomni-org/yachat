@@ -1,12 +1,21 @@
 /* ЯЧат: точечные исправления доступности и переполненного текста. */
 
+/* Превью занимает именно доступную ширину строки. Иначе flex-элемент мог
+   сохранять ширину полного текста, пока обрезался уже его родитель. */
+.chat-row-bottom > span {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+}
+
 /* Браузерное text-overflow приклеивает многоточие к последней букве.
    Отдельный маркер появляется только после фактического измерения переполнения. */
 .chat-row-bottom > span.has-spaced-ellipsis {
-  position: relative;
-  display: block;
-  min-width: 0;
-  padding-inline-end: 1.55em;
+  padding-inline-end: 1.7em;
   overflow: hidden;
   text-overflow: clip !important;
   white-space: nowrap;
@@ -17,7 +26,7 @@
   position: absolute;
   inset-inline-end: 0;
   top: 0;
-  width: 1em;
+  width: 0.9em;
   text-align: end;
   pointer-events: none;
 }
