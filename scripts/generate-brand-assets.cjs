@@ -6,36 +6,13 @@ const BASE = 1254;
 const RADIUS = 246;
 const PNG_SIZES = [16, 32, 48, 64, 96, 128, 180, 192, 256, 512, 1024];
 const MASKABLE_SIZES = [192, 512];
+const LOGO_POLYGONS = require("./yachat-brand-contours.json");
 const GRADIENT_GRID = require("./yachat-brand-gradient.json");
 const GRADIENT_SIZE = Math.round(Math.sqrt(GRADIENT_GRID.length));
 
 if (GRADIENT_SIZE * GRADIENT_SIZE !== GRADIENT_GRID.length) {
   throw new Error("Некорректная сетка градиента ЯЧата");
 }
-
-function loadLogoAlpha() {
-  const parts = fs.readdirSync(__dirname)
-    .filter((name) => /^yachat-brand-alpha\.part\d+$/.test(name))
-    .sort((a, b) => a.localeCompare(b, "en"));
-
-  if (!parts.length) {
-    throw new Error("Не найдены части маски нового логотипа ЯЧата");
-  }
-
-  const base64 = parts
-    .map((name) => fs.readFileSync(path.join(__dirname, name), "utf8"))
-    .join("")
-    .replace(/\s+/g, "");
-  const alpha = zlib.inflateSync(Buffer.from(base64, "base64"));
-
-  if (alpha.length !== BASE * BASE) {
-    throw new Error(`Некорректная маска логотипа: ${alpha.length} байт`);
-  }
-
-  return alpha;
-}
-
-const LOGO_ALPHA = loadLogoAlpha();
 
 function crc32(buf) {
   let table = crc32.table;
@@ -108,42 +85,41 @@ function gradientColor(nx, ny) {
   ));
 }
 
-function sourceAlphaAt(x, y) {
-  const sx = clamp(x, 0, BASE - 1);
-  const sy = clamp(y, 0, BASE - 1);
-  const x0 = Math.floor(sx);
-  const y0 = Math.floor(sy);
-  const x1 = Math.min(BASE - 1, x0 + 1);
-  const y1 = Math.min(BASE - 1, y0 + 1);
-  const tx = sx - x0;
-  const ty = sy - y0;
-  const a00 = LOGO_ALPHA[y0 * BASE + x0];
-  const a10 = LOGO_ALPHA[y0 * BASE + x1];
-  const a01 = LOGO_ALPHA[y1 * BASE + x0];
-  const a11 = LOGO_ALPHA[y1 * BASE + x1];
-  return (
-    a00 * (1 - tx) * (1 - ty)
-    + a10 * tx * (1 - ty)
-    + a01 * (1 - tx) * ty
-    + a11 * tx * ty
-  );
-}
-
 function rasterLogoMask(size) {
-  const output = new Uint8Array(size * size);
   const samples = size <= 64 ? 8 : size <= 256 ? 4 : 2;
-  const scale = BASE / size;
-  const sampleCount = samples * samples;
+  const superSize = size * samples;
+  const scale = superSize / BASE;
+  const supersampled = new Uint8Array(superSize * superSize);
 
+  for (let y = 0; y < superSize; y++) {
+    const sourceY = (y + 0.5) / scale;
+    const intersections = [];
+
+    for (const polygon of LOGO_POLYGONS) {
+      for (let index = 0; index < polygon.length; index++) {
+        const [x1, y1] = polygon[index];
+        const [x2, y2] = polygon[(index + 1) % polygon.length];
+        if ((y1 > sourceY) === (y2 > sourceY)) continue;
+        intersections.push((x1 + ((sourceY - y1) * (x2 - x1)) / (y2 - y1)) * scale);
+      }
+    }
+
+    intersections.sort((left, right) => left - right);
+    for (let index = 0; index + 1 < intersections.length; index += 2) {
+      const from = Math.max(0, Math.ceil(intersections[index] - 0.5));
+      const to = Math.min(superSize - 1, Math.floor(intersections[index + 1] - 0.5));
+      supersampled.fill(255, y * superSize + from, y * superSize + to + 1);
+    }
+  }
+
+  const output = new Uint8Array(size * size);
+  const sampleCount = samples * samples;
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       let sum = 0;
       for (let sy = 0; sy < samples; sy++) {
-        for (let sx = 0; sx < samples; sx++) {
-          const px = (x + (sx + 0.5) / samples) * scale - 0.5;
-          const py = (y + (sy + 0.5) / samples) * scale - 0.5;
-          sum += sourceAlphaAt(px, py);
-        }
+        const row = (y * samples + sy) * superSize + x * samples;
+        for (let sx = 0; sx < samples; sx++) sum += supersampled[row + sx];
       }
       output[y * size + x] = Math.round(sum / sampleCount);
     }
