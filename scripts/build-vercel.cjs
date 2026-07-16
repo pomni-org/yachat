@@ -76,7 +76,8 @@ async function injectEnhancementAssets() {
       `    <script src="/assets/username-copy.js?v=${BRAND_VERSION}"></script>`,
       `    <script src="/assets/profile-modal.js?v=${BRAND_VERSION}"></script>`,
       `    <script src="/assets/contacts-sync-v2.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/verification-scope.js?v=${BRAND_VERSION}"></script>`
+      `    <script src="/assets/verification-scope.js?v=${BRAND_VERSION}"></script>`,
+      `    <script src="/assets/composer-upgrade.js?v=${BRAND_VERSION}"></script>`
     ].join("\n")
   );
   await fs.writeFile(indexPath, withScripts, "utf8");
