@@ -4,6 +4,7 @@ const zlib = require("zlib");
 
 const BASE = 1254;
 const COLOR_SIZE = 64;
+const LOGO_POLYGONS = require("./yachat-brand-contours.json");
 const PNG_SIZES = [16, 32, 48, 64, 96, 128, 180, 192, 256, 512, 1024];
 const MASKABLE_SIZES = [192, 512];
 
@@ -14,18 +15,6 @@ function readZlibBase64(name, expected) {
   return decoded;
 }
 
-function loadLogoAlpha() {
-  const parts = fs.readdirSync(__dirname)
-    .filter(name => /^yachat-brand-alpha\.part\d+$/.test(name))
-    .sort((a, b) => a.localeCompare(b, "en"));
-  if (!parts.length) throw new Error("Не найдены части маски нового логотипа ЯЧата");
-  const encoded = parts.map(name => fs.readFileSync(path.join(__dirname, name), "utf8")).join("").replace(/\s+/g, "");
-  const decoded = zlib.inflateSync(Buffer.from(encoded, "base64"));
-  if (decoded.length !== BASE * BASE) throw new Error(`Некорректная маска логотипа: ${decoded.length} байт`);
-  return decoded;
-}
-
-const LOGO_ALPHA = loadLogoAlpha();
 const ROUNDED_ALPHA = readZlibBase64("yachat-brand-rounded-alpha.base64", BASE * BASE);
 const COLOR_GRID = readZlibBase64("yachat-brand-color-grid.base64", COLOR_SIZE * COLOR_SIZE * 3);
 
@@ -122,9 +111,45 @@ function resizeMask(mask, size) {
   return output;
 }
 
+function rasterLogoMask(size, supersample = 4) {
+  const highSize = size * supersample;
+  const high = new Uint8Array(highSize * highSize);
+  const scale = highSize / BASE;
+  const polygons = LOGO_POLYGONS.map(polygon => polygon.map(([x, y]) => [x * scale, y * scale]));
+  for (let y = 0; y < highSize; y += 1) {
+    const scanY = y + 0.5;
+    const intersections = [];
+    for (const polygon of polygons) {
+      for (let i = 0, previous = polygon.length - 1; i < polygon.length; previous = i, i += 1) {
+        const [x1, y1] = polygon[i], [x2, y2] = polygon[previous];
+        if ((y1 > scanY) !== (y2 > scanY)) intersections.push(x1 + (scanY - y1) * (x2 - x1) / (y2 - y1));
+      }
+    }
+    intersections.sort((a, b) => a - b);
+    for (let i = 0; i + 1 < intersections.length; i += 2) {
+      const start = Math.max(0, Math.ceil(intersections[i] - 0.5));
+      const end = Math.min(highSize - 1, Math.floor(intersections[i + 1] - 0.5));
+      for (let x = start; x <= end; x += 1) high[y * highSize + x] = 255;
+    }
+  }
+  const output = new Uint8Array(size * size);
+  const area = supersample * supersample;
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      let sum = 0;
+      for (let sy = 0; sy < supersample; sy += 1) {
+        const row = (y * supersample + sy) * highSize + x * supersample;
+        for (let sx = 0; sx < supersample; sx += 1) sum += high[row + sx];
+      }
+      output[y * size + x] = Math.round(sum / area);
+    }
+  }
+  return output;
+}
+
 function render(size, variant) {
   const rgba = Buffer.alloc(size * size * 4);
-  const logo = resizeMask(LOGO_ALPHA, size);
+  const logo = rasterLogoMask(size, size <= 64 ? 6 : 4);
   const rounded = variant === "rounded" ? resizeMask(ROUNDED_ALPHA, size) : null;
   for (let y = 0; y < size; y += 1) {
     for (let x = 0; x < size; x += 1) {
