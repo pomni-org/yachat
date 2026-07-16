@@ -21,7 +21,7 @@
   --muted: #5f626b;
   --line: #dedfe5;
   --accent: #471AFF;
-  --max-dark: #0D001A;
+  --yachat-dark: #0D001A;
   color-scheme: light;
 }
 
@@ -71,7 +71,7 @@ a:hover {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: var(--max-dark);
+  color: var(--yachat-dark);
   font-weight: 600;
 }
 
@@ -105,7 +105,7 @@ a:hover {
 
 h1 {
   margin: 0 0 24px;
-  color: var(--max-dark);
+  color: var(--yachat-dark);
   font-size: clamp(30px, 5vw, 46px);
   line-height: 1.1;
   font-weight: 600;
@@ -113,7 +113,7 @@ h1 {
 
 h2 {
   margin: 32px 0 10px;
-  color: var(--max-dark);
+  color: var(--yachat-dark);
   font-size: 20px;
   line-height: 1.25;
   font-weight: 600;

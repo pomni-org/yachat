@@ -1573,6 +1573,10 @@ function accountAvatarInitial() {
 }
 
 function chatAvatarSource(chat) {
+  if (chat?.id === "yachat-codes") {
+    return "./assets/yachat-codes-bot.webp?v=1";
+  }
+
   if (chat?.id === "yachat-favorites") {
     return "";
   }
@@ -6229,7 +6233,7 @@ function createLocalYachatApi() {
           pinned: true,
           canSend: false,
           avatar: "codes",
-          avatarDataUrl: "./assets/yachat-avatar.svg",
+          avatarDataUrl: "./assets/yachat-codes-bot.webp?v=1",
           createdAt
         },
         {

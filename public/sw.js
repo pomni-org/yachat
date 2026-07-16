@@ -13,8 +13,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "ЯЧат";
   const options = {
     body: payload.body || "Новое сообщение",
-    icon: "/assets/yachat-brand-192.png?v=5",
-    badge: "/assets/yachat-brand-notification.png?v=5",
+    icon: "/assets/yachat-brand-192.png?v=8",
+    badge: "/assets/yachat-brand-notification.png?v=8",
     data: {
       url: payload.url || "/"
     }

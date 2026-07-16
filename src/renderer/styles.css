@@ -26,23 +26,23 @@
   --font-main: "Roboto", "Segoe UI", Arial, sans-serif;
   --font-display: "Roboto", "Segoe UI", Arial, sans-serif;
   --font-logo: "Roboto", "Segoe UI", Arial, sans-serif;
-  --max-blue: #471AFF;
-  --max-purple: #9500FF;
-  --max-white: #FFFFFF;
-  --max-comet: #00BFFF;
-  --max-pulsar: #6E1AFF;
+  --yachat-blue: #471AFF;
+  --yachat-purple: #9500FF;
+  --yachat-white: #FFFFFF;
+  --yachat-comet: #00BFFF;
+  --yachat-pulsar: #6E1AFF;
   --nav-active: #168BFF;
-  --max-dark: #0D001A;
-  --accent: var(--max-blue);
-  --accent-hover: var(--max-pulsar);
-  --page: var(--max-dark);
+  --yachat-dark: #0D001A;
+  --accent: var(--yachat-blue);
+  --accent-hover: var(--yachat-pulsar);
+  --page: var(--yachat-dark);
   --boot-page: #050507;
   --boot-shine: rgba(0, 191, 255, 0.92);
   --boot-shine-core: rgba(255, 255, 255, 0.98);
   --boot-logo-shadow: rgba(71, 26, 255, 0.34);
-  --card: var(--max-dark);
-  --surface: color-mix(in srgb, var(--max-dark), var(--max-white) 13%);
-  --surface-hover: color-mix(in srgb, var(--max-dark), var(--max-white) 19%);
+  --card: var(--yachat-dark);
+  --surface: color-mix(in srgb, var(--yachat-dark), var(--yachat-white) 13%);
+  --surface-hover: color-mix(in srgb, var(--yachat-dark), var(--yachat-white) 19%);
   --card-edge: rgba(255, 255, 255, 0.12);
   --text: #ffffff;
   --muted: rgba(255, 255, 255, 0.8);
@@ -63,9 +63,9 @@
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.38);
   --scrollbar-track: transparent;
   --bubble-in: #25262d;
-  --bubble-out: var(--max-blue);
-  --bubble-out-start: var(--max-blue);
-  --bubble-out-end: var(--max-purple);
+  --bubble-out: var(--yachat-blue);
+  --bubble-out-start: var(--yachat-blue);
+  --bubble-out-end: var(--yachat-purple);
   --bubble-meta: rgba(255, 255, 255, 0.6);
   --space-pattern: url("./assets/yachat-space-dark.png");
   --brand-logo: url("./assets/yachat-logo-light.svg");
@@ -99,9 +99,9 @@
   --scrollbar-thumb: rgba(6, 6, 8, 0.18);
   --scrollbar-thumb-hover: rgba(6, 6, 8, 0.28);
   --bubble-in: #ffffff;
-  --bubble-out: var(--max-blue);
-  --bubble-out-start: var(--max-blue);
-  --bubble-out-end: var(--max-purple);
+  --bubble-out: var(--yachat-blue);
+  --bubble-out-start: var(--yachat-blue);
+  --bubble-out-end: var(--yachat-purple);
   --bubble-meta: rgba(6, 6, 8, 0.46);
   --space-pattern: url("./assets/yachat-space-light.png");
   --brand-logo: url("./assets/yachat-logo-dark.svg");
@@ -295,7 +295,7 @@ body.messenger-mode .app-shell {
   border-radius: 28px;
   background:
     var(--brand-logo) center / 68px auto no-repeat,
-    color-mix(in srgb, var(--max-dark), var(--max-white) 10%);
+    color-mix(in srgb, var(--yachat-dark), var(--yachat-white) 10%);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.24);
 }
 
@@ -322,7 +322,7 @@ body.messenger-mode .app-shell {
 
 .error-code {
   margin-top: 4px;
-  color: var(--max-comet);
+  color: var(--yachat-comet);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0;
@@ -594,7 +594,7 @@ body.messenger-mode .app-shell {
   border-radius: 999px;
   background:
     radial-gradient(circle at 48% 58%, rgba(255, 255, 255, 0.96) 0 39%, transparent 40%),
-    conic-gradient(from 210deg, var(--max-blue), var(--max-purple), var(--max-white), var(--max-pulsar));
+    conic-gradient(from 210deg, var(--yachat-blue), var(--yachat-purple), var(--yachat-white), var(--yachat-pulsar));
   color: var(--accent);
   font-family: var(--font-display);
   font-weight: 600;
@@ -626,7 +626,7 @@ body.messenger-mode .app-shell {
 .panel-avatar.is-owner {
   background:
     radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.24), transparent 20%),
-    linear-gradient(135deg, var(--accent), var(--max-purple));
+    linear-gradient(135deg, var(--accent), var(--yachat-purple));
   color: #fff;
   box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.12);
 }
@@ -637,7 +637,7 @@ body.messenger-mode .app-shell {
 .panel-avatar.is-bot {
   background:
     radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.3), transparent 24%),
-    linear-gradient(135deg, var(--max-comet), var(--max-blue) 48%, var(--max-purple));
+    linear-gradient(135deg, var(--yachat-comet), var(--yachat-blue) 48%, var(--yachat-purple));
   color: #fff;
   box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.12);
 }
@@ -647,7 +647,7 @@ body.messenger-mode .app-shell {
 .dialog-intro-avatar.is-private {
   background:
     radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.32), transparent 24%),
-    linear-gradient(135deg, var(--max-comet), var(--accent));
+    linear-gradient(135deg, var(--yachat-comet), var(--accent));
   color: #fff;
   box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.12);
 }
@@ -660,7 +660,7 @@ body.messenger-mode .app-shell {
 .chat-profile-avatar.is-favorites,
 .avatar-modal-image.is-favorites {
   position: relative;
-  background: var(--max-blue);
+  background: var(--yachat-blue);
   color: #fff;
   box-shadow: none;
 }
@@ -732,7 +732,7 @@ body.messenger-mode .app-shell {
 }
 
 .verified-mark-button:focus-visible {
-  outline: 2px solid var(--max-comet);
+  outline: 2px solid var(--yachat-comet);
   outline-offset: 2px;
 }
 
@@ -1174,7 +1174,7 @@ body.messenger-mode .app-shell {
   height: 32px;
   padding: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--max-dark), var(--max-white) 16%);
+  background: color-mix(in srgb, var(--yachat-dark), var(--yachat-white) 16%);
   color: #ffffff;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
   cursor: pointer;
@@ -1217,7 +1217,7 @@ body.messenger-mode .app-shell {
   padding: 4px 6px;
   border: 0;
   border-radius: 14px;
-  background: var(--max-dark);
+  background: var(--yachat-dark);
   box-shadow: none;
   backdrop-filter: none;
 }
@@ -1416,7 +1416,7 @@ body.messenger-mode .app-shell {
   padding: 5px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  background: var(--max-dark);
+  background: var(--yachat-dark);
   color: #f4f4f5;
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
   pointer-events: auto;
@@ -2413,7 +2413,7 @@ body.messenger-mode .app-shell {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--max-blue);
+  color: var(--yachat-blue);
   font: inherit;
   font-weight: 700;
   text-decoration: underline;
@@ -2666,7 +2666,7 @@ body.messenger-mode .app-shell {
   border-radius: 26px 26px 26px 8px;
   background:
     radial-gradient(circle at 28% 22%, rgba(255, 255, 255, 0.28), transparent 20%),
-    linear-gradient(135deg, var(--accent), var(--max-purple));
+    linear-gradient(135deg, var(--accent), var(--yachat-purple));
   color: #ffffff;
   cursor: pointer;
   font-family: var(--font-display);
@@ -2982,7 +2982,7 @@ body.messenger-mode .app-shell {
   display: block;
   width: 100%;
   height: 100%;
-  fill: var(--max-dark);
+  fill: var(--yachat-dark);
   shape-rendering: geometricPrecision;
 }
 
@@ -3356,7 +3356,7 @@ body.messenger-mode .app-shell {
   height: 46px;
   border-radius: 14px;
   background: rgba(71, 26, 255, 0.14);
-  color: var(--max-comet);
+  color: var(--yachat-comet);
 }
 
 .panel-hero h3,
@@ -3395,7 +3395,7 @@ body.messenger-mode .app-shell {
   width: 70px;
   height: 70px;
   border-radius: 22px;
-  background: linear-gradient(135deg, var(--accent), var(--max-purple));
+  background: linear-gradient(135deg, var(--accent), var(--yachat-purple));
   color: #fff;
   font-size: 34px;
   font-weight: 600;
@@ -3411,13 +3411,13 @@ body.messenger-mode .app-shell {
 .panel-avatar.is-group {
   background:
     radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.24), transparent 20%),
-    linear-gradient(135deg, var(--accent), var(--max-purple));
+    linear-gradient(135deg, var(--accent), var(--yachat-purple));
 }
 
 .panel-avatar.is-private {
   background:
     radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.32), transparent 24%),
-    linear-gradient(135deg, var(--max-comet), var(--accent));
+    linear-gradient(135deg, var(--yachat-comet), var(--accent));
 }
 
 .profile-card h3,
@@ -3622,7 +3622,7 @@ body.messenger-mode .app-shell {
   width: 58px;
   height: 58px;
   border-radius: 18px 18px 18px 6px;
-  background: linear-gradient(135deg, var(--accent), var(--max-purple));
+  background: linear-gradient(135deg, var(--accent), var(--yachat-purple));
   color: #fff;
   cursor: pointer;
   font-size: 28px;
@@ -3700,19 +3700,19 @@ body.messenger-mode .app-shell {
   width: 100%;
   max-height: 220px;
   border-radius: 14px;
-  background: var(--max-dark);
+  background: var(--yachat-dark);
   object-fit: cover;
 }
 
 .side-panel.is-chat-profile {
-  --chat-profile-page: color-mix(in srgb, var(--page), var(--max-white) 6%);
-  --chat-profile-card: color-mix(in srgb, var(--surface), var(--max-white) 4%);
-  --chat-profile-card-hover: color-mix(in srgb, var(--surface-hover), var(--max-white) 6%);
-  --chat-profile-field: color-mix(in srgb, var(--field), var(--max-white) 3%);
+  --chat-profile-page: color-mix(in srgb, var(--page), var(--yachat-white) 6%);
+  --chat-profile-card: color-mix(in srgb, var(--surface), var(--yachat-white) 4%);
+  --chat-profile-card-hover: color-mix(in srgb, var(--surface-hover), var(--yachat-white) 6%);
+  --chat-profile-field: color-mix(in srgb, var(--field), var(--yachat-white) 3%);
   --chat-profile-text: var(--text);
   --chat-profile-muted: var(--muted);
   --chat-profile-soft: var(--soft);
-  --chat-profile-link: var(--max-comet);
+  --chat-profile-link: var(--yachat-comet);
   border-left: 0;
   background: var(--chat-profile-page);
   box-shadow: none;
@@ -3786,7 +3786,7 @@ body.messenger-mode .app-shell {
   width: 132px;
   height: 132px;
   border-radius: 999px;
-  background: linear-gradient(135deg, var(--max-comet), var(--max-blue) 48%, var(--max-purple));
+  background: linear-gradient(135deg, var(--yachat-comet), var(--yachat-blue) 48%, var(--yachat-purple));
   color: #fff;
   font-size: 58px;
   font-weight: 600;
@@ -4107,7 +4107,7 @@ body.messenger-mode .app-shell {
   height: 38px;
   flex: 0 0 auto;
   border-radius: 999px;
-  background: linear-gradient(135deg, var(--accent), var(--max-purple));
+  background: linear-gradient(135deg, var(--accent), var(--yachat-purple));
   color: #fff;
   font-weight: 600;
 }
@@ -4271,7 +4271,7 @@ body.messenger-mode .app-shell {
   border-radius: 999px;
   background:
     radial-gradient(circle at 36% 28%, rgba(255, 255, 255, 0.32), transparent 24%),
-    linear-gradient(135deg, var(--max-comet), var(--accent));
+    linear-gradient(135deg, var(--yachat-comet), var(--accent));
   color: #fff;
   font-size: clamp(72px, 18vw, 128px);
   font-weight: 700;
@@ -4282,13 +4282,13 @@ body.messenger-mode .app-shell {
 .avatar-modal-image.is-owner {
   background:
     radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.24), transparent 20%),
-    linear-gradient(135deg, var(--accent), var(--max-purple));
+    linear-gradient(135deg, var(--accent), var(--yachat-purple));
 }
 
 .avatar-modal-image.is-bot {
   background:
     radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.3), transparent 24%),
-    linear-gradient(135deg, var(--max-comet), var(--max-blue) 48%, var(--max-purple));
+    linear-gradient(135deg, var(--yachat-comet), var(--yachat-blue) 48%, var(--yachat-purple));
 }
 
 .avatar-modal-image img {
@@ -4510,7 +4510,7 @@ body.messenger-mode .app-shell {
   height: 58px;
   overflow: hidden;
   border-radius: 18px 18px 18px 6px;
-  background: linear-gradient(135deg, var(--accent), var(--max-purple));
+  background: linear-gradient(135deg, var(--accent), var(--yachat-purple));
   color: #fff;
   cursor: pointer;
   font-size: 28px;

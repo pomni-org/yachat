@@ -1340,7 +1340,7 @@ function createLocalBackend(app, appTitle) {
         pinned: true,
         canSend: false,
         avatar: "codes",
-        avatarDataUrl: "./assets/yachat-avatar.svg",
+        avatarDataUrl: "./assets/yachat-codes-bot.webp?v=1",
         createdAt
       },
       {
