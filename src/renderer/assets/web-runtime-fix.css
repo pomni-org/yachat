@@ -1,0 +1,42 @@
+@font-face {
+  font-family: "YaChat Sans";
+  src: url("/assets/roboto-v51-cyrillic_cyrillic-ext_latin-regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "YaChat Sans";
+  src: url("/assets/roboto-v51-cyrillic_cyrillic-ext_latin-500.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "YaChat Sans";
+  src: url("/assets/roboto-v51-cyrillic_cyrillic-ext_latin-600.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 600 900;
+  font-display: swap;
+}
+
+:root {
+  --font-main: "YaChat Sans", "Segoe UI", Arial, sans-serif;
+  --font-display: "YaChat Sans", "Segoe UI", Arial, sans-serif;
+  --font-logo: "YaChat Sans", "Segoe UI", Arial, sans-serif;
+  --brand-logo: url("/assets/yachat-logo-light.png?v=9");
+}
+
+:root[data-theme="light"] {
+  --brand-logo: url("/assets/yachat-logo-dark.png?v=9");
+}
+
+html,
+body,
+button,
+input,
+textarea {
+  font-family: var(--font-main);
+}
