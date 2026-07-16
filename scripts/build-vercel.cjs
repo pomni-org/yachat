@@ -20,7 +20,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "7";
+const BRAND_VERSION = "8";
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
   ["/assets/yachat-shortcut-180.png", `/assets/yachat-brand-180.png?v=${BRAND_VERSION}`],
@@ -51,6 +51,7 @@ async function rewriteBrandReferences(name) {
     .replaceAll("?v=4", `?v=${BRAND_VERSION}`)
     .replaceAll("?v=5", `?v=${BRAND_VERSION}`)
     .replaceAll("?v=6", `?v=${BRAND_VERSION}`)
+    .replaceAll("?v=7", `?v=${BRAND_VERSION}`)
     .replace(/\?v=\d+(?:\?v=\d+)+/g, `?v=${BRAND_VERSION}`);
   await fs.writeFile(filePath, content, "utf8");
 }
