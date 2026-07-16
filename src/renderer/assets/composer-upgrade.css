@@ -1,0 +1,281 @@
+/* ЯЧат: composer, attachment preview and Iconoir-inspired icon rhythm */
+
+.iconoir-icon,
+.lucide-icon,
+.css-icon svg {
+  display: block;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+  stroke-width: 1.65;
+  vector-effect: non-scaling-stroke;
+}
+
+.rail-button .iconoir-icon,
+.rail-button .lucide-icon,
+.rail-button .css-icon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: 44px 44px minmax(0, 1fr) 44px 52px;
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 8px;
+  padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+}
+
+.composer-context,
+.attachment-policy-note,
+.attachment-tray {
+  grid-column: 1 / -1;
+}
+
+.composer > input[name="message"] {
+  grid-column: 3;
+  min-width: 0;
+}
+
+.composer > [data-action="attach-file"] {
+  grid-column: 1;
+}
+
+.composer > [data-action="attach-document"] {
+  grid-column: 2;
+}
+
+.composer > [data-action="open-stickers"] {
+  grid-column: 4;
+}
+
+.composer > .send-button {
+  grid-column: 5;
+}
+
+.composer-tool,
+.send-button {
+  align-self: center;
+}
+
+.composer-tool .iconoir-icon,
+.composer-tool .lucide-icon,
+.send-button .iconoir-icon,
+.send-button .lucide-icon {
+  width: 27px;
+  height: 27px;
+}
+
+.composer-document-tool {
+  position: relative;
+}
+
+.composer-document-tool::after {
+  content: "";
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--page);
+}
+
+.attachment-policy-note {
+  margin: 0 2px;
+  padding: 8px 11px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--surface), transparent 12%);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.attachment-policy-note strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.attachment-tray {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: none;
+  padding: 2px 0 4px;
+}
+
+.attachment-tray::-webkit-scrollbar {
+  display: none;
+}
+
+.attachment-preview {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px 96px minmax(100px, 1fr);
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 min(430px, calc(100vw - 34px));
+  min-width: 0;
+}
+
+.attachment-preview-delete,
+.attachment-preview-remove {
+  appearance: none;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.attachment-preview-delete {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 14px;
+  background: transparent;
+}
+
+.attachment-preview-delete:hover,
+.attachment-preview-delete:focus-visible {
+  background: var(--surface-hover);
+}
+
+.attachment-preview-delete svg {
+  width: 26px;
+  height: 26px;
+}
+
+.attachment-preview-media {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  overflow: hidden;
+  border-radius: 21px;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+}
+
+.attachment-preview-media img,
+.attachment-preview-media video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-preview-media svg {
+  width: 40px;
+  height: 40px;
+}
+
+.attachment-preview.is-document .attachment-preview-media {
+  background: color-mix(in srgb, var(--accent), var(--surface) 78%);
+}
+
+.attachment-preview-remove {
+  position: absolute;
+  z-index: 2;
+  top: -6px;
+  left: 118px;
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--page), #000 20%);
+  box-shadow: 0 2px 9px rgba(0, 0, 0, 0.32);
+}
+
+.attachment-preview-remove svg {
+  width: 21px;
+  height: 21px;
+}
+
+.attachment-preview-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attachment-preview-copy strong,
+.attachment-preview-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview-copy strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.attachment-preview-copy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.message-attachment.is-file > span svg {
+  width: 28px;
+  height: 28px;
+}
+
+@media (max-width: 640px) {
+  .messenger-rail {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .composer {
+    grid-template-columns: 40px 40px minmax(0, 1fr) 40px 50px;
+    column-gap: 4px;
+    padding-inline: 8px;
+  }
+
+  .attachment-policy-note {
+    font-size: 11px;
+  }
+
+  .attachment-preview {
+    grid-template-columns: 38px 86px minmax(80px, 1fr);
+    flex-basis: calc(100vw - 20px);
+    gap: 8px;
+  }
+
+  .attachment-preview-delete {
+    width: 38px;
+    height: 38px;
+  }
+
+  .attachment-preview-media {
+    width: 86px;
+    height: 86px;
+    border-radius: 19px;
+  }
+
+  .attachment-preview-remove {
+    left: 103px;
+  }
+}
+
+@media (max-width: 390px) {
+  .composer {
+    grid-template-columns: 38px 38px minmax(0, 1fr) 38px 48px;
+  }
+
+  .composer-tool .iconoir-icon,
+  .composer-tool .lucide-icon {
+    width: 24px;
+    height: 24px;
+  }
+}
