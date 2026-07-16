@@ -21,6 +21,7 @@ src/renderer/assets/apple-touch-icon*.png
 src/renderer/assets/yachat-app-icon*.png
 src/renderer/assets/yachat-brand-*.png
 src/renderer/assets/yachat-brand.ico
+src/renderer/assets/yachat-brand*.svg
 src/renderer/assets/yachat-avatar.svg
 src/renderer/assets/yachat-color-*.png
 src/renderer/assets/yachat-color-square.svg
@@ -40,6 +41,7 @@ public/assets/apple-touch-icon*.png
 public/assets/yachat-app-icon*.png
 public/assets/yachat-brand-*.png
 public/assets/yachat-brand.ico
+public/assets/yachat-brand*.svg
 public/assets/yachat-avatar.svg
 public/assets/yachat-color-*.png
 public/assets/yachat-color-square.svg
