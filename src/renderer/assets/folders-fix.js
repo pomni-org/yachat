@@ -9,7 +9,7 @@
   const ACTIVE_FOLDER_KEY = "yachat-active-chat-folder";
   const RESERVED_FOLDER_NAMES = new Set(["все", "all"]);
 
-  let activeFolderId = "";
+  let activeFolderId = String(localStorage.getItem(ACTIVE_FOLDER_KEY) || "");
   let selectedFolderId = "";
 
   function readFolders() {
@@ -51,8 +51,12 @@
   function migrateFolders() {
     const folders = readFolders();
     writeFolders(folders);
-    localStorage.removeItem(ACTIVE_FOLDER_KEY);
-    activeFolderId = "";
+
+    if (activeFolderId && !folders.some((folder) => folder.id === activeFolderId)) {
+      activeFolderId = "";
+      localStorage.removeItem(ACTIVE_FOLDER_KEY);
+    }
+
     if (selectedFolderId && !folders.some((folder) => folder.id === selectedFolderId)) {
       selectedFolderId = folders[0]?.id || "";
     }
