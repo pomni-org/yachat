@@ -1,13 +1,41 @@
-const fs = require('fs');
-const path = require('path');
-const zlib = require('zlib');
+const fs = require("fs");
+const path = require("path");
+const zlib = require("zlib");
 
 const BASE = 1254;
 const RADIUS = 246;
-const LOGO_POLYGONS = require("./yachat-brand-contours.json");
-
 const PNG_SIZES = [16, 32, 48, 64, 96, 128, 180, 192, 256, 512, 1024];
 const MASKABLE_SIZES = [192, 512];
+const GRADIENT_GRID = require("./yachat-brand-gradient.json");
+const GRADIENT_SIZE = Math.round(Math.sqrt(GRADIENT_GRID.length));
+
+if (GRADIENT_SIZE * GRADIENT_SIZE !== GRADIENT_GRID.length) {
+  throw new Error("Некорректная сетка градиента ЯЧата");
+}
+
+function loadLogoAlpha() {
+  const parts = fs.readdirSync(__dirname)
+    .filter((name) => /^yachat-brand-alpha\.part\d+$/.test(name))
+    .sort((a, b) => a.localeCompare(b, "en"));
+
+  if (!parts.length) {
+    throw new Error("Не найдены части маски нового логотипа ЯЧата");
+  }
+
+  const base64 = parts
+    .map((name) => fs.readFileSync(path.join(__dirname, name), "utf8"))
+    .join("")
+    .replace(/\s+/g, "");
+  const alpha = zlib.inflateSync(Buffer.from(base64, "base64"));
+
+  if (alpha.length !== BASE * BASE) {
+    throw new Error(`Некорректная маска логотипа: ${alpha.length} байт`);
+  }
+
+  return alpha;
+}
+
+const LOGO_ALPHA = loadLogoAlpha();
 
 function crc32(buf) {
   let table = crc32.table;
@@ -26,7 +54,7 @@ function crc32(buf) {
 }
 
 function chunk(type, data) {
-  const typeBuf = Buffer.from(type, 'ascii');
+  const typeBuf = Buffer.from(type, "ascii");
   const out = Buffer.alloc(12 + data.length);
   out.writeUInt32BE(data.length, 0);
   typeBuf.copy(out, 4);
@@ -47,21 +75,17 @@ function encodePng(width, height, rgba) {
   ihdr.writeUInt32BE(height, 4);
   ihdr[8] = 8;
   ihdr[9] = 6;
-  ihdr[10] = 0;
-  ihdr[11] = 0;
-  ihdr[12] = 0;
   return Buffer.concat([
-    Buffer.from('\x89PNG\r\n\x1a\n', 'binary'),
-    chunk('IHDR', ihdr),
-    chunk('IDAT', zlib.deflateSync(raw, { level: 9 })),
-    chunk('IEND', Buffer.alloc(0))
+    Buffer.from("\x89PNG\r\n\x1a\n", "binary"),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
+    chunk("IEND", Buffer.alloc(0))
   ]);
 }
 
-const GRADIENT_SIZE = 24;
-const GRADIENT_GRID = require("./yachat-brand-gradient.json");
-
-function clamp(v, lo = 0, hi = 1) { return Math.max(lo, Math.min(hi, v)); }
+function clamp(value, min = 0, max = 1) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function gradientColor(nx, ny) {
   const u = clamp(nx) * (GRADIENT_SIZE - 1);
@@ -76,7 +100,7 @@ function gradientColor(nx, ny) {
   const c10 = GRADIENT_GRID[y0 * GRADIENT_SIZE + x1];
   const c01 = GRADIENT_GRID[y1 * GRADIENT_SIZE + x0];
   const c11 = GRADIENT_GRID[y1 * GRADIENT_SIZE + x1];
-  return [0, 1, 2].map(channel => Math.round(
+  return [0, 1, 2].map((channel) => Math.round(
     c00[channel] * (1 - tx) * (1 - ty)
     + c10[channel] * tx * (1 - ty)
     + c01[channel] * (1 - tx) * ty
@@ -84,83 +108,101 @@ function gradientColor(nx, ny) {
   ));
 }
 
-function roundedCoverage(x, y, size, samples = 4) {
-  const r = RADIUS / BASE * size;
-  const offsets = samples === 1 ? [[0.5,0.5]] : [[0.25,0.25],[0.75,0.25],[0.25,0.75],[0.75,0.75]];
-  let inside = 0;
-  for (const [ox, oy] of offsets) {
-    const px = x + ox;
-    const py = y + oy;
-    let ok = true;
-    if (px < r && py < r) ok = Math.hypot(px - r, py - r) <= r;
-    else if (px > size - r && py < r) ok = Math.hypot(px - (size - r), py - r) <= r;
-    else if (px < r && py > size - r) ok = Math.hypot(px - r, py - (size - r)) <= r;
-    else if (px > size - r && py > size - r) ok = Math.hypot(px - (size - r), py - (size - r)) <= r;
-    if (ok) inside++;
-  }
-  return inside / offsets.length;
+function sourceAlphaAt(x, y) {
+  const sx = clamp(x, 0, BASE - 1);
+  const sy = clamp(y, 0, BASE - 1);
+  const x0 = Math.floor(sx);
+  const y0 = Math.floor(sy);
+  const x1 = Math.min(BASE - 1, x0 + 1);
+  const y1 = Math.min(BASE - 1, y0 + 1);
+  const tx = sx - x0;
+  const ty = sy - y0;
+  const a00 = LOGO_ALPHA[y0 * BASE + x0];
+  const a10 = LOGO_ALPHA[y0 * BASE + x1];
+  const a01 = LOGO_ALPHA[y1 * BASE + x0];
+  const a11 = LOGO_ALPHA[y1 * BASE + x1];
+  return (
+    a00 * (1 - tx) * (1 - ty)
+    + a10 * tx * (1 - ty)
+    + a01 * (1 - tx) * ty
+    + a11 * tx * ty
+  );
 }
 
-function rasterLogoMask(size, supersample = 4) {
-  const hi = size * supersample;
-  const mask = new Uint8Array(hi * hi);
-  const scale = hi / BASE;
-  const polys = LOGO_POLYGONS.map(poly => poly.map(([x,y]) => [x * scale, y * scale]));
-  for (let y = 0; y < hi; y++) {
-    const scanY = y + 0.5;
-    const xs = [];
-    for (const poly of polys) {
-      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-        const [xi, yi] = poly[i];
-        const [xj, yj] = poly[j];
-        if ((yi > scanY) !== (yj > scanY)) xs.push(xi + (scanY - yi) * (xj - xi) / (yj - yi));
-      }
-    }
-    xs.sort((a,b) => a-b);
-    for (let i = 0; i + 1 < xs.length; i += 2) {
-      const start = Math.max(0, Math.ceil(xs[i] - 0.5));
-      const end = Math.min(hi - 1, Math.floor(xs[i + 1] - 0.5));
-      for (let x = start; x <= end; x++) mask[y * hi + x] = 255;
-    }
-  }
-  const out = new Uint8Array(size * size);
-  const area = supersample * supersample;
+function rasterLogoMask(size) {
+  const output = new Uint8Array(size * size);
+  const samples = size <= 64 ? 8 : size <= 256 ? 4 : 2;
+  const scale = BASE / size;
+  const sampleCount = samples * samples;
+
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       let sum = 0;
-      for (let sy = 0; sy < supersample; sy++) {
-        const row = (y * supersample + sy) * hi + x * supersample;
-        for (let sx = 0; sx < supersample; sx++) sum += mask[row + sx];
+      for (let sy = 0; sy < samples; sy++) {
+        for (let sx = 0; sx < samples; sx++) {
+          const px = (x + (sx + 0.5) / samples) * scale - 0.5;
+          const py = (y + (sy + 0.5) / samples) * scale - 0.5;
+          sum += sourceAlphaAt(px, py);
+        }
       }
-      out[y * size + x] = Math.round(sum / area);
+      output[y * size + x] = Math.round(sum / sampleCount);
     }
   }
-  return out;
+
+  return output;
+}
+
+function roundedCoverage(x, y, size) {
+  const samples = size <= 64 ? 8 : 4;
+  const radius = RADIUS / BASE * size;
+  let inside = 0;
+
+  for (let sy = 0; sy < samples; sy++) {
+    for (let sx = 0; sx < samples; sx++) {
+      const px = x + (sx + 0.5) / samples;
+      const py = y + (sy + 0.5) / samples;
+      let accepted = true;
+      if (px < radius && py < radius) accepted = Math.hypot(px - radius, py - radius) <= radius;
+      else if (px > size - radius && py < radius) accepted = Math.hypot(px - (size - radius), py - radius) <= radius;
+      else if (px < radius && py > size - radius) accepted = Math.hypot(px - radius, py - (size - radius)) <= radius;
+      else if (px > size - radius && py > size - radius) accepted = Math.hypot(px - (size - radius), py - (size - radius)) <= radius;
+      if (accepted) inside++;
+    }
+  }
+
+  return inside / (samples * samples);
 }
 
 function render(size, variant) {
   const rgba = Buffer.alloc(size * size * 4);
-  const logo = rasterLogoMask(size, size <= 64 ? 6 : 4);
+  const logo = rasterLogoMask(size);
+
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const i = (y * size + x) * 4;
-      const logoA = logo[y * size + x] / 255;
-      if (variant === 'light' || variant === 'dark' || variant === 'notification') {
-        const v = variant === 'dark' ? 0 : 255;
-        rgba[i] = v; rgba[i+1] = v; rgba[i+2] = v; rgba[i+3] = Math.round(logoA * 255);
+      const index = (y * size + x) * 4;
+      const logoAlpha = logo[y * size + x] / 255;
+
+      if (variant === "light" || variant === "dark" || variant === "notification") {
+        const value = variant === "dark" ? 0 : 255;
+        rgba[index] = value;
+        rgba[index + 1] = value;
+        rgba[index + 2] = value;
+        rgba[index + 3] = Math.round(logoAlpha * 255);
         continue;
       }
-      const bgA = variant === 'square' ? 1 : roundedCoverage(x, y, size);
-      const [r,g,b] = gradientColor((x + 0.5) / size, (y + 0.5) / size);
-      const a = bgA;
-      const outA = a + logoA * (1 - a);
-      if (outA <= 0) continue;
-      rgba[i] = Math.round((r * a * (1 - logoA) + 255 * logoA) / outA);
-      rgba[i+1] = Math.round((g * a * (1 - logoA) + 255 * logoA) / outA);
-      rgba[i+2] = Math.round((b * a * (1 - logoA) + 255 * logoA) / outA);
-      rgba[i+3] = Math.round(outA * 255);
+
+      const backgroundAlpha = variant === "square" ? 1 : roundedCoverage(x, y, size);
+      const [r, g, b] = gradientColor((x + 0.5) / size, (y + 0.5) / size);
+      const outputAlpha = backgroundAlpha + logoAlpha * (1 - backgroundAlpha);
+      if (outputAlpha <= 0) continue;
+
+      rgba[index] = Math.round((r * backgroundAlpha * (1 - logoAlpha) + 255 * logoAlpha) / outputAlpha);
+      rgba[index + 1] = Math.round((g * backgroundAlpha * (1 - logoAlpha) + 255 * logoAlpha) / outputAlpha);
+      rgba[index + 2] = Math.round((b * backgroundAlpha * (1 - logoAlpha) + 255 * logoAlpha) / outputAlpha);
+      rgba[index + 3] = Math.round(outputAlpha * 255);
     }
   }
+
   return encodePng(size, size, rgba);
 }
 
@@ -171,39 +213,32 @@ function encodeIco(images) {
   header.writeUInt16LE(1, 2);
   header.writeUInt16LE(count, 4);
   let offset = header.length;
+
   images.forEach(({ size, png }, index) => {
-    const p = 6 + index * 16;
-    header[p] = size >= 256 ? 0 : size;
-    header[p + 1] = size >= 256 ? 0 : size;
-    header[p + 2] = 0;
-    header[p + 3] = 0;
-    header.writeUInt16LE(1, p + 4);
-    header.writeUInt16LE(32, p + 6);
-    header.writeUInt32LE(png.length, p + 8);
-    header.writeUInt32LE(offset, p + 12);
+    const position = 6 + index * 16;
+    header[position] = size >= 256 ? 0 : size;
+    header[position + 1] = size >= 256 ? 0 : size;
+    header.writeUInt16LE(1, position + 4);
+    header.writeUInt16LE(32, position + 6);
+    header.writeUInt32LE(png.length, position + 8);
+    header.writeUInt32LE(offset, position + 12);
     offset += png.length;
   });
-  return Buffer.concat([header, ...images.map(item => item.png)]);
+
+  return Buffer.concat([header, ...images.map((item) => item.png)]);
 }
 
-function ensureDir(dir) { fs.mkdirSync(dir, { recursive: true }); }
-function write(file, data) { ensureDir(path.dirname(file)); fs.writeFileSync(file, data); }
+function ensureDir(directory) {
+  fs.mkdirSync(directory, { recursive: true });
+}
+
+function write(file, data) {
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, data);
+}
 
 function svg(fileName, viewBox = 1024) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewBox} ${viewBox}" role="img" aria-label="ЯЧат"><title>ЯЧат</title><image width="${viewBox}" height="${viewBox}" href="${fileName}"/></svg>\n`;
-}
-
-function vectorSvg(variant = "rounded") {
-  const background = variant === "square"
-    ? '<rect width="1254" height="1254" fill="url(#bg)"/>'
-    : variant === "rounded"
-      ? '<rect width="1254" height="1254" rx="246" fill="url(#bg)"/>'
-      : "";
-  const fill = variant === "dark" ? "#000" : "#fff";
-  const pathData = LOGO_POLYGONS
-    .map(poly => `M${poly.map(([x, y]) => `${x} ${y}`).join("L")}Z`)
-    .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1254 1254" role="img" aria-label="ЯЧат"><title>ЯЧат</title><defs><linearGradient id="bg" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#15bdf5"/><stop offset=".36" stop-color="#1384ff"/><stop offset=".66" stop-color="#4f35ff"/><stop offset="1" stop-color="#b020ef"/></linearGradient></defs>${background}<path fill="${fill}" fill-rule="evenodd" d="${pathData}"/></svg>\n`;
 }
 
 function generate(outputDir) {
@@ -216,19 +251,18 @@ function generate(outputDir) {
     return cache.get(key);
   };
 
-  const roundedBySize = new Map(PNG_SIZES.map(size => [size, get(size, "rounded")]));
-  const squareBySize = new Map(MASKABLE_SIZES.map(size => [size, get(size, "square")]));
+  const roundedBySize = new Map(PNG_SIZES.map((size) => [size, get(size, "rounded")]));
+  const squareBySize = new Map(MASKABLE_SIZES.map((size) => [size, get(size, "square")]));
   const rounded1024 = roundedBySize.get(1024);
   const square1024 = get(1024, "square");
   const light1024 = get(1024, "light");
   const dark1024 = get(1024, "dark");
   const notification96 = get(96, "notification");
-
   const writeAsset = (name, data) => write(path.join(outputDir, name), data);
-  const nearestRounded = size => roundedBySize.get(size)
+  const nearestRounded = (size) => roundedBySize.get(size)
     || roundedBySize.get(size <= 24 ? 16 : size <= 40 ? 32 : size <= 56 ? 48 : size <= 80 ? 64 : size <= 112 ? 96 : size <= 154 ? 128 : size <= 186 ? 180 : size <= 224 ? 192 : size <= 384 ? 256 : size <= 768 ? 512 : 1024);
 
-  writeAsset("yachat-brand-source.svg", vectorSvg("rounded"));
+  writeAsset("yachat-brand-source.svg", svg("yachat-brand-rounded.png"));
   writeAsset("yachat-brand.svg", svg("yachat-brand-rounded.png"));
   writeAsset("yachat-brand-square.svg", svg("yachat-brand-square.png"));
   writeAsset("yachat-brand-light.svg", svg("yachat-brand-light.png"));
@@ -305,7 +339,7 @@ function generate(outputDir) {
   writeAsset("yachat-shortcut.svg", svg("yachat-shortcut-1024.png"));
 
   const icoSizes = [16, 32, 48, 64, 128, 256];
-  const ico = encodeIco(icoSizes.map(size => ({ size, png: nearestRounded(size) })));
+  const ico = encodeIco(icoSizes.map((size) => ({ size, png: nearestRounded(size) })));
   writeAsset("yachat-brand.ico", ico);
   writeAsset("yachat.ico", ico);
   write(path.join(rendererDir, "favicon.ico"), ico);
@@ -314,10 +348,9 @@ function generate(outputDir) {
 }
 
 if (require.main === module) {
-  const projectRoot = path.resolve(__dirname, '..');
-  const target = process.argv[2] ? path.resolve(process.argv[2]) : path.join(projectRoot, 'src', 'renderer', 'assets');
+  const projectRoot = path.resolve(__dirname, "..");
+  const target = process.argv[2] ? path.resolve(process.argv[2]) : path.join(projectRoot, "src", "renderer", "assets");
   generate(target);
-  console.log(`Generated YaChat brand assets in ${target}`);
 }
 
 module.exports = { generate };
