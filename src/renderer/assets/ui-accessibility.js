@@ -54,6 +54,30 @@
     });
   }
 
+  function measurePreviewText(preview) {
+    const clone = preview.cloneNode(true);
+    clone.classList.remove("has-spaced-ellipsis");
+    Object.assign(clone.style, {
+      position: "fixed",
+      inset: "auto auto auto -10000px",
+      display: "inline-block",
+      width: "max-content",
+      minWidth: "0",
+      maxWidth: "none",
+      padding: "0",
+      overflow: "visible",
+      textOverflow: "clip",
+      whiteSpace: "nowrap",
+      visibility: "hidden",
+      pointerEvents: "none",
+      contain: "layout style paint"
+    });
+    document.body.append(clone);
+    const width = clone.getBoundingClientRect().width;
+    clone.remove();
+    return width;
+  }
+
   function updatePreviewOverflow() {
     cancelAnimationFrame(previewFrame);
     previewFrame = requestAnimationFrame(() => {
@@ -64,7 +88,9 @@
       requestAnimationFrame(() => {
         previews.forEach((preview) => {
           const hasText = Boolean(preview.textContent?.trim());
-          const isOverflowing = hasText && preview.scrollWidth > preview.clientWidth + 1;
+          const availableWidth = preview.getBoundingClientRect().width;
+          const textWidth = hasText ? measurePreviewText(preview) : 0;
+          const isOverflowing = hasText && availableWidth > 0 && textWidth > availableWidth + 1;
           preview.classList.toggle("has-spaced-ellipsis", isOverflowing);
         });
       });
