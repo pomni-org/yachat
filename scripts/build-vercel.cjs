@@ -20,7 +20,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "8";
+const BRAND_VERSION = "9";
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
   ["/assets/yachat-shortcut-180.png", `/assets/yachat-brand-180.png?v=${BRAND_VERSION}`],
@@ -47,12 +47,7 @@ async function rewriteBrandReferences(name) {
   for (const [legacy, current] of BRAND_REPLACEMENTS) {
     content = content.replaceAll(legacy, current);
   }
-  content = content
-    .replaceAll("?v=4", `?v=${BRAND_VERSION}`)
-    .replaceAll("?v=5", `?v=${BRAND_VERSION}`)
-    .replaceAll("?v=6", `?v=${BRAND_VERSION}`)
-    .replaceAll("?v=7", `?v=${BRAND_VERSION}`)
-    .replace(/\?v=\d+(?:\?v=\d+)+/g, `?v=${BRAND_VERSION}`);
+  content = content.replace(/\?v=\d+(?:\?v=\d+)*/g, `?v=${BRAND_VERSION}`);
   await fs.writeFile(filePath, content, "utf8");
 }
 
@@ -62,27 +57,43 @@ async function injectEnhancementAssets() {
   const withStyles = html.replace(
     '<link rel="stylesheet" href="./styles.css" />',
     [
-      '<link rel="stylesheet" href="./styles.css" />',
-      '    <link rel="stylesheet" href="./assets/chat-presence.css" />',
-      '    <link rel="stylesheet" href="./assets/username-copy.css" />',
-      '    <link rel="stylesheet" href="./assets/profile-modal.css" />',
-      '    <link rel="stylesheet" href="./assets/avatar-preview.css" />',
-      '    <link rel="stylesheet" href="./assets/loading-shine.css" />',
-      '    <link rel="stylesheet" href="./assets/verification-scope.css" />'
+      `<link rel="stylesheet" href="/styles.css?v=${BRAND_VERSION}" />`,
+      `    <link rel="stylesheet" href="/assets/web-runtime-fix.css?v=${BRAND_VERSION}" />`,
+      `    <link rel="stylesheet" href="/assets/chat-presence.css?v=${BRAND_VERSION}" />`,
+      `    <link rel="stylesheet" href="/assets/username-copy.css?v=${BRAND_VERSION}" />`,
+      `    <link rel="stylesheet" href="/assets/profile-modal.css?v=${BRAND_VERSION}" />`,
+      `    <link rel="stylesheet" href="/assets/avatar-preview.css?v=${BRAND_VERSION}" />`,
+      `    <link rel="stylesheet" href="/assets/loading-shine.css?v=${BRAND_VERSION}" />`,
+      `    <link rel="stylesheet" href="/assets/verification-scope.css?v=${BRAND_VERSION}" />`
     ].join("\n")
   );
   const withScripts = withStyles.replace(
     '<script src="./app.js"></script>',
     [
-      '<script src="./app.js"></script>',
-      '    <script src="./assets/chat-presence.js"></script>',
-      '    <script src="./assets/username-copy.js"></script>',
-      '    <script src="./assets/profile-modal.js"></script>',
-      '    <script src="./assets/contacts-sync-v2.js?v=2"></script>',
-      '    <script src="./assets/verification-scope.js"></script>'
+      `<script src="/app.js?v=${BRAND_VERSION}"></script>`,
+      `    <script src="/assets/chat-presence.js?v=${BRAND_VERSION}"></script>`,
+      `    <script src="/assets/username-copy.js?v=${BRAND_VERSION}"></script>`,
+      `    <script src="/assets/profile-modal.js?v=${BRAND_VERSION}"></script>`,
+      `    <script src="/assets/contacts-sync-v2.js?v=${BRAND_VERSION}"></script>`,
+      `    <script src="/assets/verification-scope.js?v=${BRAND_VERSION}"></script>`
     ].join("\n")
   );
   await fs.writeFile(indexPath, withScripts, "utf8");
+}
+
+async function normalizeWebAssetPaths() {
+  for (const name of ["styles.css", "page.css"]) {
+    const filePath = path.join(outputDir, name);
+    let content = await fs.readFile(filePath, "utf8");
+    content = content.replaceAll('url("./assets/', 'url("/assets/');
+    await fs.writeFile(filePath, content, "utf8");
+  }
+
+  const appPath = path.join(outputDir, "app.js");
+  let app = await fs.readFile(appPath, "utf8");
+  app = app.replaceAll('"./assets/yachat-codes-bot.webp?v=1"', '"/assets/yachat-codes-bot.webp?v=2"');
+  app = app.replaceAll('"./assets/yachat-codes-bot.webp?v=2"', '"/assets/yachat-codes-bot.webp?v=2"');
+  await fs.writeFile(appPath, app, "utf8");
 }
 
 async function build() {
@@ -107,6 +118,7 @@ async function build() {
   await rewriteBrandReferences("manifest.webmanifest");
   await rewriteBrandReferences("sw.js");
   await injectEnhancementAssets();
+  await normalizeWebAssetPaths();
 }
 
 build().catch((error) => {
