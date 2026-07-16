@@ -1,190 +1,176 @@
-/* ЯЧат: отдельные слои заголовка, папок и списка чатов + режим выбора. */
+/* ЯЧат: фиксированная компоновка шапки, папок и списка чатов. */
 
-.chat-pane:has(> .chat-folder-bar-fixed) {
+.chat-pane.has-chat-folder-bar {
+  display: grid !important;
   grid-template-rows: auto auto 58px minmax(0, 1fr) !important;
+  gap: 0 !important;
+  min-height: 0 !important;
 }
 
-.chat-pane-head {
-  gap: 14px;
+.chat-pane.has-chat-folder-bar > .chat-pane-head {
+  margin-bottom: 14px !important;
 }
 
 .chat-pane-actions {
   display: inline-flex;
-  flex: 0 0 auto;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
+  flex: 0 0 auto;
 }
 
-.chat-selection-toggle,
-.chat-pane-actions .round-action {
+.chat-pane-actions > button {
+  flex: 0 0 auto;
+}
+
+.chat-select-action {
   display: grid;
-  width: 44px;
-  min-width: 44px;
-  max-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  max-height: 44px;
-  margin: 0;
+  width: 36px;
+  height: 36px;
   padding: 0;
   place-items: center;
   border: 0;
-  border-radius: 14px;
-  box-sizing: border-box;
-}
-
-.chat-selection-toggle {
-  background: color-mix(in srgb, var(--surface), var(--muted) 10%);
+  border-radius: 10px;
+  background: var(--field);
   color: var(--text);
-  cursor: pointer;
-  transition: background 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease);
+  box-shadow: none;
+  font: inherit;
+  cursor: default;
 }
 
-.chat-selection-toggle:hover,
-.chat-selection-toggle.is-active {
-  background: color-mix(in srgb, var(--accent), var(--surface) 78%);
-  color: var(--accent);
+.chat-select-action > span {
+  display: block;
+  margin-top: -5px;
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 1px;
 }
 
-.chat-selection-toggle:active {
-  transform: scale(.96);
+.chat-pane.has-chat-folder-bar > .search-field {
+  margin-bottom: 0 !important;
 }
 
-.chat-selection-toggle svg,
-.chat-pane-actions .round-action svg {
-  width: 25px !important;
-  height: 25px !important;
-  max-width: 25px !important;
-  max-height: 25px !important;
-}
-
-.chat-selection-toggle svg {
-  stroke-width: 2;
-}
-
-.chat-pane > .chat-folder-bar-fixed {
+.chat-pane.has-chat-folder-bar > .chat-folder-bar-fixed {
   position: relative;
-  align-self: stretch !important;
+  display: flex !important;
+  width: 100% !important;
   height: 58px !important;
   min-height: 58px !important;
   max-height: 58px !important;
   margin: 0 !important;
-  padding: 0 18px 10px !important;
-  align-items: flex-end !important;
-  border-bottom: 1px solid color-mix(in srgb, var(--card-edge), transparent 12%) !important;
-  background: var(--card) !important;
-  isolation: isolate;
+  padding: 0 18px !important;
+  align-items: stretch !important;
+  gap: 24px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--card-edge) !important;
+  background: transparent !important;
+  box-sizing: border-box !important;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
-.chat-pane > .chat-folder-bar-fixed > button {
-  height: 47px !important;
-  min-height: 47px !important;
-  max-height: 47px !important;
-  padding-bottom: 7px !important;
-  align-items: flex-end !important;
+.chat-pane.has-chat-folder-bar > .chat-folder-bar-fixed::-webkit-scrollbar {
+  display: none;
 }
 
-.chat-pane > .chat-folder-bar-fixed > button::after {
-  bottom: 0 !important;
-  height: 3px !important;
+.chat-pane.has-chat-folder-bar > .chat-folder-bar-fixed > button {
+  position: relative !important;
+  display: inline-flex !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  max-height: 58px !important;
+  margin: 0 !important;
+  padding: 0 2px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--muted) !important;
+  font: inherit !important;
+  font-size: 16px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  transform: none !important;
 }
 
-.chat-pane > .chat-list {
-  position: relative;
+.chat-pane.has-chat-folder-bar > .chat-folder-bar-fixed > button::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: transparent;
+}
+
+.chat-pane.has-chat-folder-bar > .chat-folder-bar-fixed > button.is-active {
+  color: var(--accent) !important;
+}
+
+.chat-pane.has-chat-folder-bar > .chat-folder-bar-fixed > button.is-active::after {
+  background: var(--accent);
+}
+
+.chat-pane.has-chat-folder-bar > .chat-list {
   min-height: 0 !important;
-  margin: 0 -16px !important;
-  padding: 10px 16px 18px !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 8px 2px 12px 0 !important;
   align-self: stretch !important;
   overflow-y: auto !important;
-  background: var(--page);
-  border-top: 0;
-  scroll-padding-top: 10px;
+  overflow-x: hidden !important;
+  background: transparent !important;
 }
 
-.chat-pane > .chat-list::before {
-  content: "";
-  position: sticky;
-  z-index: 1;
-  top: -10px;
-  display: block;
-  height: 1px;
-  margin: 0 0 7px;
-  background: color-mix(in srgb, var(--card-edge), transparent 32%);
-  pointer-events: none;
+.chat-pane.has-chat-folder-bar > .chat-list::before {
+  display: none !important;
 }
 
-.chat-pane > .chat-list .chat-row:first-of-type {
-  margin-top: 0;
-}
-
-.chat-pane.is-chat-selection-mode .chat-row {
-  grid-template-columns: 28px 48px minmax(0, 1fr) auto;
-}
-
-.chat-select-check {
-  display: grid;
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  place-items: center;
-  border: 2px solid color-mix(in srgb, var(--muted), transparent 18%);
-  border-radius: 7px;
-  background: transparent;
-  color: transparent;
-  box-sizing: border-box;
-  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
-}
-
-.chat-select-check svg {
-  width: 15px !important;
-  height: 15px !important;
-  max-width: 15px !important;
-  max-height: 15px !important;
-  stroke-width: 2.5;
-}
-
-.chat-select-check.is-selected {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-.chat-row.is-chat-selected {
-  background: color-mix(in srgb, var(--accent), transparent 84%);
-}
-
-:root[data-theme="light"] .chat-pane > .chat-folder-bar-fixed {
-  background: rgba(255, 255, 255, .96) !important;
-}
-
-:root[data-theme="light"] .chat-pane > .chat-list {
-  background: #fff;
+.chat-pane.has-chat-folder-bar > .chat-list > .chat-row:first-child {
+  margin-top: 0 !important;
 }
 
 @media (max-width: 640px) {
-  .chat-pane:has(> .chat-folder-bar-fixed) {
+  .chat-pane.has-chat-folder-bar {
     grid-template-rows: auto auto 58px minmax(0, 1fr) !important;
   }
 
-  .chat-pane-head {
-    margin-bottom: 14px;
+  .chat-pane.has-chat-folder-bar > .chat-pane-head {
+    margin-bottom: 14px !important;
   }
 
-  .chat-pane > .chat-folder-bar-fixed {
-    margin: 0 -16px !important;
-    width: calc(100% + 32px) !important;
-    padding-inline: 30px !important;
+  .chat-pane-actions {
+    gap: 9px;
   }
 
-  .chat-pane > .chat-list {
-    margin-inline: -16px !important;
-    padding-inline: 16px !important;
-  }
-
-  .chat-selection-toggle,
+  .chat-select-action,
   .chat-pane-actions .round-action {
-    width: 44px;
-    min-width: 44px;
-    height: 44px;
-    min-height: 44px;
+    width: 42px !important;
+    height: 42px !important;
+    min-width: 42px !important;
+    min-height: 42px !important;
+    border-radius: 13px !important;
+  }
+
+  .chat-pane.has-chat-folder-bar > .chat-folder-bar-fixed {
+    padding-inline: 18px !important;
+    gap: 26px !important;
+  }
+
+  .chat-pane.has-chat-folder-bar > .chat-list {
+    padding-top: 8px !important;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom)) !important;
   }
 }
