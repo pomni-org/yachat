@@ -50,7 +50,8 @@ async function rewriteBrandReferences(name) {
   content = content
     .replaceAll("?v=4", `?v=${BRAND_VERSION}`)
     .replaceAll("?v=5", `?v=${BRAND_VERSION}`)
-    .replaceAll("?v=6", `?v=${BRAND_VERSION}`);
+    .replaceAll("?v=6", `?v=${BRAND_VERSION}`)
+    .replace(/\?v=\d+(?:\?v=\d+)+/g, `?v=${BRAND_VERSION}`);
   await fs.writeFile(filePath, content, "utf8");
 }
 
