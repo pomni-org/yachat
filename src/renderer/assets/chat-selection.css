@@ -1,0 +1,200 @@
+/* ЯЧат: отдельная зона вкладок и режим выбора чатов через кнопку •••. */
+
+.chat-pane-head {
+  gap: 14px;
+}
+
+.chat-pane-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-pane-actions .round-action,
+.chat-selection-toggle {
+  display: grid;
+  width: 42px;
+  min-width: 42px;
+  max-width: 42px;
+  height: 42px;
+  min-height: 42px;
+  max-height: 42px;
+  margin: 0;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 13px;
+  box-sizing: border-box;
+}
+
+.chat-selection-toggle {
+  background: color-mix(in srgb, var(--field), var(--page) 18%);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease);
+}
+
+.chat-selection-toggle:hover {
+  background: var(--field-hover);
+  transform: translateY(-1px);
+}
+
+.chat-selection-toggle.is-active {
+  background: color-mix(in srgb, var(--accent), transparent 78%);
+  color: var(--accent);
+}
+
+.chat-selection-toggle svg,
+.chat-pane-actions .round-action svg {
+  width: 23px !important;
+  height: 23px !important;
+  max-width: 23px !important;
+  max-height: 23px !important;
+}
+
+/* Вкладки живут в собственной строке. Активная полоска не имеет права
+   залезать на первый чат, как бы браузеру ни хотелось творческой свободы. */
+.chat-pane:has(> .chat-folder-bar-fixed) {
+  grid-template-rows: auto auto 58px minmax(0, 1fr) !important;
+}
+
+.chat-pane > .chat-folder-bar-fixed {
+  position: relative;
+  z-index: 2;
+  height: 58px !important;
+  min-height: 58px !important;
+  max-height: 58px !important;
+  margin: 0 !important;
+  padding: 0 18px !important;
+  align-items: center !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--card-edge), transparent 30%) !important;
+  background: var(--card) !important;
+}
+
+.chat-pane > .chat-folder-bar-fixed > button {
+  height: 58px !important;
+  min-height: 58px !important;
+  max-height: 58px !important;
+  padding-top: 1px !important;
+}
+
+.chat-pane > .chat-folder-bar-fixed > button::after {
+  bottom: 6px !important;
+  height: 3px !important;
+}
+
+.chat-pane > .chat-list {
+  position: relative;
+  z-index: 1;
+  min-height: 0 !important;
+  margin: 0 -16px -18px !important;
+  padding: 10px 16px 18px !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  border-top: 0;
+  background: var(--page);
+  box-sizing: border-box;
+}
+
+:root[data-theme="light"] .chat-pane > .chat-folder-bar-fixed {
+  background: rgba(255, 255, 255, 0.94) !important;
+}
+
+:root[data-theme="light"] .chat-pane > .chat-list {
+  background: rgba(248, 250, 255, 0.96);
+}
+
+/* Выбор чатов ничего пока не выполняет, но сама механика настоящая:
+   выбор сохраняется между тихими перерисовками списка до выхода из режима. */
+.chat-pane.is-chat-selection-mode .chat-row {
+  grid-template-columns: 26px 48px minmax(0, 1fr) auto;
+}
+
+.chat-select-check {
+  display: grid;
+  width: 22px;
+  min-width: 22px;
+  max-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  max-height: 22px;
+  place-items: center;
+  border: 2px solid color-mix(in srgb, var(--muted), transparent 15%);
+  border-radius: 7px;
+  background: transparent;
+  color: transparent;
+  box-sizing: border-box;
+  transition: background 140ms var(--ease), border-color 140ms var(--ease), color 140ms var(--ease);
+}
+
+.chat-select-check svg {
+  width: 14px !important;
+  height: 14px !important;
+  max-width: 14px !important;
+  max-height: 14px !important;
+  stroke-width: 2.5;
+}
+
+.chat-select-check.is-selected {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.chat-row.is-chat-selected {
+  background: color-mix(in srgb, var(--accent), transparent 86%);
+}
+
+.chat-pane.is-chat-selection-mode .chat-row:hover {
+  transform: none;
+}
+
+@media (max-width: 640px) {
+  .chat-pane-head {
+    margin-bottom: 14px;
+  }
+
+  .chat-pane-actions {
+    gap: 9px;
+  }
+
+  .chat-pane-actions .round-action,
+  .chat-selection-toggle {
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    max-height: 44px;
+    border-radius: 14px;
+  }
+
+  .chat-pane:has(> .chat-folder-bar-fixed) {
+    grid-template-rows: auto auto 56px minmax(0, 1fr) !important;
+  }
+
+  .chat-pane > .chat-folder-bar-fixed {
+    height: 56px !important;
+    min-height: 56px !important;
+    max-height: 56px !important;
+    margin: 0 -16px !important;
+    padding: 0 34px !important;
+  }
+
+  .chat-pane > .chat-folder-bar-fixed > button {
+    height: 56px !important;
+    min-height: 56px !important;
+    max-height: 56px !important;
+  }
+
+  .chat-pane > .chat-list {
+    margin: 0 -16px -18px !important;
+    padding: 10px 16px calc(18px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .chat-pane.is-chat-selection-mode .chat-row {
+    grid-template-columns: 24px 48px minmax(0, 1fr) auto;
+    gap: 9px;
+  }
+}
