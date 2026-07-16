@@ -1,6 +1,6 @@
 ﻿@font-face {
   font-family: "Roboto";
-  src: url("./assets/roboto-v51-cyrillic_cyrillic-ext_latin-regular.woff2") format("woff2");
+  src: url("/assets/roboto-v51-cyrillic_cyrillic-ext_latin-regular.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -8,7 +8,7 @@
 
 @font-face {
   font-family: "Roboto";
-  src: url("./assets/roboto-v51-cyrillic_cyrillic-ext_latin-500.woff2") format("woff2");
+  src: url("/assets/roboto-v51-cyrillic_cyrillic-ext_latin-500.woff2") format("woff2");
   font-style: normal;
   font-weight: 500;
   font-display: swap;
@@ -16,7 +16,7 @@
 
 @font-face {
   font-family: "Roboto";
-  src: url("./assets/roboto-v51-cyrillic_cyrillic-ext_latin-600.woff2") format("woff2");
+  src: url("/assets/roboto-v51-cyrillic_cyrillic-ext_latin-600.woff2") format("woff2");
   font-style: normal;
   font-weight: 600;
   font-display: swap;
@@ -67,8 +67,8 @@
   --bubble-out-start: var(--yachat-blue);
   --bubble-out-end: var(--yachat-purple);
   --bubble-meta: rgba(255, 255, 255, 0.6);
-  --space-pattern: url("./assets/yachat-space-dark.png");
-  --brand-logo: url("./assets/yachat-logo-light.svg");
+  --space-pattern: url("/assets/yachat-space-dark.png");
+  --brand-logo: url("/assets/yachat-logo-light.svg");
   --brand-logo-x: 5px;
   --brand-logo-mark: calc(var(--brand-logo-x) * 8);
   --brand-logo-gap: calc(var(--brand-logo-x) * 2);
@@ -103,8 +103,8 @@
   --bubble-out-start: var(--yachat-blue);
   --bubble-out-end: var(--yachat-purple);
   --bubble-meta: rgba(6, 6, 8, 0.46);
-  --space-pattern: url("./assets/yachat-space-light.png");
-  --brand-logo: url("./assets/yachat-logo-dark.svg");
+  --space-pattern: url("/assets/yachat-space-light.png");
+  --brand-logo: url("/assets/yachat-logo-dark.svg");
   color-scheme: light;
 }
 

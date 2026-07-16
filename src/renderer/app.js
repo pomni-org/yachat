@@ -18,6 +18,9 @@ const SYSTEM_OWNER = {
 const SYSTEM_CHAT_IDS = new Set(["yachat-favorites", "yachat-codes", "yachat-channel"]);
 const PROTECTED_HISTORY_CHAT_IDS = new Set(["yachat-codes"]);
 const TELEGRAM_BOT_URL = "https://t.me/code_yachatBot";
+const PHOTO_RULE_LIMIT_BYTES = 20 * 1024 * 1024 * 1024;
+const DOCUMENT_TRANSPORT_LIMIT_BYTES = 8 * 1024 * 1024;
+const PHOTO_OUTPUT_MAX_SIDE = 2048;
 const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
 let actionFeedbackTimer = null;
 let actionFeedbackEntranceTimer = null;
@@ -162,8 +165,11 @@ const messageInput = document.querySelector("[data-message-input]");
 const sendButton = document.querySelector(".send-button");
 const attachmentButton = document.querySelector('[data-action="attach-file"]');
 const attachmentInput = document.querySelector("[data-attachment-input]");
+const documentButton = document.querySelector('[data-action="attach-document"]');
+const documentInput = document.querySelector("[data-document-input]");
 const stickersButton = document.querySelector('[data-action="open-stickers"]');
 const attachmentTray = document.querySelector("[data-attachment-tray]");
+const attachmentPolicy = document.querySelector("[data-attachment-policy]");
 const composerContext = document.querySelector("[data-composer-context]");
 const dialogTitle = document.querySelector("[data-dialog-title]");
 const dialogSubtitle = document.querySelector("[data-dialog-subtitle]");
@@ -377,9 +383,9 @@ const ICON_CLASS_MAP = {
   "gg-x": "x"
 };
 
-function iconSvg(name, className = "lucide-icon") {
+function iconSvg(name, className = "iconoir-icon") {
   const body = ICONS[name] || ICONS.file;
-  return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+  return `<svg class="${className}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" aria-hidden="true">${body}</svg>`;
 }
 
 function hydrateIcons(root = document) {
@@ -513,7 +519,7 @@ const translations = {
     accountAlready: "{name}, профиль @{username} уже создан.",
     alertAccount: "ЯЧат\n\nИмя: {name}\nНик: @{username}\nОписание: {bio}\nТелефон: {contact}\nСоздан: {createdAt}",
     chatsTitle: "Чаты",
-    allChats: "Все",
+    allChats: "Чаты",
     contacts: "Контакты",
     calls: "Звонки",
     yachatBot: "Коды подтверждения",
@@ -629,7 +635,12 @@ const translations = {
     chatProfileQrTitle: "QR профиля",
     chatProfileMoreEmpty: "Дополнительных действий пока нет.",
     chatProfileAttachmentsEmpty: "В этом чате пока нет вложений.",
-    attachLimit: "Файл слишком большой. Лимит 8 МБ.",
+    attachLimit: "Этот файл пока нельзя отправить через сервер ЯЧата. Лимит документа — 8 МБ.",
+    attachmentPhoto: "Фото",
+    attachmentVideo: "Видео",
+    attachmentDocument: "Документ без потерь",
+    attachmentPolicyTitle: "Фото до 20 ГБ.",
+    attachmentPolicyText: "Слишком большое фото ЯЧат уменьшит. Для исходного качества нажмите кнопку листика и отправьте его как документ.",
     stickersSoon: "Стикеры добавим отдельной витриной. Сейчас работают файлы, фото и видео.",
     messagePlaceholder: "Сообщение",
     readonlyChannel: "Канал только для чтения",
@@ -854,7 +865,7 @@ const translations = {
     accountAlready: "{name}, profile @{username} already exists.",
     alertAccount: "ЯЧат\n\nName: {name}\nUsername: @{username}\nDescription: {bio}\nPhone: {contact}\nCreated: {createdAt}",
     chatsTitle: "Chats",
-    allChats: "All",
+    allChats: "Chats",
     contacts: "Contacts",
     calls: "Calls",
     yachatBot: "Verification Codes",
@@ -970,7 +981,12 @@ const translations = {
     chatProfileQrTitle: "Profile QR",
     chatProfileMoreEmpty: "No extra actions yet.",
     chatProfileAttachmentsEmpty: "This chat has no attachments yet.",
-    attachLimit: "The file is too large. Limit is 8 MB.",
+    attachLimit: "This file cannot yet pass through the YaChat server. Document limit is 8 MB.",
+    attachmentPhoto: "Photo",
+    attachmentVideo: "Video",
+    attachmentDocument: "Lossless document",
+    attachmentPolicyTitle: "Photos up to 20 GB.",
+    attachmentPolicyText: "YaChat will reduce an oversized photo. Use the sheet button to send the original as a document.",
     stickersSoon: "Stickers will get their own tray. Files, photos, and videos work now.",
     messagePlaceholder: "Message",
     readonlyChannel: "Read-only channel",
@@ -1378,9 +1394,12 @@ function cropToDataUrl(source, crop = {}) {
     return "";
   }
 
-  const side = 256;
+  const naturalSide = Math.max(256, Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height));
+  const side = Math.min(1024, naturalSide);
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
   const zoom = clamp(Number(crop.zoom) || 1, 1, 3);
   const scale = Math.max(side / image.width, side / image.height) * zoom;
   const width = image.width * scale;
@@ -1393,7 +1412,8 @@ function cropToDataUrl(source, crop = {}) {
   canvas.width = side;
   canvas.height = side;
   context.drawImage(image, (side - width) / 2 + offsetX, (side - height) / 2 + offsetY, width, height);
-  return canvas.toDataURL("image/jpeg", 0.9);
+  const outputType = String(source || "").startsWith("data:image/png") ? "image/png" : "image/jpeg";
+  return canvas.toDataURL(outputType, outputType === "image/jpeg" ? 0.97 : undefined);
 }
 
 function closeAvatarCrop(reject = true) {
@@ -1663,7 +1683,7 @@ function getChatAvatarModifier(chat) {
 function setComposerReadonly(readonly) {
   const disabled = Boolean(readonly);
   messageForm?.classList.toggle("is-readonly", disabled);
-  [attachmentButton, stickersButton, attachmentInput].forEach((control) => {
+  [attachmentButton, documentButton, stickersButton, attachmentInput, documentInput].forEach((control) => {
     if (control) {
       control.disabled = disabled;
     }
@@ -2927,74 +2947,94 @@ async function retryFailedMessage(messageId) {
   await deliverTransientMessage(chat, message);
 }
 
-function readAttachmentFile(file) {
+function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
-    if (!file) {
-      reject(new Error(t("errSendMessage")));
-      return;
-    }
-
-    if (file.size > 8 * 1024 * 1024) {
-      reject(new Error(t("attachLimit")));
-      return;
-    }
-
     const reader = new FileReader();
     reader.onerror = () => reject(new Error(t("errSendMessage")));
-    reader.onload = () => {
-      const mime = file.type || "application/octet-stream";
-      resolve({
-        id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `att-${Date.now()}-${Math.random()}`,
-        name: file.name || "file",
-        mime,
-        kind: mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "file",
-        size: file.size,
-        dataUrl: String(reader.result || "")
-      });
-    };
+    reader.onload = () => resolve(String(reader.result || ""));
     reader.readAsDataURL(file);
   });
 }
 
-function renderAttachmentTray() {
-  if (!attachmentTray) {
-    return;
-  }
-
-  attachmentTray.hidden = state.pendingAttachments.length === 0;
-  attachmentTray.innerHTML = state.pendingAttachments.map((attachment) => `
-    <button class="attachment-chip" type="button" data-remove-attachment="${escapeHtml(attachment.id)}" title="${escapeHtml(attachment.name)}">
-      ${iconSvg(attachment.kind === "image" ? "image" : attachment.kind === "video" ? "video" : "file")}
-      <span>${escapeHtml(attachment.name)}</span>
-    </button>
-  `).join("");
-
-  const chat = getActiveChat();
-  if (sendButton) {
-    sendButton.disabled = !canSendToChat(chat) || (!messageInput.value.trim() && state.pendingAttachments.length === 0);
+async function encodePhotoAttachment(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await loadImageElement(url);
+    const spoiled = file.size > PHOTO_RULE_LIMIT_BYTES;
+    const limit = spoiled ? 1280 : PHOTO_OUTPUT_MAX_SIDE;
+    const scale = Math.min(1, limit / Math.max(image.naturalWidth || image.width, image.naturalHeight || image.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round((image.naturalWidth || image.width) * scale));
+    canvas.height = Math.max(1, Math.round((image.naturalHeight || image.height) * scale));
+    const context = canvas.getContext("2d");
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const png = file.type === "image/png" && !spoiled && file.size <= 2.5 * 1024 * 1024;
+    let dataUrl = canvas.toDataURL(png ? "image/png" : "image/jpeg", spoiled ? 0.68 : 0.86);
+    if (!png && dataUrl.length > 4200000) dataUrl = canvas.toDataURL("image/jpeg", spoiled ? 0.56 : 0.72);
+    return { dataUrl, spoiled };
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
-async function addAttachments(files) {
-  if (!canSendToChat(getActiveChat())) {
-    if (attachmentInput) {
-      attachmentInput.value = "";
-    }
-    return;
+async function readAttachmentFile(file, mode = "media") {
+  if (!file) throw new Error(t("errSendMessage"));
+  const mime = file.type || "application/octet-stream";
+  const documentMode = mode === "document";
+  if ((documentMode || !mime.startsWith("image/")) && file.size > DOCUMENT_TRANSPORT_LIMIT_BYTES) throw new Error(t("attachLimit"));
+  const encoded = !documentMode && mime.startsWith("image/")
+    ? await encodePhotoAttachment(file)
+    : { dataUrl: await readFileAsDataUrl(file), spoiled: false };
+  return {
+    id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `att-${Date.now()}-${Math.random()}`,
+    name: file.name || "file", mime, size: file.size, originalSize: file.size,
+    kind: documentMode ? "file" : mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "file",
+    sendAsDocument: documentMode, spoiled: encoded.spoiled, dataUrl: encoded.dataUrl
+  };
+}
+
+function attachmentTypeLabel(item) {
+  if (item.sendAsDocument || item.kind === "file") return t("attachmentDocument");
+  return t(item.kind === "video" ? "attachmentVideo" : "attachmentPhoto");
+}
+
+function renderAttachmentTray() {
+  if (!attachmentTray) return;
+  const visible = state.pendingAttachments.length > 0;
+  attachmentTray.hidden = !visible;
+  if (attachmentPolicy) {
+    attachmentPolicy.hidden = !visible;
+    attachmentPolicy.innerHTML = visible ? `<strong>${escapeHtml(t("attachmentPolicyTitle"))}</strong> ${escapeHtml(t("attachmentPolicyText"))}` : "";
   }
+  attachmentTray.innerHTML = state.pendingAttachments.map((item) => {
+    const photo = item.kind === "image" && !item.sendAsDocument;
+    const video = item.kind === "video" && !item.sendAsDocument;
+    const preview = photo ? `<img src="${escapeHtml(item.dataUrl)}" alt="" />`
+      : video ? `<video src="${escapeHtml(item.dataUrl)}" muted playsinline></video>` : iconSvg("file-text");
+    return `<article class="attachment-preview${item.sendAsDocument ? " is-document" : ""}">
+      <button class="attachment-preview-delete" type="button" data-remove-attachment="${escapeHtml(item.id)}" aria-label="${escapeHtml(t("menuDelete"))}">${iconSvg("trash")}</button>
+      <div class="attachment-preview-media">${preview}</div>
+      <button class="attachment-preview-remove" type="button" data-remove-attachment="${escapeHtml(item.id)}" aria-label="${escapeHtml(t("cancel"))}">${iconSvg("x")}</button>
+      <div class="attachment-preview-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(attachmentTypeLabel(item))} · ${escapeHtml(formatFileSize(item.size))}</small></div>
+    </article>`;
+  }).join("");
+  const chat = getActiveChat();
+  if (sendButton) sendButton.disabled = !canSendToChat(chat) || (!messageInput.value.trim() && !visible);
+}
 
+async function addAttachments(files, mode = "media") {
+  if (!canSendToChat(getActiveChat())) return;
   const selected = [...(files || [])].slice(0, 8 - state.pendingAttachments.length);
-
   try {
-    const next = await Promise.all(selected.map(readAttachmentFile));
+    const next = await Promise.all(selected.map((file) => readAttachmentFile(file, mode)));
     state.pendingAttachments = [...state.pendingAttachments, ...next].slice(0, 8);
     renderAttachmentTray();
   } catch (error) {
-    alert(translatedServerMessage(error.message, "errSendMessage"));
+    showActionFeedback(translatedServerMessage(error.message, "errSendMessage"), { tone: "error", icon: "circle-alert", duration: 4200 });
   } finally {
-    if (attachmentInput) {
-      attachmentInput.value = "";
-    }
+    [attachmentInput, documentInput].forEach((input) => { if (input) input.value = ""; });
   }
 }
 
@@ -8623,8 +8663,17 @@ stickersButton?.addEventListener("click", () => {
   alert(t("stickersSoon"));
 });
 
+documentButton?.addEventListener("click", () => {
+  if (!canSendToChat(getActiveChat())) return;
+  documentInput?.click();
+});
+
 attachmentInput?.addEventListener("change", () => {
-  addAttachments(attachmentInput.files);
+  addAttachments(attachmentInput.files, "media");
+});
+
+documentInput?.addEventListener("change", () => {
+  addAttachments(documentInput.files, "document");
 });
 
 attachmentTray?.addEventListener("click", (event) => {

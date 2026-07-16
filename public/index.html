@@ -10,23 +10,25 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ЯЧат" />
     <meta name="msapplication-TileColor" content="#f8f8f8" />
-    <meta name="msapplication-TileImage" content="/assets/yachat-brand-512.png?v=8" />
+    <meta name="msapplication-TileImage" content="/assets/yachat-brand-512.png?v=10" />
     <title>ЯЧат</title>
-    <link rel="manifest" href="/manifest.webmanifest?v=8" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/assets/yachat-brand-180.png?v=8" />
-    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/assets/yachat-brand-180.png?v=8" />
-    <link rel="icon" type="image/png" sizes="256x256" href="/assets/yachat-brand-256.png?v=8" />
-    <link rel="icon" type="image/png" sizes="48x48" href="/assets/yachat-brand-48.png?v=8" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/assets/yachat-brand-32.png?v=8" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/assets/yachat-brand-16.png?v=8" />
-    <link rel="shortcut icon" href="/assets/yachat-brand.ico?v=8" />
-    <link rel="stylesheet" href="./styles.css" />
-    <link rel="stylesheet" href="./assets/chat-presence.css" />
-    <link rel="stylesheet" href="./assets/username-copy.css" />
-    <link rel="stylesheet" href="./assets/profile-modal.css" />
-    <link rel="stylesheet" href="./assets/avatar-preview.css" />
-    <link rel="stylesheet" href="./assets/loading-shine.css" />
-    <link rel="stylesheet" href="./assets/verification-scope.css" />
+    <link rel="manifest" href="/manifest.webmanifest?v=10" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/yachat-brand-180.png?v=10" />
+    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/assets/yachat-brand-180.png?v=10" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/assets/yachat-brand-256.png?v=10" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/assets/yachat-brand-48.png?v=10" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/yachat-brand-32.png?v=10" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/yachat-brand-16.png?v=10" />
+    <link rel="shortcut icon" href="/assets/yachat-brand.ico?v=10" />
+    <link rel="stylesheet" href="/styles.css?v=10" />
+    <link rel="stylesheet" href="/assets/web-runtime-fix.css?v=10" />
+    <link rel="stylesheet" href="/assets/chat-presence.css?v=10" />
+    <link rel="stylesheet" href="/assets/username-copy.css?v=10" />
+    <link rel="stylesheet" href="/assets/profile-modal.css?v=10" />
+    <link rel="stylesheet" href="/assets/avatar-preview.css?v=10" />
+    <link rel="stylesheet" href="/assets/loading-shine.css?v=10" />
+    <link rel="stylesheet" href="/assets/verification-scope.css?v=10" />
+    <link rel="stylesheet" href="/assets/composer-upgrade.css?v=10" />
   </head>
   <body class="app-booting">
     <main class="app-shell" aria-label="ячат">
@@ -303,11 +305,6 @@
 
       <section class="messenger-shell" data-messenger hidden>
         <aside class="messenger-rail" aria-label="Навигация">
-          <button class="rail-button is-active" type="button" data-rail="all" aria-label="Все чаты">
-            <span class="rail-badge" data-total-unread hidden>0</span>
-            <span class="css-icon gg-chat"></span>
-            <strong>Все</strong>
-          </button>
           <button class="rail-button" type="button" data-rail="contacts" aria-label="Контакты">
             <span class="css-icon gg-contacts"></span>
             <strong>Контакты</strong>
@@ -315,6 +312,11 @@
           <button class="rail-button" type="button" data-rail="calls" aria-label="Звонки">
             <span class="css-icon gg-call"></span>
             <strong>Звонки</strong>
+          </button>
+          <button class="rail-button is-active" type="button" data-rail="all" aria-label="Чаты">
+            <span class="rail-badge" data-total-unread hidden>0</span>
+            <span class="css-icon gg-chat"></span>
+            <strong>Чаты</strong>
           </button>
           <button class="rail-button rail-bottom" type="button" data-rail="settings" aria-label="Настройки">
             <span class="css-icon gg-settings"></span>
@@ -366,18 +368,15 @@
 
           <form class="composer" data-form="message">
             <div class="composer-context" data-composer-context hidden></div>
-            <button class="composer-tool" type="button" data-action="attach-file" aria-label="Вложения">
-              <span class="css-icon gg-paperclip"></span>
-            </button>
-            <input class="visually-hidden" type="file" multiple data-attachment-input />
-            <input name="message" autocomplete="off" placeholder="Сообщение" data-message-input />
-            <button class="composer-tool" type="button" data-action="open-stickers" aria-label="Стикеры">
-              <span class="css-icon gg-sticker"></span>
-            </button>
-            <button class="send-button" type="submit" aria-label="Отправить" disabled>
-              <span class="css-icon gg-send"></span>
-            </button>
+            <p class="attachment-policy-note" data-attachment-policy hidden></p>
             <div class="attachment-tray" data-attachment-tray hidden></div>
+            <button class="composer-tool" type="button" data-action="attach-file" aria-label="Добавить фото или видео"><span class="css-icon gg-paperclip"></span></button>
+            <input class="visually-hidden" type="file" accept="image/*,video/*" multiple data-attachment-input />
+            <button class="composer-tool composer-document-tool" type="button" data-action="attach-document" aria-label="Отправить как документ без потерь"><span class="css-icon gg-file"></span></button>
+            <input class="visually-hidden" type="file" multiple data-document-input />
+            <input name="message" autocomplete="off" placeholder="Сообщение" data-message-input />
+            <button class="composer-tool" type="button" data-action="open-stickers" aria-label="Стикеры"><span class="css-icon gg-sticker"></span></button>
+            <button class="send-button" type="submit" aria-label="Отправить" disabled><span class="css-icon gg-send"></span></button>
           </form>
         </section>
 
@@ -457,11 +456,11 @@
       </section>
     </main>
 
-    <script src="./app.js"></script>
-    <script src="./assets/chat-presence.js"></script>
-    <script src="./assets/username-copy.js"></script>
-    <script src="./assets/profile-modal.js"></script>
-    <script src="./assets/contacts-sync-v2.js?v=2"></script>
-    <script src="./assets/verification-scope.js"></script>
+    <script src="/app.js?v=10"></script>
+    <script src="/assets/chat-presence.js?v=10"></script>
+    <script src="/assets/username-copy.js?v=10"></script>
+    <script src="/assets/profile-modal.js?v=10"></script>
+    <script src="/assets/contacts-sync-v2.js?v=10"></script>
+    <script src="/assets/verification-scope.js?v=10"></script>
   </body>
 </html>

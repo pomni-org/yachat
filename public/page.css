@@ -1,6 +1,6 @@
 @font-face {
   font-family: "Roboto";
-  src: url("./assets/roboto-v51-cyrillic_cyrillic-ext_latin-regular.woff2") format("woff2");
+  src: url("/assets/roboto-v51-cyrillic_cyrillic-ext_latin-regular.woff2") format("woff2");
   font-style: normal;
   font-weight: 400;
   font-display: swap;
@@ -8,7 +8,7 @@
 
 @font-face {
   font-family: "Roboto";
-  src: url("./assets/roboto-v51-cyrillic_cyrillic-ext_latin-600.woff2") format("woff2");
+  src: url("/assets/roboto-v51-cyrillic_cyrillic-ext_latin-600.woff2") format("woff2");
   font-style: normal;
   font-weight: 600;
   font-display: swap;

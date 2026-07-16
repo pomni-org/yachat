@@ -99,8 +99,8 @@ SYSTEM_OWNER = {
     "verifiedDescription": "Владелец ЯЧата. Этот значок подтверждает главный системный аккаунт.",
 }
 QR_SESSION_TTL_MINUTES = 5
-MAX_JSON_BODY_BYTES = int(os.getenv("YACHAT_MAX_JSON_BODY_BYTES", "6000000"))
-MAX_ATTACHMENT_DATA_URL_BYTES = int(os.getenv("YACHAT_MAX_ATTACHMENT_DATA_URL_BYTES", "1200000"))
+MAX_JSON_BODY_BYTES = int(os.getenv("YACHAT_MAX_JSON_BODY_BYTES", "12000000"))
+MAX_ATTACHMENT_DATA_URL_BYTES = int(os.getenv("YACHAT_MAX_ATTACHMENT_DATA_URL_BYTES", "9000000"))
 CHAT_ID_PATTERN = re.compile(r"^(yachat-[a-z0-9-]+|private-[a-f0-9]{32}|group-[a-f0-9-]{36}|saved-[a-f0-9]{32}|search-user-[a-zA-Z0-9_-]{1,80})$")
 _rate_limits: dict[str, list[float]] = {}
 
