@@ -1,0 +1,565 @@
+/* ЯЧат: папки без растянутых кнопок, карточек и аватаров. */
+
+.chat-folder-bar.chat-folder-bar-fixed {
+  display: flex !important;
+  width: 100% !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+  margin: 0 !important;
+  padding: 0 18px !important;
+  align-items: stretch !important;
+  flex: 0 0 48px !important;
+  gap: 24px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-sizing: border-box !important;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-folder-bar.chat-folder-bar-fixed::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-folder-bar.chat-folder-bar-fixed > button {
+  position: relative !important;
+  display: inline-flex !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+  margin: 0 !important;
+  padding: 0 2px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--muted) !important;
+  font: inherit !important;
+  font-size: 16px !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  transform: none !important;
+}
+
+.chat-folder-bar.chat-folder-bar-fixed > button::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  left: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.chat-folder-bar.chat-folder-bar-fixed > button.is-active {
+  color: var(--accent) !important;
+}
+
+.chat-folder-bar.chat-folder-bar-fixed > button.is-active::after {
+  background: var(--accent);
+}
+
+.folder-manager-head {
+  margin-bottom: 16px;
+}
+
+.folder-manager-create-card,
+.folder-manager-card,
+.folder-manager-empty-card {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0 0 18px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--card-edge), transparent 28%);
+  border-radius: 18px;
+  background: var(--surface);
+  box-sizing: border-box;
+}
+
+.folder-manager-create {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.folder-manager-create input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 48px;
+  margin: 0;
+  padding: 0 15px;
+  border: 1px solid var(--card-edge);
+  border-radius: 14px;
+  outline: 0;
+  background: var(--page);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  box-sizing: border-box;
+}
+
+.folder-manager-create input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 82%);
+}
+
+.folder-manager-create button {
+  display: inline-flex !important;
+  width: auto !important;
+  min-width: 112px !important;
+  max-width: 148px !important;
+  height: 48px !important;
+  min-height: 48px !important;
+  max-height: 48px !important;
+  margin: 0 !important;
+  padding: 0 16px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  background: var(--accent) !important;
+  color: white !important;
+  font: inherit !important;
+  font-weight: 650 !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+.folder-manager-create button svg {
+  width: 20px !important;
+  height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+}
+
+.folder-manager-create-card > p {
+  margin: 0;
+  padding: 0 16px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.folder-manager-tabs {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 44px;
+  margin: 0 0 14px;
+  padding: 0 2px;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  box-sizing: border-box;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.folder-manager-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.folder-manager-tabs > button {
+  display: inline-flex !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 220px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  max-height: 38px !important;
+  margin: 0 !important;
+  padding: 0 12px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  gap: 7px !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: var(--surface) !important;
+  color: var(--muted) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--card-edge), transparent 24%) !important;
+  font: inherit !important;
+  font-size: 14px !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+.folder-manager-tabs > button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-manager-tabs > button > small {
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted), transparent 80%);
+  color: currentColor;
+  font-size: 11px;
+  box-sizing: border-box;
+}
+
+.folder-manager-tabs > button.is-active {
+  background: color-mix(in srgb, var(--accent), transparent 84%) !important;
+  color: var(--accent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent), transparent 52%) !important;
+}
+
+.folder-manager-card-head {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 76px;
+  padding: 14px 16px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--card-edge), transparent 35%);
+  box-sizing: border-box;
+}
+
+.folder-manager-card-head > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.folder-manager-card-head strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-manager-card-head small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.folder-manager-card-head > button {
+  display: inline-flex !important;
+  width: auto !important;
+  min-width: 104px !important;
+  max-width: 132px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
+  margin: 0 !important;
+  padding: 0 13px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 auto !important;
+  gap: 7px !important;
+  border: 0 !important;
+  border-radius: 13px !important;
+  background: color-mix(in srgb, #e2465a, var(--surface) 78%) !important;
+  color: #ff7b8a !important;
+  font: inherit !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  white-space: nowrap !important;
+}
+
+.folder-manager-card-head > button svg {
+  width: 20px !important;
+  height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+}
+
+.folder-manager-chat-list {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  max-height: min(58vh, 560px);
+  padding: 6px 0;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+}
+
+.folder-manager-chat-row {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 66px;
+  margin: 0;
+  padding: 8px 16px;
+  grid-template-columns: 24px 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  color: var(--text);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.folder-manager-chat-row + .folder-manager-chat-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 16px;
+  left: 96px;
+  height: 1px;
+  background: color-mix(in srgb, var(--card-edge), transparent 42%);
+}
+
+.folder-manager-chat-row > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.folder-manager-checkbox {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 2px solid color-mix(in srgb, var(--muted), transparent 20%);
+  border-radius: 7px;
+  background: transparent;
+  color: transparent;
+  box-sizing: border-box;
+}
+
+.folder-manager-checkbox svg {
+  width: 15px !important;
+  height: 15px !important;
+  max-width: 15px !important;
+  max-height: 15px !important;
+  stroke-width: 2.4;
+}
+
+.folder-manager-chat-row > input:checked + .folder-manager-checkbox {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.folder-manager-avatar {
+  position: relative;
+  display: grid;
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+  overflow: hidden !important;
+  place-items: center;
+  border-radius: 999px !important;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent), white 12%), var(--accent));
+  color: white;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  box-sizing: border-box;
+  contain: layout paint size;
+}
+
+.folder-manager-avatar > img {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  max-height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: inherit !important;
+  object-fit: cover !important;
+  object-position: center !important;
+  transform: none !important;
+}
+
+.folder-manager-avatar > svg {
+  width: 23px !important;
+  height: 23px !important;
+  max-width: 23px !important;
+  max-height: 23px !important;
+}
+
+.folder-manager-avatar.is-favorites {
+  background: linear-gradient(145deg, #2969ff, #5b22ff);
+}
+
+.folder-manager-avatar.is-bot,
+.folder-manager-avatar.is-channel {
+  background: linear-gradient(145deg, #00a8ff, #6f20ff);
+}
+
+.folder-manager-chat-copy {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+}
+
+.folder-manager-chat-copy strong,
+.folder-manager-chat-copy small {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-manager-chat-copy strong {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.folder-manager-chat-copy small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.folder-manager-chat-copy .verified-badge,
+.folder-manager-chat-copy [data-verified-info] {
+  display: inline-grid !important;
+  width: 16px !important;
+  min-width: 16px !important;
+  max-width: 16px !important;
+  height: 16px !important;
+  min-height: 16px !important;
+  max-height: 16px !important;
+  vertical-align: -3px;
+}
+
+.folder-manager-empty-card {
+  display: flex;
+  min-height: 190px;
+  padding: 28px 22px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.folder-manager-empty-card > svg {
+  width: 42px !important;
+  height: 42px !important;
+  max-width: 42px !important;
+  max-height: 42px !important;
+  margin-bottom: 14px;
+  color: var(--accent);
+}
+
+.folder-manager-empty-card strong {
+  color: var(--text);
+  font-size: 17px;
+}
+
+.folder-manager-empty-card p,
+.folder-manager-empty {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+@media (max-width: 640px) {
+  .chat-folder-bar.chat-folder-bar-fixed {
+    padding-inline: 24px !important;
+    gap: 28px !important;
+  }
+
+  .folder-manager-create {
+    padding: 12px;
+  }
+
+  .folder-manager-create button {
+    min-width: 48px !important;
+    width: 48px !important;
+    max-width: 48px !important;
+    padding: 0 !important;
+  }
+
+  .folder-manager-create button > span {
+    display: none;
+  }
+
+  .folder-manager-card-head {
+    padding-inline: 14px;
+  }
+
+  .folder-manager-card-head > button {
+    min-width: 42px !important;
+    width: 42px !important;
+    max-width: 42px !important;
+    padding: 0 !important;
+  }
+
+  .folder-manager-card-head > button > span {
+    display: none;
+  }
+
+  .folder-manager-chat-row {
+    padding-inline: 14px;
+    grid-template-columns: 24px 42px minmax(0, 1fr);
+    gap: 11px;
+  }
+
+  .folder-manager-avatar {
+    width: 42px !important;
+    min-width: 42px !important;
+    max-width: 42px !important;
+    height: 42px !important;
+    min-height: 42px !important;
+    max-height: 42px !important;
+  }
+
+  .folder-manager-chat-row + .folder-manager-chat-row::before {
+    left: 91px;
+  }
+}
