@@ -1,34 +1,49 @@
 /* ЯЧат: точечные исправления доступности и переполненного текста. */
 
-/* Превью занимает именно доступную ширину строки. Иначе flex-элемент мог
-   сохранять ширину полного текста, пока обрезался уже его родитель. */
-.chat-row-bottom > span {
+/* Поле превью является самостоятельным окном. Многоточие живёт отдельным
+   элементом у правого края этого окна, а не у конца невидимой строки. */
+.chat-row-bottom {
   position: relative;
+  display: block !important;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-row-bottom > .chat-preview-text {
   display: block;
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  flex: 1 1 auto;
-  box-sizing: border-box;
-}
-
-/* Браузерное text-overflow приклеивает многоточие к последней букве.
-   Отдельный маркер появляется только после фактического измерения переполнения. */
-.chat-row-bottom > span.has-spaced-ellipsis {
-  padding-inline-end: 1.7em;
+  margin: 0;
+  padding: 0;
   overflow: hidden;
+  box-sizing: border-box;
   text-overflow: clip !important;
   white-space: nowrap;
 }
 
-.chat-row-bottom > span.has-spaced-ellipsis::after {
-  content: "…";
+.chat-row-bottom.has-spaced-ellipsis > .chat-preview-text {
+  width: calc(100% - 1.65em);
+}
+
+.chat-row-bottom > .chat-preview-ellipsis {
   position: absolute;
   inset-inline-end: 0;
   top: 0;
+  display: block;
   width: 0.9em;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  color: inherit;
+  line-height: inherit;
   text-align: end;
+  white-space: nowrap;
   pointer-events: none;
+}
+
+.chat-row-bottom > .chat-preview-ellipsis[hidden] {
+  display: none !important;
 }
 
 /* Индикатор выбора чата должен быть кругом, а не квадратом,
