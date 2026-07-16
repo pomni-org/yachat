@@ -20,7 +20,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "6";
+const BRAND_VERSION = "7";
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
   ["/assets/yachat-shortcut-180.png", `/assets/yachat-brand-180.png?v=${BRAND_VERSION}`],
@@ -47,7 +47,10 @@ async function rewriteBrandReferences(name) {
   for (const [legacy, current] of BRAND_REPLACEMENTS) {
     content = content.replaceAll(legacy, current);
   }
-  content = content.replaceAll("?v=4", `?v=${BRAND_VERSION}`);
+  content = content
+    .replaceAll("?v=4", `?v=${BRAND_VERSION}`)
+    .replaceAll("?v=5", `?v=${BRAND_VERSION}`)
+    .replaceAll("?v=6", `?v=${BRAND_VERSION}`);
   await fs.writeFile(filePath, content, "utf8");
 }
 
@@ -99,6 +102,8 @@ async function build() {
     "styles.css",
     "page.css"
   ].map(rewriteBrandReferences));
+  await rewriteBrandReferences("manifest.webmanifest");
+  await rewriteBrandReferences("sw.js");
   await injectEnhancementAssets();
 }
 
