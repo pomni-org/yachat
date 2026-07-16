@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const PREVIEW_SELECTOR = ".chat-row-bottom > span";
+  const PREVIEW_SELECTOR = ".chat-row-bottom > span:first-child";
   const SWITCH_SELECTOR = ".settings-toggle-row input[type='checkbox'][data-settings-toggle]";
   let previewFrame = 0;
 
@@ -54,9 +54,28 @@
     });
   }
 
+  function ensurePreviewStructure(preview) {
+    const row = preview.closest(".chat-row-bottom");
+    if (!row) return null;
+
+    preview.classList.add("chat-preview-text");
+    let marker = row.querySelector(":scope > .chat-preview-ellipsis");
+    if (!marker) {
+      marker = document.createElement("span");
+      marker.className = "chat-preview-ellipsis";
+      marker.textContent = "…";
+      marker.setAttribute("aria-hidden", "true");
+      marker.hidden = true;
+      row.append(marker);
+    }
+
+    return { row, marker };
+  }
+
   function measurePreviewText(preview) {
-    const clone = preview.cloneNode(true);
-    clone.classList.remove("has-spaced-ellipsis");
+    const style = getComputedStyle(preview);
+    const clone = document.createElement("span");
+    clone.textContent = preview.textContent || "";
     Object.assign(clone.style, {
       position: "fixed",
       inset: "auto auto auto -10000px",
@@ -64,13 +83,20 @@
       width: "max-content",
       minWidth: "0",
       maxWidth: "none",
+      margin: "0",
       padding: "0",
       overflow: "visible",
       textOverflow: "clip",
       whiteSpace: "nowrap",
       visibility: "hidden",
       pointerEvents: "none",
-      contain: "layout style paint"
+      contain: "layout style paint",
+      font: style.font,
+      fontKerning: style.fontKerning,
+      fontFeatureSettings: style.fontFeatureSettings,
+      fontVariationSettings: style.fontVariationSettings,
+      letterSpacing: style.letterSpacing,
+      textTransform: style.textTransform
     });
     document.body.append(clone);
     const width = clone.getBoundingClientRect().width;
@@ -83,15 +109,25 @@
     previewFrame = requestAnimationFrame(() => {
       const previews = [...document.querySelectorAll(PREVIEW_SELECTOR)];
 
-      previews.forEach((preview) => preview.classList.remove("has-spaced-ellipsis"));
+      previews.forEach((preview) => {
+        const structure = ensurePreviewStructure(preview);
+        if (!structure) return;
+        structure.row.classList.remove("has-spaced-ellipsis");
+        structure.marker.hidden = true;
+      });
 
       requestAnimationFrame(() => {
         previews.forEach((preview) => {
+          const structure = ensurePreviewStructure(preview);
+          if (!structure) return;
+
           const hasText = Boolean(preview.textContent?.trim());
-          const availableWidth = preview.getBoundingClientRect().width;
+          const availableWidth = structure.row.getBoundingClientRect().width;
           const textWidth = hasText ? measurePreviewText(preview) : 0;
-          const isOverflowing = hasText && availableWidth > 0 && textWidth > availableWidth + 1;
-          preview.classList.toggle("has-spaced-ellipsis", isOverflowing);
+          const isOverflowing = hasText && availableWidth > 0 && textWidth > availableWidth + 0.5;
+
+          structure.row.classList.toggle("has-spaced-ellipsis", isOverflowing);
+          structure.marker.hidden = !isOverflowing;
         });
       });
     });
