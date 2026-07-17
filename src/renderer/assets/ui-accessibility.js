@@ -4,6 +4,7 @@
   const PREVIEW_SELECTOR = ".chat-row-bottom > span:first-child";
   const SWITCH_SELECTOR = ".settings-toggle-row input[type='checkbox'][data-settings-toggle]";
   let previewFrame = 0;
+  let previewSyncing = false;
 
   function versionAtLeast(match, major, minor) {
     if (!match) return false;
@@ -107,29 +108,28 @@
   function updatePreviewOverflow() {
     cancelAnimationFrame(previewFrame);
     previewFrame = requestAnimationFrame(() => {
-      const previews = [...document.querySelectorAll(PREVIEW_SELECTOR)];
-
-      previews.forEach((preview) => {
-        const structure = ensurePreviewStructure(preview);
-        if (!structure) return;
-        structure.row.classList.remove("has-spaced-ellipsis");
-        structure.marker.hidden = true;
-      });
-
-      requestAnimationFrame(() => {
-        previews.forEach((preview) => {
+      previewSyncing = true;
+      try {
+        document.querySelectorAll(PREVIEW_SELECTOR).forEach((preview) => {
           const structure = ensurePreviewStructure(preview);
           if (!structure) return;
 
           const hasText = Boolean(preview.textContent?.trim());
-          const availableWidth = structure.row.getBoundingClientRect().width;
+          const availableWidth = structure.row.clientWidth;
           const textWidth = hasText ? measurePreviewText(preview) : 0;
           const isOverflowing = hasText && availableWidth > 0 && textWidth > availableWidth + 0.5;
 
-          structure.row.classList.toggle("has-spaced-ellipsis", isOverflowing);
-          structure.marker.hidden = !isOverflowing;
+          if (structure.row.classList.contains("has-spaced-ellipsis") !== isOverflowing) {
+            structure.row.classList.toggle("has-spaced-ellipsis", isOverflowing);
+          }
+          const shouldHide = !isOverflowing;
+          if (structure.marker.hidden !== shouldHide) {
+            structure.marker.hidden = shouldHide;
+          }
         });
-      });
+      } finally {
+        previewSyncing = false;
+      }
     });
   }
 
@@ -142,18 +142,22 @@
   updatePreviewOverflow();
 
   const observer = new MutationObserver((records) => {
+    if (previewSyncing) return;
     let chatListChanged = false;
 
     records.forEach((record) => {
       record.addedNodes.forEach((node) => {
         if (!(node instanceof Element)) return;
         enhanceSwitches(node);
+        if (node.classList.contains("chat-preview-ellipsis")) return;
         if (node.matches(".chat-row, .chat-list") || node.querySelector(".chat-row")) {
           chatListChanged = true;
         }
       });
 
-      if (record.target instanceof Element && record.target.closest(".chat-list")) {
+      if (record.target instanceof Element
+        && record.target.closest(".chat-list")
+        && !record.target.classList.contains("chat-preview-ellipsis")) {
         chatListChanged = true;
       }
     });
