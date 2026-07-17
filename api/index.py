@@ -101,6 +101,7 @@ SYSTEM_OWNER = {
     "verifiedTitle": "Мурочко",
     "verifiedDescription": "Владелец ЯЧата. Этот значок подтверждает главный системный аккаунт.",
 }
+DEVICE_CODE_TTL_MINUTES = 10
 QR_SESSION_TTL_MINUTES = 5
 MAX_JSON_BODY_BYTES = int(os.getenv("YACHAT_MAX_JSON_BODY_BYTES", "12000000"))
 MAX_ATTACHMENT_DATA_URL_BYTES = int(os.getenv("YACHAT_MAX_ATTACHMENT_DATA_URL_BYTES", "9000000"))
@@ -315,6 +316,15 @@ def cleanup_removed_test_messages(cursor) -> None:
     )
 
 
+def apply_data_migrations(cursor) -> None:
+    migration_id = "2026-07-clear-verification-code-history"
+    cursor.execute("select 1 from yachat_data_migrations where id = %s limit 1", (migration_id,))
+    if cursor.fetchone():
+        return
+    cursor.execute("delete from yachat_system_messages where chat_id = 'yachat-codes'")
+    cursor.execute("insert into yachat_data_migrations(id, applied_at) values (%s, now())", (migration_id,))
+
+
 def ensure_schema() -> None:
     global _schema_ready
     if _schema_ready or not database_url():
@@ -483,6 +493,26 @@ def ensure_schema() -> None:
         """,
         "create index if not exists yachat_push_subscriptions_user_idx on yachat_push_subscriptions(user_id)",
         """
+        create table if not exists yachat_device_codes (
+            id text primary key,
+            user_id text not null references public_users(id) on delete cascade,
+            code_hash text not null unique,
+            display_code text not null,
+            language text default 'ru',
+            created_at timestamptz default now(),
+            expires_at timestamptz not null,
+            used_at timestamptz
+        )
+        """,
+        "create index if not exists yachat_device_codes_user_idx on yachat_device_codes(user_id, created_at desc)",
+        "create index if not exists yachat_device_codes_expiry_idx on yachat_device_codes(expires_at, used_at)",
+        """
+        create table if not exists yachat_data_migrations (
+            id text primary key,
+            applied_at timestamptz default now()
+        )
+        """,
+        """
         create table if not exists yachat_user_settings (
             user_id text primary key references public_users(id) on delete cascade,
             language text default 'ru',
@@ -513,6 +543,7 @@ def ensure_schema() -> None:
                 ensure_public_users_table(cursor)
                 for statement in statements:
                     cursor.execute(statement)
+                apply_data_migrations(cursor)
                 cleanup_removed_test_messages(cursor)
         _schema_ready = True
     except psycopg.Error as error:
@@ -799,6 +830,29 @@ def generate_token() -> str:
     return secrets.token_urlsafe(36)
 
 
+DEVICE_CODE_ALPHABETS = {
+    "ru": "АБВГДЕЖЗКЛМНПРСТУФХЦЧШЭЮЯ",
+    "en": "ABCDEFGHJKLMNPQRSTUVWXYZ",
+}
+
+
+def normalize_device_code(value: Any) -> str:
+    return re.sub(r"[^0-9A-ZА-ЯЁ]+", "", str(value or "").upper().replace("Ё", "Е"))[:6]
+
+
+def format_device_code(value: str) -> str:
+    normalized = normalize_device_code(value)
+    return f"{normalized[:3]}-{normalized[3:]}" if len(normalized) == 6 else normalized
+
+
+def generate_device_code(language: str = "ru") -> tuple[str, str]:
+    alphabet = DEVICE_CODE_ALPHABETS["en" if language == "en" else "ru"]
+    letter_count = secrets.choice((2, 3))
+    raw = "".join(secrets.choice(alphabet) for _ in range(letter_count))
+    raw += "".join(str(secrets.randbelow(10)) for _ in range(6 - letter_count))
+    return raw, format_device_code(raw)
+
+
 def verification_code_text(contact: str, code: str) -> str:
     return "\n".join(
         [
@@ -817,7 +871,7 @@ def verification_code_html(contact: str, code: str) -> str:
     return (
         "<strong>🔐 Код подтверждения ЯЧата</strong><br><br>"
         f"Номер: <strong>{html.escape(contact)}</strong><br>"
-        f"Код: <strong>{html.escape(code)}</strong><br><br>"
+        f"Код: <code>{html.escape(code)}</code><br><br>"
         "⌛ Действует 10 минут.<br>"
         "<strong>⚠️ Никому его не сообщайте.</strong>"
     )
@@ -1483,23 +1537,7 @@ def system_chats(
 
 
 def system_chat_messages(chat_id: str) -> list[dict[str, Any]]:
-    if chat_id != "yachat-codes":
-        return []
-    return [
-        {
-            "id": "yachat-codes-intro",
-            "chatId": "yachat-codes",
-            "author": "bot",
-            "authorId": "yachat",
-            "text": "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов.",
-            "formattedHtml": "",
-            "attachments": [],
-            "replyToMessageId": None,
-            "forwardedFrom": "",
-            "createdAt": utc_now(),
-            "editedAt": None,
-        }
-    ]
+    return []
 
 
 def system_message_payload(row: dict[str, Any], current_user_id: str = "") -> dict[str, Any]:
@@ -2149,6 +2187,8 @@ def send_push_to_user(user_id: str, title: str, body: str, url: str) -> None:
                 data=payload,
                 vapid_private_key=private_key,
                 vapid_claims=claims,
+                ttl=0,
+                headers={"Urgency": "high"},
             )
         except WebPushException as error:
             status_code = getattr(getattr(error, "response", None), "status_code", None)
@@ -2265,6 +2305,113 @@ async def telegram_webhook(request: Request):
         telegram_contact_keyboard(),
     )
     return {"ok": True}
+
+
+@app.get("/api/device-code")
+def current_device_code(request: Request):
+    user = require_user(request)
+    ensure_schema()
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                select display_code, language, created_at, expires_at
+                from yachat_device_codes
+                where user_id = %s and used_at is null and expires_at > now()
+                order by created_at desc
+                limit 1
+                """,
+                (user["id"],),
+            )
+            row = cursor.fetchone()
+    if not row:
+        return {"code": "", "expiresAt": None, "ttlSeconds": DEVICE_CODE_TTL_MINUTES * 60}
+    return {
+        "code": str(row["display_code"]),
+        "language": str(row["language"] or "ru"),
+        "createdAt": row["created_at"],
+        "expiresAt": row["expires_at"],
+        "ttlSeconds": DEVICE_CODE_TTL_MINUTES * 60,
+    }
+
+
+@app.post("/api/device-code")
+async def create_device_code(request: Request):
+    user = require_user(request)
+    enforce_rate_limit(request, "device-code-create", 20, 600)
+    payload = await read_json_payload(request)
+    language = "en" if str(payload.get("language") or "").lower() == "en" else "ru"
+    expires_at = utc_now() + timedelta(minutes=DEVICE_CODE_TTL_MINUTES)
+
+    with connect_db() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "update yachat_device_codes set used_at = now() where user_id = %s and used_at is null",
+                (user["id"],),
+            )
+            for _ in range(20):
+                raw_code, display_code = generate_device_code(language)
+                try:
+                    cursor.execute(
+                        """
+                        insert into yachat_device_codes(
+                            id, user_id, code_hash, display_code, language, created_at, expires_at
+                        )
+                        values (%s, %s, %s, %s, %s, now(), %s)
+                        """,
+                        (str(uuid.uuid4()), user["id"], hash_secret(raw_code), display_code, language, expires_at),
+                    )
+                    return {
+                        "code": display_code,
+                        "language": language,
+                        "expiresAt": expires_at,
+                        "ttlSeconds": DEVICE_CODE_TTL_MINUTES * 60,
+                    }
+                except psycopg.errors.UniqueViolation:
+                    continue
+    raise HTTPException(status_code=503, detail="Could not create a sign-in code.")
+
+
+@app.post("/api/device-code/redeem")
+async def redeem_device_code(request: Request):
+    enforce_rate_limit(request, "device-code-redeem", 18, 300)
+    ensure_schema()
+    payload = await read_json_payload(request)
+    raw_code = normalize_device_code(payload.get("code"))
+    if len(raw_code) != 6 or not any(character.isalpha() for character in raw_code) or not any(character.isdigit() for character in raw_code):
+        raise HTTPException(status_code=400, detail="Enter the complete six-character code.")
+
+    with connect_db() as connection:
+        with connection.transaction():
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    update yachat_device_codes
+                    set used_at = now()
+                    where id = (
+                        select id
+                        from yachat_device_codes
+                        where code_hash = %s and used_at is null and expires_at > now()
+                        order by created_at desc
+                        limit 1
+                    )
+                    returning user_id
+                    """,
+                    (hash_secret(raw_code),),
+                )
+                redeemed = cursor.fetchone()
+                if not redeemed:
+                    raise HTTPException(status_code=401, detail="The sign-in code is invalid or expired.")
+                cursor.execute("select * from public_users where id = %s limit 1", (redeemed["user_id"],))
+                user = cursor.fetchone()
+                if not user:
+                    raise HTTPException(status_code=404, detail="Account not found.")
+                token = insert_session(cursor, str(user["id"]))
+                return {
+                    "ok": True,
+                    "account": public_account(dict(user), token),
+                    "sessionToken": token,
+                }
 
 
 @app.get("/api/status")
@@ -2473,7 +2620,7 @@ async def create_account(request: Request):
     display_name = clean_text(payload.get("displayName"), 60)
     username = normalize_username(payload.get("username")) or f"user_{secrets.randbelow(9000) + 1000}"
     bio = clean_text(payload.get("bio"), 140)
-    avatar_url = clean_text(payload.get("avatarDataUrl"), 900000)
+    avatar_url = clean_text(payload.get("avatarDataUrl"), 3500000)
     avatar_accent = clean_text(payload.get("avatarAccent") or "#471AFF", 24)
     if not display_name:
         raise HTTPException(status_code=400, detail="Enter a name.")
@@ -2539,7 +2686,7 @@ async def update_account(request: Request):
     display_name = clean_text(payload.get("displayName"), 60)
     username = normalize_username(payload.get("username"))
     bio = clean_text(payload.get("bio"), 140)
-    avatar_url = clean_text(payload.get("avatarDataUrl"), 900000)
+    avatar_url = clean_text(payload.get("avatarDataUrl"), 3500000)
     avatar_accent = clean_text(payload.get("avatarAccent") or row_value(user, "avatar_accent") or "#471AFF", 24)
 
     if not display_name:
@@ -2707,7 +2854,7 @@ async def create_chat(request: Request):
                         chat_id,
                         clean_text(payload.get("title"), 60),
                         clean_text(payload.get("description"), 180),
-                        clean_text(payload.get("avatarDataUrl"), 900000),
+                        clean_text(payload.get("avatarDataUrl"), 3500000),
                         user["id"],
                     ),
                 )
@@ -2744,7 +2891,7 @@ async def update_chat(request: Request):
 
                 title = clean_text(payload.get("title"), 60) or "ЯЧат"
                 description = clean_text(payload.get("description"), 180) or "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления."
-                avatar_url = clean_text(payload.get("avatarDataUrl"), 900000)
+                avatar_url = clean_text(payload.get("avatarDataUrl"), 3500000)
                 cursor.execute(
                     """
                     insert into yachat_system_chats(id, title, description, avatar_url, updated_at)
@@ -2786,7 +2933,7 @@ async def update_chat(request: Request):
 
             if "avatarDataUrl" in payload:
                 updates.append("avatar_url = %s")
-                params.append(clean_text(payload.get("avatarDataUrl"), 900000))
+                params.append(clean_text(payload.get("avatarDataUrl"), 3500000))
 
             if updates:
                 params.append(chat_id)
