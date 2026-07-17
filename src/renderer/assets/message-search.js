@@ -23,10 +23,26 @@
     return typeof iconSvg === "function" ? iconSvg(name) : "";
   }
 
+  function language() {
+    try {
+      return typeof state !== "undefined" && state?.language === "en" ? "en" : "ru";
+    } catch {
+      return "ru";
+    }
+  }
+
+  function copy() {
+    return language() === "en"
+      ? { placeholder: "Search", cancel: "Cancel", aria: "Search messages" }
+      : { placeholder: "Найти", cancel: "Отменить", aria: "Поиск сообщений" };
+  }
+
   function observeMessages() {
     if (!messageObserver) {
       messageObserver = new MutationObserver(() => {
-        if (!searchBar || searchBar.hidden || !input?.value.trim()) return;
+        if (!searchBar || searchBar.hidden || !input?.value.trim()) {
+          return;
+        }
         scheduleSearch({ backgroundRefresh: true });
       });
     }
@@ -43,19 +59,27 @@
   }
 
   function ensureSearchBar() {
-    if (searchBar) return searchBar;
+    if (searchBar) {
+      return searchBar;
+    }
 
+    const text = copy();
     searchBar = document.createElement("form");
     searchBar.className = "dialog-message-search";
     searchBar.hidden = true;
     searchBar.setAttribute("role", "search");
     searchBar.innerHTML = `
-      <span class="dialog-message-search-icon" aria-hidden="true">${svg("search")}</span>
-      <input type="search" autocomplete="off" enterkeyhint="search" placeholder="Найти сообщение" aria-label="Поиск сообщений" />
-      <output aria-live="polite">0/0</output>
-      <button type="button" data-message-search-prev aria-label="Предыдущее совпадение">${svg("chevron-left")}</button>
-      <button type="button" data-message-search-next aria-label="Следующее совпадение">${svg("chevron-right")}</button>
-      <button type="button" data-message-search-close aria-label="Закрыть поиск">${svg("x")}</button>
+      <label class="dialog-message-search-field">
+        <span class="dialog-message-search-icon" aria-hidden="true">${svg("search")}</span>
+        <input type="search" autocomplete="off" enterkeyhint="search" placeholder="${text.placeholder}" aria-label="${text.aria}" />
+        <button class="dialog-message-search-clear" type="button" data-message-search-clear aria-label="Очистить поиск" hidden>${svg("x")}</button>
+      </label>
+      <div class="dialog-message-search-nav" aria-label="Совпадения">
+        <output aria-live="polite">0/0</output>
+        <button type="button" data-message-search-prev aria-label="Предыдущее совпадение">${svg("chevron-up")}</button>
+        <button type="button" data-message-search-next aria-label="Следующее совпадение">${svg("chevron-down")}</button>
+      </div>
+      <button class="dialog-message-search-cancel" type="button" data-message-search-close>${text.cancel}</button>
     `;
     dialogHead.insertAdjacentElement("afterend", searchBar);
     input = searchBar.querySelector("input");
@@ -65,7 +89,16 @@
       event.preventDefault();
       moveMatch(1);
     });
-    searchBar.addEventListener("input", scheduleSearch);
+    input.addEventListener("input", () => {
+      updateClearButton();
+      scheduleSearch();
+    });
+    searchBar.querySelector("[data-message-search-clear]")?.addEventListener("click", () => {
+      input.value = "";
+      updateClearButton();
+      scheduleSearch();
+      input.focus({ preventScroll: true });
+    });
     searchBar.querySelector("[data-message-search-prev]")?.addEventListener("click", () => moveMatch(-1));
     searchBar.querySelector("[data-message-search-next]")?.addEventListener("click", () => moveMatch(1));
     searchBar.querySelector("[data-message-search-close]")?.addEventListener("click", closeSearch);
@@ -74,6 +107,13 @@
       hydrateIcons(searchBar);
     }
     return searchBar;
+  }
+
+  function updateClearButton() {
+    const clearButton = searchBar?.querySelector("[data-message-search-clear]");
+    if (clearButton) {
+      clearButton.hidden = !input?.value;
+    }
   }
 
   function restoreTextElement(element) {
@@ -102,7 +142,9 @@
     let cursor = 0;
     let index = lowerSource.indexOf(lowerQuery);
 
-    if (index < 0) return;
+    if (index < 0) {
+      return;
+    }
 
     const fragment = document.createDocumentFragment();
     while (index !== -1) {
@@ -128,18 +170,23 @@
     element.__yachatSearchSourceHtml = element.innerHTML;
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        if (!node.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
-        if (node.parentElement?.closest("mark")) return NodeFilter.FILTER_REJECT;
+        if (!node.nodeValue?.trim() || node.parentElement?.closest("mark")) {
+          return NodeFilter.FILTER_REJECT;
+        }
         return NodeFilter.FILTER_ACCEPT;
       }
     });
     const textNodes = [];
-    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    while (walker.nextNode()) {
+      textNodes.push(walker.currentNode);
+    }
     textNodes.forEach((node) => markTextNode(node, query));
   }
 
   function updateCounter() {
-    if (!countLabel) return;
+    if (!countLabel) {
+      return;
+    }
     countLabel.textContent = matches.length && activeIndex >= 0
       ? `${activeIndex + 1}/${matches.length}`
       : `0/${matches.length}`;
@@ -171,7 +218,9 @@
   }
 
   function applySearch(options = {}) {
-    if (!input || searchBar?.hidden) return;
+    if (!input || searchBar?.hidden) {
+      return;
+    }
     const query = input.value.trim();
 
     pauseMessageObserver(() => {
@@ -193,9 +242,7 @@
     });
 
     updateCounter();
-    if (matches.length === 1) {
-      focusMatch(0, { instant: Boolean(options.backgroundRefresh) });
-    } else if (matches.length > 1 && !options.backgroundRefresh) {
+    if (matches.length && !options.backgroundRefresh) {
       focusMatch(0);
     }
   }
@@ -206,7 +253,9 @@
   }
 
   function moveMatch(direction) {
-    if (!matches.length) return;
+    if (!matches.length) {
+      return;
+    }
     focusMatch(activeIndex < 0 ? 0 : activeIndex + direction);
   }
 
@@ -215,6 +264,7 @@
     searchBar.hidden = false;
     dialogPane.classList.add("message-search-open");
     searchButton.setAttribute("aria-pressed", "true");
+    updateClearButton();
     requestAnimationFrame(() => {
       input.focus({ preventScroll: true });
       input.select();
@@ -223,9 +273,12 @@
   }
 
   function closeSearch() {
-    if (!searchBar || searchBar.hidden) return;
+    if (!searchBar || searchBar.hidden) {
+      return;
+    }
     clearHighlights();
     input.value = "";
+    updateClearButton();
     searchBar.hidden = true;
     dialogPane.classList.remove("message-search-open");
     searchButton.setAttribute("aria-pressed", "false");
@@ -235,8 +288,11 @@
   searchButton.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (searchBar && !searchBar.hidden) closeSearch();
-    else openSearch();
+    if (searchBar && !searchBar.hidden) {
+      closeSearch();
+    } else {
+      openSearch();
+    }
   }, true);
 
   document.addEventListener("keydown", (event) => {
