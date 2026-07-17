@@ -1,1 +1,179 @@
-/* temporary placeholder; implementation follows in the feature branch */
+/* Горизонтальный выбор контакта для упоминания через @. */
+
+.composer {
+  position: relative;
+}
+
+.mention-people-strip {
+  position: absolute;
+  z-index: 18;
+  right: 10px;
+  bottom: calc(100% + 8px);
+  left: 10px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--card-edge), transparent 12%);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--page), var(--surface) 42%);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(24px) saturate(135%);
+  -webkit-backdrop-filter: blur(24px) saturate(135%);
+}
+
+.mention-people-strip[hidden] {
+  display: none !important;
+}
+
+.mention-people-scroller {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 7px;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mention-people-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+.mention-person {
+  display: grid;
+  grid-template-columns: 40px minmax(76px, 1fr);
+  flex: 0 0 auto;
+  gap: 9px;
+  align-items: center;
+  min-width: 142px;
+  max-width: 208px;
+  min-height: 54px;
+  padding: 7px 10px 7px 7px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  scroll-snap-align: start;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mention-person:hover,
+.mention-person:focus-visible,
+.mention-person.is-selected {
+  outline: 0;
+  background: color-mix(in srgb, var(--surface-hover), transparent 8%);
+}
+
+.mention-person:active {
+  transform: scale(0.985);
+}
+
+.mention-person-avatar {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--mention-avatar, var(--accent)), var(--yachat-purple));
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.mention-person-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mention-person-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.mention-person-copy strong,
+.mention-person-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-person-copy strong {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mention-person-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.mention-person-copy .verified-mark-button,
+.mention-person-copy .verified-mark {
+  width: 14px !important;
+  height: 14px !important;
+  flex: 0 0 14px;
+}
+
+.message-editor .message-mention,
+.message-text .message-mention {
+  padding: 0 0.12em;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent), transparent 82%);
+  color: color-mix(in srgb, var(--yachat-comet), #fff 20%);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+:root[data-theme="light"] .message-editor .message-mention,
+:root[data-theme="light"] .message-text .message-mention {
+  color: #236fd0;
+}
+
+.message-text .message-mention:hover,
+.message-text .message-mention:focus-visible {
+  outline: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .mention-people-strip {
+    right: 7px;
+    bottom: calc(100% + 6px);
+    left: 7px;
+    border-radius: 17px;
+  }
+
+  .mention-people-scroller {
+    gap: 2px;
+    padding: 6px;
+  }
+
+  .mention-person {
+    grid-template-columns: 38px minmax(68px, 1fr);
+    min-width: 132px;
+    min-height: 52px;
+    padding: 7px 9px 7px 7px;
+    border-radius: 13px;
+  }
+
+  .mention-person-avatar {
+    width: 38px;
+    height: 38px;
+    font-size: 17px;
+  }
+}
