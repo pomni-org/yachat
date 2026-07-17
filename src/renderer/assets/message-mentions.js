@@ -5,9 +5,7 @@
   const editor = document.querySelector("[data-rich-message-editor]");
   const messageListElement = document.querySelector("[data-message-list]");
 
-  if (!form || !editor || !messageListElement) {
-    return;
-  }
+  if (!form || !editor || !messageListElement) return;
 
   const mentionState = {
     strip: null,
@@ -17,6 +15,7 @@
     directory: [],
     directoryLoaded: false,
     directoryLoading: false,
+    retryAfter: 0,
     activeIndex: 0,
     decorateFrame: 0,
     triggerFrame: 0
@@ -32,31 +31,39 @@
 
   function copy() {
     return language() === "en"
-      ? {
-          loading: "Loading contacts…",
-          empty: "No matching contacts",
-          open: "Open profile"
-        }
-      : {
-          loading: "Загружаю контакты…",
-          empty: "Подходящих контактов нет",
-          open: "Открыть профиль"
-        };
+      ? { loading: "Loading contacts…", empty: "No matching contacts", open: "Open profile" }
+      : { loading: "Загружаю контакты…", empty: "Подходящих контактов нет", open: "Открыть профиль" };
+  }
+
+  function accountId() {
+    try {
+      return String(state?.account?.id || "");
+    } catch {
+      return "";
+    }
+  }
+
+  function currentChat() {
+    try {
+      return typeof getActiveChat === "function" ? getActiveChat() : null;
+    } catch {
+      return null;
+    }
   }
 
   function cleanUser(raw) {
     if (!raw) return null;
+
     try {
-      if (typeof normalizeUser === "function") {
-        return normalizeUser(raw);
-      }
+      if (typeof normalizeUser === "function") return normalizeUser(raw);
     } catch {
-      // Fall through to the small local normalizer.
+      // Use the local normalizer below.
     }
 
     const id = String(raw.id || "").trim();
     const username = String(raw.username || "").trim().replace(/^@+/, "");
     if (!id || !username) return null;
+
     return {
       ...raw,
       id,
@@ -66,68 +73,49 @@
     };
   }
 
-  function activeChat() {
-    try {
-      return typeof getActiveChat === "function" ? getActiveChat() : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function activeParticipantIds() {
-    const chat = activeChat();
-    return new Set((Array.isArray(chat?.participantIds) ? chat.participantIds : [])
-      .map((id) => String(id || ""))
-      .filter(Boolean));
-  }
-
-  function localUsers() {
-    const chat = activeChat();
-    const collections = [];
-
-    if (chat?.pendingSearchUser) collections.push(chat.pendingSearchUser);
-    collections.push(...Object.values(chat?.participantProfiles || {}));
-
-    try {
-      if (typeof historicalChatUsers === "function") {
-        collections.push(...historicalChatUsers(""));
-      }
-    } catch {
-      // Historical contacts are optional.
-    }
-
-    try {
-      collections.push(...(Array.isArray(state?.contactMatches) ? state.contactMatches : []));
-      collections.push(...(Array.isArray(state?.chatSearchUsers) ? state.chatSearchUsers : []));
-      collections.push(...(Array.isArray(state?.createChatUsers) ? state.createChatUsers : []));
-    } catch {
-      // State can be unavailable during the first boot frame.
-    }
-
-    collections.push(...mentionState.directory);
-    return collections;
-  }
-
   function dedupeUsers(items) {
-    const ownId = String(globalThis.state?.account?.id || "");
-    const byKey = new Map();
+    const ownId = accountId();
+    const users = new Map();
 
     items.forEach((item) => {
       const user = cleanUser(item);
       if (!user?.id || !user.username || user.id === ownId || user.bot) return;
-      const key = user.id || user.username.toLocaleLowerCase();
-      if (!byKey.has(key)) byKey.set(key, user);
+      const key = String(user.id);
+      if (!users.has(key)) users.set(key, user);
     });
 
-    return [...byKey.values()];
+    return [...users.values()];
   }
 
-  function allKnownUsers() {
-    const participantIds = activeParticipantIds();
+  function localUsers() {
+    const chat = currentChat();
+    const users = [];
+
+    if (chat?.pendingSearchUser) users.push(chat.pendingSearchUser);
+    users.push(...Object.values(chat?.participantProfiles || {}));
+
+    try {
+      if (typeof historicalChatUsers === "function") users.push(...historicalChatUsers(""));
+      users.push(...(Array.isArray(state?.contactMatches) ? state.contactMatches : []));
+      users.push(...(Array.isArray(state?.chatSearchUsers) ? state.chatSearchUsers : []));
+      users.push(...(Array.isArray(state?.createChatUsers) ? state.createChatUsers : []));
+    } catch {
+      // The app can still be on the sign-in screen.
+    }
+
+    users.push(...mentionState.directory);
+    return users;
+  }
+
+  function knownUsers() {
+    const participantIds = new Set((Array.isArray(currentChat()?.participantIds) ? currentChat().participantIds : [])
+      .map((id) => String(id || ""))
+      .filter(Boolean));
+
     return dedupeUsers(localUsers()).sort((left, right) => {
-      const leftParticipant = participantIds.has(String(left.id)) ? 1 : 0;
-      const rightParticipant = participantIds.has(String(right.id)) ? 1 : 0;
-      if (leftParticipant !== rightParticipant) return rightParticipant - leftParticipant;
+      const leftInChat = participantIds.has(String(left.id)) ? 1 : 0;
+      const rightInChat = participantIds.has(String(right.id)) ? 1 : 0;
+      if (leftInChat !== rightInChat) return rightInChat - leftInChat;
       return String(left.displayName || left.username).localeCompare(
         String(right.displayName || right.username),
         language() === "en" ? "en" : "ru"
@@ -135,12 +123,14 @@
     });
   }
 
-  function userSearchText(user) {
+  function searchText(user) {
     return `${user.displayName || ""} ${user.username || ""}`.toLocaleLowerCase();
   }
 
   async function ensureDirectory() {
-    if (mentionState.directoryLoaded || mentionState.directoryLoading) return;
+    if (!accountId() || mentionState.directoryLoaded || mentionState.directoryLoading) return;
+    if (Date.now() < mentionState.retryAfter) return;
+
     mentionState.directoryLoading = true;
     renderStrip();
 
@@ -149,8 +139,10 @@
       const users = usersApi?.list ? await usersApi.list() : [];
       mentionState.directory = dedupeUsers(Array.isArray(users) ? users : []);
       mentionState.directoryLoaded = true;
+      mentionState.retryAfter = 0;
     } catch {
-      mentionState.directoryLoaded = true;
+      mentionState.directoryLoaded = false;
+      mentionState.retryAfter = Date.now() + 30000;
     } finally {
       mentionState.directoryLoading = false;
       renderStrip();
@@ -169,9 +161,7 @@
     form.prepend(strip);
 
     strip.addEventListener("pointerdown", (event) => {
-      if (event.target.closest("[data-mention-user-id]")) {
-        event.preventDefault();
-      }
+      if (event.target.closest("[data-mention-user-id]")) event.preventDefault();
     });
 
     strip.addEventListener("click", (event) => {
@@ -208,8 +198,8 @@
     }
 
     const query = mentionState.query.toLocaleLowerCase();
-    mentionState.candidates = allKnownUsers()
-      .filter((user) => !query || userSearchText(user).includes(query))
+    mentionState.candidates = knownUsers()
+      .filter((user) => !query || searchText(user).includes(query))
       .slice(0, 18);
 
     if (mentionState.activeIndex >= mentionState.candidates.length) {
@@ -242,10 +232,8 @@
     strip.hidden = false;
   }
 
-  function currentMentionContext() {
-    if (editor.getAttribute("aria-disabled") === "true" || editor.contentEditable === "false") {
-      return null;
-    }
+  function mentionContextAtCaret() {
+    if (editor.getAttribute("aria-disabled") === "true" || editor.contentEditable === "false") return null;
 
     const selection = window.getSelection();
     if (!selection || !selection.isCollapsed || selection.rangeCount === 0) return null;
@@ -267,7 +255,7 @@
   }
 
   function updateTrigger() {
-    const context = currentMentionContext();
+    const context = mentionContextAtCaret();
     if (!context) {
       hideStrip();
       return;
@@ -285,15 +273,6 @@
     mentionState.triggerFrame = requestAnimationFrame(updateTrigger);
   }
 
-  function setCaretAfter(node) {
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.setStartAfter(node);
-    range.collapse(true);
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-  }
-
   function insertMention(user) {
     const range = mentionState.range;
     if (!range || !editor.contains(range.commonAncestorContainer)) {
@@ -307,14 +286,20 @@
     range.deleteContents();
     const textNode = document.createTextNode(`@${username}\u00a0`);
     range.insertNode(textNode);
-    setCaretAfter(textNode);
+
+    const selection = window.getSelection();
+    const caret = document.createRange();
+    caret.setStartAfter(textNode);
+    caret.collapse(true);
+    selection?.removeAllRanges();
+    selection?.addRange(caret);
+
     hideStrip();
     editor.focus({ preventScroll: true });
-    editor.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertText",
-      data: `@${username} `
-    }));
+    const inputEvent = typeof InputEvent === "function"
+      ? new InputEvent("input", { bubbles: true, inputType: "insertText", data: `@${username} ` })
+      : new Event("input", { bubbles: true });
+    editor.dispatchEvent(inputEvent);
   }
 
   function moveActive(direction) {
@@ -328,28 +313,25 @@
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
 
-  function userMap() {
+  function usersByUsername() {
     const map = new Map();
-    allKnownUsers().forEach((user) => {
-      map.set(String(user.username || "").toLocaleLowerCase(), user);
-    });
+    knownUsers().forEach((user) => map.set(String(user.username).toLocaleLowerCase(), user));
     return map;
   }
 
   function decorateTextNode(node, users) {
     const source = node.nodeValue || "";
     const pattern = /(^|[^\p{L}\p{N}_])@([\p{L}\p{N}._-]{3,32})/gu;
-    const matches = [...source.matchAll(pattern)].filter((match) => users.has(match[2].toLocaleLowerCase()));
+    const matches = [...source.matchAll(pattern)]
+      .filter((match) => users.has(match[2].toLocaleLowerCase()));
     if (matches.length === 0) return;
 
     const fragment = document.createDocumentFragment();
     let cursor = 0;
+
     matches.forEach((match) => {
-      const prefixLength = match[1].length;
-      const mentionStart = match.index + prefixLength;
-      if (mentionStart > cursor) {
-        fragment.append(document.createTextNode(source.slice(cursor, mentionStart)));
-      }
+      const mentionStart = match.index + match[1].length;
+      if (mentionStart > cursor) fragment.append(document.createTextNode(source.slice(cursor, mentionStart)));
 
       const user = users.get(match[2].toLocaleLowerCase());
       const button = document.createElement("button");
@@ -363,18 +345,17 @@
       cursor = match.index + match[0].length;
     });
 
-    if (cursor < source.length) {
-      fragment.append(document.createTextNode(source.slice(cursor)));
-    }
+    if (cursor < source.length) fragment.append(document.createTextNode(source.slice(cursor)));
     node.replaceWith(fragment);
   }
 
   function decorateMessages() {
-    const users = userMap();
+    const users = usersByUsername();
     if (users.size === 0) return;
 
     messageListElement.querySelectorAll(".message-bubble > .message-text, .message-bubble > p").forEach((element) => {
       if (element.querySelector(".message-search-hit")) return;
+
       const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
         acceptNode(node) {
           if (!node.nodeValue?.includes("@")) return NodeFilter.FILTER_REJECT;
@@ -392,27 +373,32 @@
 
   function scheduleDecorate() {
     cancelAnimationFrame(mentionState.decorateFrame);
-    mentionState.decorateFrame = requestAnimationFrame(decorateMessages);
+    mentionState.decorateFrame = requestAnimationFrame(() => {
+      decorateMessages();
+      if (accountId() && messageListElement.textContent.includes("@") && !mentionState.directoryLoaded) {
+        void ensureDirectory();
+      }
+    });
   }
 
   async function resolveUser(username, userId = "") {
-    const lowerUsername = String(username || "").replace(/^@+/, "").toLocaleLowerCase();
-    const local = allKnownUsers().find((user) => (
-      String(user.id) === String(userId) || String(user.username).toLocaleLowerCase() === lowerUsername
+    const normalizedUsername = String(username || "").replace(/^@+/, "").toLocaleLowerCase();
+    const local = knownUsers().find((user) => (
+      String(user.id) === String(userId) || String(user.username).toLocaleLowerCase() === normalizedUsername
     ));
     if (local) return local;
 
     try {
       const usersApi = typeof yachatApi !== "undefined" ? yachatApi?.users : null;
       const result = usersApi?.search
-        ? await usersApi.search(lowerUsername)
+        ? await usersApi.search(normalizedUsername)
         : usersApi?.list
           ? await usersApi.list()
           : [];
       const users = dedupeUsers(Array.isArray(result) ? result : []);
       mentionState.directory = dedupeUsers([...mentionState.directory, ...users]);
       return users.find((user) => (
-        String(user.id) === String(userId) || String(user.username).toLocaleLowerCase() === lowerUsername
+        String(user.id) === String(userId) || String(user.username).toLocaleLowerCase() === normalizedUsername
       )) || null;
     } catch {
       return null;
@@ -445,25 +431,20 @@
       scheduleTriggerUpdate();
     }
   });
+
   editor.addEventListener("keydown", (event) => {
     if (!mentionState.strip || mentionState.strip.hidden) return;
 
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
       event.preventDefault();
       moveActive(1);
-      return;
-    }
-    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
       event.preventDefault();
       moveActive(-1);
-      return;
-    }
-    if (event.key === "Enter" && mentionState.candidates[mentionState.activeIndex]) {
+    } else if (event.key === "Enter" && mentionState.candidates[mentionState.activeIndex]) {
       event.preventDefault();
       insertMention(mentionState.candidates[mentionState.activeIndex]);
-      return;
-    }
-    if (event.key === "Escape") {
+    } else if (event.key === "Escape") {
       event.preventDefault();
       hideStrip();
     }
@@ -492,7 +473,5 @@
 
   const observer = new MutationObserver(scheduleDecorate);
   observer.observe(messageListElement, { childList: true, subtree: true });
-
-  void ensureDirectory();
   scheduleDecorate();
 })();
