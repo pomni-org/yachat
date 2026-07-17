@@ -10,13 +10,17 @@ self.addEventListener("push", (event) => {
     };
   }
 
+  const targetUrl = payload.url || "/";
   const title = payload.title || "ЯЧат";
   const options = {
     body: payload.body || "Новое сообщение",
-    icon: "/assets/yachat-brand-192.png?v=5",
-    badge: "/assets/yachat-brand-notification.png?v=5",
+    icon: "/assets/yachat-brand-180.png?v=24",
+    badge: "/assets/yachat-brand-notification.png?v=24",
+    tag: payload.tag || `yachat:${targetUrl}`,
+    renotify: true,
+    timestamp: Date.now(),
     data: {
-      url: payload.url || "/"
+      url: targetUrl
     }
   };
 
@@ -29,11 +33,14 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil((async () => {
     const windows = await clients.matchAll({ type: "window", includeUncontrolled: true });
-    const existing = windows.find((client) => client.url.startsWith(self.location.origin));
+    const exact = windows.find((client) => client.url === url);
+    const existing = exact || windows.find((client) => client.url.startsWith(self.location.origin));
 
     if (existing) {
+      if ("navigate" in existing && existing.url !== url) {
+        await existing.navigate(url);
+      }
       await existing.focus();
-      existing.navigate(url);
       return;
     }
 
