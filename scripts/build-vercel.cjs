@@ -1,7 +1,10 @@
 const fs = require("fs/promises");
 const path = require("path");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 const { generate } = require("./generate-brand-assets.cjs");
 
+const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const rendererDir = path.join(root, "src", "renderer");
 const outputDir = path.join(root, "public");
@@ -20,7 +23,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "35";
+const BRAND_VERSION = "36";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -40,6 +43,7 @@ const STYLE_ASSETS = [
   "ui-accessibility.css",
   "message-search.css",
   "rich-composer.css",
+  "message-mentions.css",
   "media-emoji-upgrade.css",
   "system-upgrade-v29.css"
 ];
@@ -59,6 +63,7 @@ const SCRIPT_ASSETS = [
   "ui-accessibility.js",
   "message-search.js",
   "rich-composer.js",
+  "message-mentions.js",
   "media-emoji-upgrade.js",
   "system-upgrade-v29.js"
 ];
@@ -80,6 +85,14 @@ const BRAND_REPLACEMENTS = [
 
 async function copyFile(name) {
   await fs.copyFile(path.join(rendererDir, name), path.join(outputDir, name));
+}
+
+async function validateRuntimeScripts() {
+  const requiredScripts = ["message-search.js", "message-mentions.js"];
+  await Promise.all(requiredScripts.map((name) => execFileAsync(process.execPath, [
+    "--check",
+    path.join(rendererDir, "assets", name)
+  ])));
 }
 
 async function rewriteBrandReferences(name) {
@@ -135,6 +148,7 @@ async function normalizeWebAssetPaths() {
 }
 
 async function build() {
+  await validateRuntimeScripts();
   generate(path.join(rendererDir, "assets"));
 
   await fs.rm(outputDir, { recursive: true, force: true });

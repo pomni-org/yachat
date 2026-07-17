@@ -1,0 +1,158 @@
+/* Упоминания работают только внутри формы сообщения и текста сообщений. */
+
+.message-mention-strip {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: stretch;
+  gap: 9px;
+  min-width: 0;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 1px 5px;
+  scrollbar-width: none;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline proximity;
+}
+
+.message-mention-strip[hidden] {
+  display: none !important;
+}
+
+.message-mention-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.message-mention-option {
+  display: grid;
+  grid-template-columns: 40px minmax(86px, auto);
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+  min-width: 142px;
+  max-width: 210px;
+  height: 54px;
+  padding: 6px 11px 6px 7px;
+  border: 1px solid color-mix(in srgb, var(--card-edge), transparent 12%);
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--surface), transparent 10%);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  scroll-snap-align: start;
+}
+
+.message-mention-option.is-active,
+.message-mention-option:focus-visible,
+.message-mention-option:active {
+  border-color: color-mix(in srgb, var(--accent), transparent 34%);
+  background: color-mix(in srgb, var(--accent), var(--surface) 82%);
+  outline: 0;
+}
+
+.message-mention-avatar {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent), var(--surface) 72%);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.message-mention-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.message-mention-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.message-mention-copy strong,
+.message-mention-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-mention-copy strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.message-mention-copy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.message-mention-status {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.message-mention {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 650;
+  line-height: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.message-mention:hover,
+.message-mention:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  outline: 0;
+}
+
+.message-bubble.is-mine .message-mention {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, .55);
+  text-underline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .message-mention-strip {
+    margin-inline: -2px;
+    width: calc(100% + 4px);
+    padding-bottom: 4px;
+  }
+
+  .message-mention-option {
+    grid-template-columns: 38px minmax(78px, auto);
+    min-width: 132px;
+    height: 52px;
+    padding: 6px 10px 6px 7px;
+    border-radius: 16px;
+  }
+
+  .message-mention-avatar {
+    width: 38px;
+    height: 38px;
+  }
+}

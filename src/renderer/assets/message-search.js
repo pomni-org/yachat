@@ -19,6 +19,20 @@
   let refreshFrame = 0;
   let messageObserver = null;
 
+  function language() {
+    try {
+      return state?.language === "en" ? "en" : "ru";
+    } catch {
+      return "ru";
+    }
+  }
+
+  function labels() {
+    return language() === "en"
+      ? { placeholder: "Search messages", cancel: "Cancel", aria: "Search messages" }
+      : { placeholder: "Найти", cancel: "Отменить", aria: "Поиск по сообщениям" };
+  }
+
   function svg(name) {
     return typeof iconSvg === "function" ? iconSvg(name) : "";
   }
@@ -42,6 +56,14 @@
     }
   }
 
+  function refreshLabels() {
+    if (!searchBar || !input) return;
+    const copy = labels();
+    input.placeholder = copy.placeholder;
+    input.setAttribute("aria-label", copy.aria);
+    searchBar.querySelector("[data-message-search-close]").textContent = copy.cancel;
+  }
+
   function ensureSearchBar() {
     if (searchBar) return searchBar;
 
@@ -50,24 +72,23 @@
     searchBar.hidden = true;
     searchBar.setAttribute("role", "search");
     searchBar.innerHTML = `
-      <span class="dialog-message-search-icon" aria-hidden="true">${svg("search")}</span>
-      <input type="search" autocomplete="off" enterkeyhint="search" placeholder="Найти сообщение" aria-label="Поиск сообщений" />
-      <output aria-live="polite">0/0</output>
-      <button type="button" data-message-search-prev aria-label="Предыдущее совпадение">${svg("chevron-left")}</button>
-      <button type="button" data-message-search-next aria-label="Следующее совпадение">${svg("chevron-right")}</button>
-      <button type="button" data-message-search-close aria-label="Закрыть поиск">${svg("x")}</button>
+      <label class="dialog-message-search-field">
+        <span class="dialog-message-search-icon" aria-hidden="true">${svg("search")}</span>
+        <input type="search" autocomplete="off" enterkeyhint="search" />
+        <output aria-live="polite" hidden></output>
+      </label>
+      <button class="dialog-message-search-cancel" type="button" data-message-search-close></button>
     `;
-    dialogHead.insertAdjacentElement("afterend", searchBar);
+    dialogHead.before(searchBar);
     input = searchBar.querySelector("input");
     countLabel = searchBar.querySelector("output");
+    refreshLabels();
 
     searchBar.addEventListener("submit", (event) => {
       event.preventDefault();
       moveMatch(1);
     });
-    searchBar.addEventListener("input", scheduleSearch);
-    searchBar.querySelector("[data-message-search-prev]")?.addEventListener("click", () => moveMatch(-1));
-    searchBar.querySelector("[data-message-search-next]")?.addEventListener("click", () => moveMatch(1));
+    input.addEventListener("input", scheduleSearch);
     searchBar.querySelector("[data-message-search-close]")?.addEventListener("click", closeSearch);
 
     if (typeof hydrateIcons === "function") {
@@ -125,7 +146,9 @@
   }
 
   function highlightElement(element, query) {
-    element.__yachatSearchSourceHtml = element.innerHTML;
+    if (typeof element.__yachatSearchSourceHtml !== "string") {
+      element.__yachatSearchSourceHtml = element.innerHTML;
+    }
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         if (!node.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
@@ -140,13 +163,13 @@
 
   function updateCounter() {
     if (!countLabel) return;
+    const queryActive = Boolean(input?.value.trim());
+    countLabel.hidden = !queryActive || matches.length === 0;
     countLabel.textContent = matches.length && activeIndex >= 0
       ? `${activeIndex + 1}/${matches.length}`
-      : `0/${matches.length}`;
-
-    const disabled = matches.length === 0;
-    searchBar?.querySelector("[data-message-search-prev]")?.toggleAttribute("disabled", disabled);
-    searchBar?.querySelector("[data-message-search-next]")?.toggleAttribute("disabled", disabled);
+      : matches.length
+        ? `0/${matches.length}`
+        : "";
   }
 
   function focusMatch(index, options = {}) {
@@ -193,10 +216,10 @@
     });
 
     updateCounter();
-    if (matches.length === 1) {
-      focusMatch(0, { instant: Boolean(options.backgroundRefresh) });
-    } else if (matches.length > 1 && !options.backgroundRefresh) {
+    if (matches.length > 0 && !options.backgroundRefresh) {
       focusMatch(0);
+    } else if (matches.length === 1) {
+      focusMatch(0, { instant: true });
     }
   }
 
@@ -212,6 +235,7 @@
 
   function openSearch() {
     ensureSearchBar();
+    refreshLabels();
     searchBar.hidden = false;
     dialogPane.classList.add("message-search-open");
     searchButton.setAttribute("aria-pressed", "true");

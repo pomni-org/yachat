@@ -1,20 +1,24 @@
-/* ЯЧат: поиск по сообщениям непосредственно под шапкой чата. */
+/* Поиск по сообщениям: отдельная верхняя строка в стиле мобильного поиска. */
 
 .dialog-pane.message-search-open {
-  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
+}
+
+.dialog-pane.message-search-open > .dialog-head {
+  display: none !important;
 }
 
 .dialog-message-search {
-  z-index: 4;
+  z-index: 6;
   display: grid;
-  min-width: 0;
-  min-height: 54px;
-  padding: 7px 10px 7px 14px;
-  grid-template-columns: 24px minmax(0, 1fr) auto 36px 36px 36px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
-  border-bottom: 1px solid var(--card-edge);
-  background: color-mix(in srgb, var(--page), var(--surface) 28%);
+  gap: 16px;
+  min-width: 0;
+  min-height: 74px;
+  padding: max(12px, env(safe-area-inset-top)) 18px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--card-edge), transparent 20%);
+  background: color-mix(in srgb, var(--page), #17181b 36%);
   color: var(--text);
 }
 
@@ -22,65 +26,100 @@
   display: none !important;
 }
 
-.dialog-message-search-icon {
+.dialog-message-search-field {
   display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  height: 52px;
+  padding: 0 16px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface), #37383c 24%);
   color: var(--muted);
 }
 
-.dialog-message-search-icon svg,
-.dialog-message-search button svg {
-  width: 20px !important;
-  height: 20px !important;
-  max-width: 20px !important;
-  max-height: 20px !important;
+.dialog-message-search-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: color-mix(in srgb, var(--muted), transparent 6%);
+}
+
+.dialog-message-search-icon svg {
+  width: 27px !important;
+  height: 27px !important;
+  max-width: 27px !important;
+  max-height: 27px !important;
+  stroke-width: 1.7;
 }
 
 .dialog-message-search input {
   min-width: 0;
-  height: 38px;
-  padding: 0 11px;
+  width: 100%;
+  height: 100%;
+  padding: 0;
   border: 0;
-  border-radius: 12px;
+  border-radius: 0;
   outline: 0;
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 15px;
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 1;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
-.dialog-message-search input:focus {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 55%);
+.dialog-message-search input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.dialog-message-search input::placeholder {
+  color: color-mix(in srgb, var(--muted), transparent 12%);
+  opacity: 1;
 }
 
 .dialog-message-search output {
-  min-width: 38px;
+  min-width: 36px;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  text-align: center;
+  text-align: right;
 }
 
-.dialog-message-search button {
-  display: grid;
-  width: 36px;
-  height: 36px;
+.dialog-message-search output[hidden] {
+  display: none !important;
+}
+
+.dialog-message-search-cancel {
+  min-width: max-content;
+  height: 48px;
   padding: 0;
-  place-items: center;
   border: 0;
-  border-radius: 11px;
+  border-radius: 10px;
   background: transparent;
   color: var(--text);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 500;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
-.dialog-message-search button:disabled {
-  opacity: .3;
+.dialog-message-search-cancel:active {
+  opacity: .58;
 }
 
-.dialog-message-search button:not(:disabled):active {
-  background: var(--surface-hover);
+:root[data-theme="light"] .dialog-message-search {
+  background: color-mix(in srgb, var(--page), #eef0f4 72%);
+}
+
+:root[data-theme="light"] .dialog-message-search-field {
+  background: color-mix(in srgb, var(--surface), #d9dce3 42%);
 }
 
 .message-search-hit {
@@ -103,36 +142,45 @@
   outline-offset: 3px;
 }
 
-/* Последние несколько пикселей, из-за которых геометрия выглядела пьяной. */
-.settings-row:not(.settings-toggle-row) {
-  padding-inline-end: 9px;
-  grid-template-columns: 32px minmax(0, 1fr) auto 18px;
-}
-
-.settings-row-chevron {
-  justify-self: end;
-  margin-inline-end: 0;
-}
-
-.chat-pane-actions .round-action {
-  line-height: 0;
-}
-
-.chat-pane-actions .round-action > svg {
-  display: block;
-  margin: 0;
-  transform: none;
-}
-
 @media (max-width: 640px) {
   .dialog-message-search {
-    padding-inline: 10px;
-    grid-template-columns: 22px minmax(0, 1fr) auto 34px 34px 34px;
-    gap: 5px;
+    gap: 14px;
+    min-height: 70px;
+    padding-inline: 12px 16px;
   }
 
-  .dialog-message-search button {
-    width: 34px;
-    height: 34px;
+  .dialog-message-search-field {
+    height: 50px;
+    padding-inline: 14px;
+    border-radius: 18px;
+  }
+
+  .dialog-message-search input,
+  .dialog-message-search-cancel {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 390px) {
+  .dialog-message-search {
+    gap: 10px;
+    padding-inline: 10px 12px;
+  }
+
+  .dialog-message-search-field {
+    grid-template-columns: 25px minmax(0, 1fr) auto;
+    gap: 7px;
+    padding-inline: 12px;
+  }
+
+  .dialog-message-search-icon,
+  .dialog-message-search-icon svg {
+    width: 24px !important;
+    height: 24px !important;
+  }
+
+  .dialog-message-search input,
+  .dialog-message-search-cancel {
+    font-size: 17px;
   }
 }
