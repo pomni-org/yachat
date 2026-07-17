@@ -1,0 +1,75 @@
+name: Finalize compact composer layout
+
+on:
+  push:
+    paths:
+      - .github/workflows/codex-composer-layout-finalize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove the empty document column
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          css_path = Path("src/renderer/assets/media-emoji-upgrade.css")
+          css = css_path.read_text(encoding="utf-8")
+          marker = "/* Композер без пустой колонки удалённой кнопки документа. */"
+          if marker not in css:
+              css += r'''
+
+          /* Композер без пустой колонки удалённой кнопки документа. */
+          .composer {
+            grid-template-columns: 42px minmax(0, 1fr) 42px 50px;
+          }
+
+          .composer > [data-action="attach-file"] { grid-column: 1; }
+          .composer > input[name="message"],
+          .composer > .message-editor { grid-column: 2; }
+          .composer > [data-action="open-stickers"] { grid-column: 3; }
+          .composer > .send-button { grid-column: 4; }
+
+          @media (max-width: 640px) {
+            .composer {
+              grid-template-columns: 38px minmax(0, 1fr) 38px 48px;
+            }
+          }
+
+          @media (max-width: 390px) {
+            .composer {
+              grid-template-columns: 36px minmax(0, 1fr) 36px 46px;
+            }
+          }
+          '''
+          css_path.write_text(css, encoding="utf-8")
+
+          build_path = Path("scripts/build-vercel.cjs")
+          build = build_path.read_text(encoding="utf-8")
+          if 'const BRAND_VERSION = "27";' not in build:
+              raise SystemExit("expected asset version 27")
+          build_path.write_text(build.replace('const BRAND_VERSION = "27";', 'const BRAND_VERSION = "28";', 1), encoding="utf-8")
+          PY
+      - name: Verify and build
+        run: |
+          grep -q "Композер без пустой колонки" src/renderer/assets/media-emoji-upgrade.css
+          grep -q 'BRAND_VERSION = "28"' scripts/build-vercel.cjs
+          npm install
+          npm run build:vercel
+          node --check public/assets/media-emoji-upgrade.js
+          grep -q "media-emoji-upgrade.css?v=28" public/index.html
+          grep -q "media-emoji-upgrade.js?v=28" public/index.html
+      - name: Commit final layout
+        run: |
+          git config user.name "ЯЧат Codex"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/renderer/assets/media-emoji-upgrade.css scripts/build-vercel.cjs
+          git commit -m "fix(composer): remove empty document button column"
+          git push
