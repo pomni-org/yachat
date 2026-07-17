@@ -1,0 +1,41 @@
+name: Apply final message polish
+
+on:
+  push:
+    paths:
+      - .github/workflows/codex-final-message-polish.yml
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply final source polish
+        run: python scripts/codex-final-message-polish.py
+      - name: Verify sources
+        run: |
+          python -m py_compile api/index.py
+          node --check src/renderer/app.js
+          node --check src/renderer/assets/rich-composer.js
+          grep -q "submittedHtml = \"\"" src/renderer/assets/rich-composer.js
+          grep -q "data-photo-view" src/renderer/assets/rich-composer.js
+          grep -q "🔐 Код подтверждения ЯЧата" api/index.py
+          grep -q 'BRAND_VERSION = "26"' scripts/build-vercel.cjs
+      - name: Build web output
+        run: |
+          npm install
+          npm run build:vercel
+          grep -q "rich-composer.js?v=26" public/index.html
+          grep -q "rich-composer.css?v=26" public/index.html
+      - name: Commit polished sources
+        run: |
+          git config user.name "ЯЧат Codex"
+          git config user.email "actions@users.noreply.github.com"
+          git add api/index.py src/renderer/app.js src/renderer/assets/rich-composer.js scripts/build-vercel.cjs
+          git commit -m "fix(messages): finalize rich text and photo-only media UI"
+          git push
