@@ -1390,30 +1390,29 @@ function clamp(value, min, max) {
 
 function cropToDataUrl(source, crop = {}) {
   const image = crop.image;
-  if (!image) {
-    return "";
-  }
+  if (!image) return "";
 
-  const naturalSide = Math.max(256, Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height));
-  const side = Math.min(1024, naturalSide);
+  const sourceWidth = Math.max(1, image.naturalWidth || image.width || 1);
+  const sourceHeight = Math.max(1, image.naturalHeight || image.height || 1);
+  const naturalSide = Math.max(256, Math.min(sourceWidth, sourceHeight));
+  const side = Math.min(1600, naturalSide);
   const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
+  canvas.width = side;
+  canvas.height = side;
+  const context = canvas.getContext("2d", { alpha: true });
+  if (!context) return "";
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
   const zoom = clamp(Number(crop.zoom) || 1, 1, 3);
-  const scale = Math.max(side / image.width, side / image.height) * zoom;
-  const width = image.width * scale;
-  const height = image.height * scale;
+  const scale = Math.max(side / sourceWidth, side / sourceHeight) * zoom;
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
   const maxX = Math.max(0, (width - side) / 2);
   const maxY = Math.max(0, (height - side) / 2);
   const offsetX = clamp(Number(crop.x) || 0, -1, 1) * maxX;
   const offsetY = clamp(Number(crop.y) || 0, -1, 1) * maxY;
-
-  canvas.width = side;
-  canvas.height = side;
   context.drawImage(image, (side - width) / 2 + offsetX, (side - height) / 2 + offsetY, width, height);
-  const outputType = String(source || "").startsWith("data:image/png") ? "image/png" : "image/jpeg";
-  return canvas.toDataURL(outputType, outputType === "image/jpeg" ? 0.97 : undefined);
+  return canvas.toDataURL("image/webp", 0.96);
 }
 
 function closeAvatarCrop(reject = true) {

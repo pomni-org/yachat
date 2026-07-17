@@ -2378,7 +2378,7 @@ async def redeem_device_code(request: Request):
     ensure_schema()
     payload = await read_json_payload(request)
     raw_code = normalize_device_code(payload.get("code"))
-    if len(raw_code) != 6 or not any(character.isalpha() for character in raw_code) or not any(character.isdigit() for character in raw_code):
+    if not re.fullmatch(r"(?:[A-ZА-Я]{2}\d{4}|[A-ZА-Я]{3}\d{3})", raw_code):
         raise HTTPException(status_code=400, detail="Enter the complete six-character code.")
 
     with connect_db() as connection:
