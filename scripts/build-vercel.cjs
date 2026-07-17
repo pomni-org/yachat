@@ -20,7 +20,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "31";
+const BRAND_VERSION = "32";
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
   ["/assets/yachat-shortcut-180.png", `/assets/yachat-brand-180.png?v=${BRAND_VERSION}`],
