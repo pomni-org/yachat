@@ -20,7 +20,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "33";
+const BRAND_VERSION = "34";
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
   ["/assets/yachat-shortcut-180.png", `/assets/yachat-brand-180.png?v=${BRAND_VERSION}`],
@@ -84,6 +84,7 @@ async function injectEnhancementAssets() {
     '<script src="./app.js"></script>',
     [
       `<script src="/app.js?v=${BRAND_VERSION}"></script>`,
+      `    <script src="/assets/channel-subscriber-count.js?v=${BRAND_VERSION}"></script>`,
       `    <script src="/assets/chat-presence.js?v=${BRAND_VERSION}"></script>`,
       `    <script src="/assets/username-copy.js?v=${BRAND_VERSION}"></script>`,
       `    <script src="/assets/profile-modal.js?v=${BRAND_VERSION}"></script>`,
