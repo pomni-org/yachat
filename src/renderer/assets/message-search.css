@@ -1,20 +1,20 @@
-/* ЯЧат: поиск по сообщениям непосредственно под шапкой чата. */
+/* Поиск по сообщениям с нативной для iOS геометрией. */
 
 .dialog-pane.message-search-open {
   grid-template-rows: auto auto minmax(0, 1fr) auto !important;
 }
 
 .dialog-message-search {
-  z-index: 4;
+  z-index: 8;
   display: grid;
-  min-width: 0;
-  min-height: 54px;
-  padding: 7px 10px 7px 14px;
-  grid-template-columns: 24px minmax(0, 1fr) auto 36px 36px 36px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
   align-items: center;
-  gap: 7px;
+  min-width: 0;
+  min-height: 64px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--card-edge);
-  background: color-mix(in srgb, var(--page), var(--surface) 28%);
+  background: color-mix(in srgb, var(--page), var(--surface) 22%);
   color: var(--text);
 }
 
@@ -22,64 +22,143 @@
   display: none !important;
 }
 
+.dialog-message-search-field {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 30px;
+  align-items: center;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--surface), var(--yachat-white) 4%);
+  color: var(--text);
+}
+
+.dialog-message-search-field:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 58%);
+}
+
 .dialog-message-search-icon {
   display: grid;
-  width: 22px;
-  height: 22px;
   place-items: center;
+  width: 28px;
+  height: 28px;
   color: var(--muted);
 }
 
-.dialog-message-search-icon svg,
-.dialog-message-search button svg {
-  width: 20px !important;
-  height: 20px !important;
-  max-width: 20px !important;
-  max-height: 20px !important;
+.dialog-message-search-icon svg {
+  width: 24px !important;
+  height: 24px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  stroke-width: 2.1;
 }
 
 .dialog-message-search input {
   min-width: 0;
-  height: 38px;
-  padding: 0 11px;
+  width: 100%;
+  height: 44px;
+  padding: 0 6px;
   border: 0;
-  border-radius: 12px;
   outline: 0;
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 15px;
+  font-size: 17px;
+  font-weight: 400;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
-.dialog-message-search input:focus {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 55%);
+.dialog-message-search input::-webkit-search-cancel-button {
+  display: none;
 }
 
-.dialog-message-search output {
-  min-width: 38px;
+.dialog-message-search input::placeholder {
+  color: var(--muted);
+  opacity: .78;
+}
+
+.dialog-message-search button {
+  border: 0;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.dialog-message-search-clear {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted), transparent 72%);
+  color: var(--text);
+}
+
+.dialog-message-search-clear[hidden] {
+  display: none !important;
+}
+
+.dialog-message-search-clear svg {
+  width: 15px !important;
+  height: 15px !important;
+  max-width: 15px !important;
+  max-height: 15px !important;
+  stroke-width: 2.4;
+}
+
+.dialog-message-search-cancel {
+  min-width: max-content;
+  min-height: 44px;
+  padding: 0 3px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dialog-message-search-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.dialog-message-search-nav output {
+  min-width: 46px;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
-.dialog-message-search button {
+.dialog-message-search-nav button {
   display: grid;
-  width: 36px;
-  height: 36px;
-  padding: 0;
   place-items: center;
-  border: 0;
-  border-radius: 11px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
   background: transparent;
   color: var(--text);
 }
 
-.dialog-message-search button:disabled {
-  opacity: .3;
+.dialog-message-search-nav button svg {
+  width: 19px !important;
+  height: 19px !important;
+  max-width: 19px !important;
+  max-height: 19px !important;
 }
 
-.dialog-message-search button:not(:disabled):active {
+.dialog-message-search-nav button:disabled {
+  opacity: .28;
+}
+
+.dialog-message-search-nav button:not(:disabled):hover,
+.dialog-message-search-nav button:not(:disabled):focus-visible {
+  outline: 0;
   background: var(--surface-hover);
 }
 
@@ -103,36 +182,43 @@
   outline-offset: 3px;
 }
 
-/* Последние несколько пикселей, из-за которых геометрия выглядела пьяной. */
-.settings-row:not(.settings-toggle-row) {
-  padding-inline-end: 9px;
-  grid-template-columns: 32px minmax(0, 1fr) auto 18px;
-}
-
-.settings-row-chevron {
-  justify-self: end;
-  margin-inline-end: 0;
-}
-
-.chat-pane-actions .round-action {
-  line-height: 0;
-}
-
-.chat-pane-actions .round-action > svg {
-  display: block;
-  margin: 0;
-  transform: none;
-}
-
 @media (max-width: 640px) {
-  .dialog-message-search {
-    padding-inline: 10px;
-    grid-template-columns: 22px minmax(0, 1fr) auto 34px 34px 34px;
-    gap: 5px;
+  .dialog-pane.message-search-open {
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
   }
 
-  .dialog-message-search button {
-    width: 34px;
-    height: 34px;
+  .dialog-pane.message-search-open .dialog-head {
+    display: none !important;
+  }
+
+  .dialog-message-search {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    min-height: 72px;
+    padding:
+      max(10px, env(safe-area-inset-top, 0px))
+      14px
+      10px;
+    background: color-mix(in srgb, var(--page), #000 8%);
+  }
+
+  .dialog-message-search-field {
+    min-height: 50px;
+    border-radius: 17px;
+    background: color-mix(in srgb, var(--surface), var(--yachat-white) 6%);
+  }
+
+  .dialog-message-search input {
+    height: 50px;
+    font-size: 18px;
+  }
+
+  .dialog-message-search-cancel {
+    min-height: 50px;
+    font-size: 18px;
+  }
+
+  .dialog-message-search-nav {
+    display: none;
   }
 }
