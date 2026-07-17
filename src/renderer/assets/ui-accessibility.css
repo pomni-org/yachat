@@ -16,6 +16,7 @@
   max-width: 100%;
   margin: 0;
   padding: 0;
+  padding-inline-end: 0;
   overflow: hidden;
   box-sizing: border-box;
   text-overflow: clip !important;
@@ -23,7 +24,7 @@
 }
 
 .chat-row-bottom.has-spaced-ellipsis > .chat-preview-text {
-  width: calc(100% - 1.65em);
+  padding-inline-end: 1.65em;
 }
 
 .chat-row-bottom > .chat-preview-ellipsis {
