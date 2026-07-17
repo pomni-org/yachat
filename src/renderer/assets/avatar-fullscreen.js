@@ -1,6 +1,7 @@
 (() => {
   "use strict";
 
+  const TRIGGER_SELECTOR = "[data-avatar-view], [data-photo-view]";
   let layer = null;
   let image = null;
   let previousBodyOverflow = "";
@@ -12,21 +13,29 @@
     return match?.[1] || "";
   }
 
-  function avatarSource(trigger) {
-    const explicit = String(trigger?.dataset?.avatarSrc || "").trim();
+  function imageSource(trigger) {
+    const explicit = String(trigger?.dataset?.avatarSrc || trigger?.dataset?.photoSrc || "").trim();
     if (explicit) return explicit;
 
     const nestedImage = trigger?.matches?.("img") ? trigger : trigger?.querySelector?.("img");
-    const imageSource = nestedImage?.currentSrc || nestedImage?.src || "";
-    if (imageSource) return imageSource;
+    const source = nestedImage?.currentSrc || nestedImage?.src || "";
+    if (source) return source;
 
     const candidates = [trigger, trigger?.firstElementChild].filter(Boolean);
     for (const candidate of candidates) {
-      const source = parseBackgroundImage(getComputedStyle(candidate).backgroundImage);
-      if (source) return source;
+      const background = parseBackgroundImage(getComputedStyle(candidate).backgroundImage);
+      if (background) return background;
     }
 
     return "";
+  }
+
+  function syncVisualViewport() {
+    if (!layer) return;
+    const height = Math.max(1, Math.round(window.visualViewport?.height || window.innerHeight || 1));
+    const width = Math.max(1, Math.round(window.visualViewport?.width || window.innerWidth || 1));
+    layer.style.setProperty("--yachat-viewer-height", `${height}px`);
+    layer.style.setProperty("--yachat-viewer-width", `${width}px`);
   }
 
   function ensureViewer() {
@@ -38,7 +47,7 @@
     layer.hidden = true;
     layer.setAttribute("role", "dialog");
     layer.setAttribute("aria-modal", "true");
-    layer.setAttribute("aria-label", "Просмотр фотографии профиля");
+    layer.setAttribute("aria-label", "Просмотр изображения");
     layer.innerHTML = `
       <header class="avatar-fullscreen-head">
         <button class="avatar-fullscreen-close" type="button" data-avatar-fullscreen-close aria-label="Закрыть">
@@ -64,10 +73,7 @@
       }
     });
 
-    image.addEventListener("load", () => {
-      layer?.classList.add("is-image-ready");
-    });
-
+    image.addEventListener("load", () => layer?.classList.add("is-image-ready"));
     image.addEventListener("error", closeViewer);
     return layer;
   }
@@ -76,7 +82,7 @@
     try {
       if (typeof closeAvatarViewer === "function") closeAvatarViewer();
     } catch {
-      // Старый просмотрщик не должен мешать новому, но и ломать страницу тоже.
+      // Старый просмотрщик не должен проступать под полноэкранным слоем.
     }
 
     document.querySelectorAll("[data-avatar-modal]").forEach((legacyLayer) => {
@@ -86,26 +92,35 @@
   }
 
   function openViewer(trigger) {
-    const source = avatarSource(trigger);
+    const source = imageSource(trigger);
     if (!source) return false;
 
     hideLegacyViewer();
     ensureViewer();
+    syncVisualViewport();
     lastTrigger = trigger;
     previousBodyOverflow = document.body.style.overflow;
     previousHtmlOverflow = document.documentElement.style.overflow;
 
-    layer.classList.remove("is-visible", "is-image-ready");
+    layer.classList.remove("is-visible", "is-image-ready", "is-message-photo");
+    layer.classList.toggle("is-message-photo", trigger.hasAttribute("data-photo-view"));
     layer.hidden = false;
     layer.removeAttribute("aria-hidden");
-    image.alt = String(trigger.dataset.avatarTitle || trigger.dataset.avatarText || "Фотография профиля");
+    image.alt = String(
+      trigger.dataset.avatarTitle ||
+      trigger.dataset.photoTitle ||
+      trigger.dataset.avatarText ||
+      "Изображение"
+    );
     image.src = source;
 
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
     document.body.classList.add("avatar-fullscreen-open");
+    document.documentElement.classList.add("avatar-fullscreen-open");
 
     requestAnimationFrame(() => {
+      syncVisualViewport();
       layer?.classList.add("is-visible");
       layer?.querySelector("[data-avatar-fullscreen-close]")?.focus({ preventScroll: true });
     });
@@ -115,8 +130,9 @@
   function closeViewer() {
     if (!layer || layer.hidden) return;
 
-    layer.classList.remove("is-visible", "is-image-ready");
+    layer.classList.remove("is-visible", "is-image-ready", "is-message-photo");
     document.body.classList.remove("avatar-fullscreen-open");
+    document.documentElement.classList.remove("avatar-fullscreen-open");
     document.body.style.overflow = previousBodyOverflow;
     document.documentElement.style.overflow = previousHtmlOverflow;
 
@@ -126,6 +142,8 @@
       if (!layer) return;
       layer.hidden = true;
       layer.setAttribute("aria-hidden", "true");
+      layer.style.removeProperty("--yachat-viewer-height");
+      layer.style.removeProperty("--yachat-viewer-width");
       if (image) {
         image.removeAttribute("src");
         image.alt = "";
@@ -135,7 +153,7 @@
   }
 
   document.addEventListener("click", (event) => {
-    const trigger = event.target.closest("[data-avatar-view]");
+    const trigger = event.target.closest(TRIGGER_SELECTOR);
     if (!trigger || event.target.closest("[data-avatar-fullscreen-close]")) return;
 
     if (openViewer(trigger)) {
@@ -152,11 +170,15 @@
       return;
     }
 
-    if ((event.key === "Enter" || event.key === " ") && event.target.closest("[data-avatar-view]")) {
-      if (openViewer(event.target.closest("[data-avatar-view]"))) {
+    if ((event.key === "Enter" || event.key === " ") && event.target.closest(TRIGGER_SELECTOR)) {
+      if (openViewer(event.target.closest(TRIGGER_SELECTOR))) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }
     }
   }, true);
+
+  window.visualViewport?.addEventListener("resize", syncVisualViewport, { passive: true });
+  window.visualViewport?.addEventListener("scroll", syncVisualViewport, { passive: true });
+  window.addEventListener("orientationchange", syncVisualViewport, { passive: true });
 })();
