@@ -10,6 +10,6 @@
     "build:vercel": "node scripts/build-vercel.cjs",
     "start": "npm run brand && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-electron.ps1",
     "launch": "npm run brand && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/launch-yachat.ps1",
-    "check": "node --check scripts/generate-brand-assets.cjs && node --check scripts/build-vercel.cjs && node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js"
+    "check": "node --check scripts/generate-brand-assets.cjs && node --check scripts/build-vercel.cjs && node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js && node --check src/renderer/assets/message-search.js && node --check src/renderer/assets/rich-composer.js && node --check src/renderer/assets/mentions.js"
   }
 }
