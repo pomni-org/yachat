@@ -1,0 +1,35 @@
+name: Clean temporary v29 migration files
+
+on:
+  push:
+    paths:
+      - .github/workflows/codex-cleanup-v29.yml
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Remove temporary automation
+        run: |
+          git rm -f \
+            scripts/codex-device-auth-v29.py \
+            scripts/codex-media-quality-v29.py \
+            scripts/codex-finalize-v29.py \
+            scripts/codex-vapid-v29.py \
+            .github/workflows/codex-device-auth-v29.yml \
+            .github/workflows/codex-media-quality-v29.yml \
+            .github/workflows/codex-finalize-v29.yml \
+            .github/workflows/codex-vapid-v29.yml \
+            .github/workflows/codex-cleanup-v29.yml
+      - name: Commit cleanup
+        run: |
+          git config user.name "ЯЧат Codex"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "chore(v29): remove completed migration automation"
+          git push
