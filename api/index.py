@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import html
@@ -2154,9 +2155,58 @@ def parse_qr_payload(value: Any) -> dict[str, str] | None:
     return None
 
 
+P256_ORDER = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+_vapid_key_cache: tuple[str, str] | None = None
+
+
+def vapid_key_pair() -> tuple[str, str]:
+    global _vapid_key_cache
+    configured_public = os.getenv("YACHAT_VAPID_PUBLIC_KEY", "").strip()
+    configured_private = os.getenv("YACHAT_VAPID_PRIVATE_KEY", "").strip()
+    if configured_public and configured_private:
+        return configured_public, configured_private
+    if _vapid_key_cache:
+        return _vapid_key_cache
+
+    try:
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import ec
+    except Exception:
+        return "", ""
+
+    seed = hmac.new(
+        auth_secret().encode("utf-8"),
+        b"yachat-web-push-v1",
+        hashlib.sha256,
+    ).digest()
+    scalar = int.from_bytes(seed, "big") % (P256_ORDER - 1) + 1
+    private_key = ec.derive_private_key(scalar, ec.SECP256R1())
+    public_bytes = private_key.public_key().public_bytes(
+        serialization.Encoding.X962,
+        serialization.PublicFormat.UncompressedPoint,
+    )
+    private_der = private_key.private_bytes(
+        serialization.Encoding.DER,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    public_value = base64.urlsafe_b64encode(public_bytes).rstrip(b"=").decode("ascii")
+    private_value = base64.urlsafe_b64encode(private_der).rstrip(b"=").decode("ascii")
+    _vapid_key_cache = (public_value, private_value)
+    return _vapid_key_cache
+
+
+def vapid_public_key() -> str:
+    return vapid_key_pair()[0]
+
+
+def vapid_private_key() -> str:
+    return vapid_key_pair()[1]
+
+
 def send_push_to_user(user_id: str, title: str, body: str, url: str) -> None:
-    public_key = os.getenv("YACHAT_VAPID_PUBLIC_KEY", "").strip()
-    private_key = os.getenv("YACHAT_VAPID_PRIVATE_KEY", "").strip()
+    public_key = vapid_public_key()
+    private_key = vapid_private_key()
     if not public_key or not private_key:
         return
 
@@ -2187,7 +2237,7 @@ def send_push_to_user(user_id: str, title: str, body: str, url: str) -> None:
                 data=payload,
                 vapid_private_key=private_key,
                 vapid_claims=claims,
-                ttl=0,
+                ttl=120,
                 headers={"Urgency": "high"},
             )
         except WebPushException as error:
@@ -2422,7 +2472,7 @@ def status():
         "databaseEnv": database_env_name(),
         "webUrl": None,
         "lanUrl": None,
-        "notifications": bool(os.getenv("YACHAT_VAPID_PUBLIC_KEY") and os.getenv("YACHAT_VAPID_PRIVATE_KEY")),
+        "notifications": bool(vapid_public_key() and vapid_private_key()),
         "telegram": bool(telegram_bot_token()),
         "encryption": {
             "storage": "external-database",
@@ -3548,7 +3598,7 @@ async def qr_session_status(request: Request):
 
 @app.get("/api/push/public-key")
 def push_public_key():
-    key = os.getenv("YACHAT_VAPID_PUBLIC_KEY", "").strip()
+    key = vapid_public_key()
     return {"enabled": bool(key), "publicKey": key}
 
 

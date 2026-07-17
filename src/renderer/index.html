@@ -222,23 +222,23 @@
           </form>
         </section>
 
-        <section class="screen qr-screen" data-screen="qr">
-          <button class="back-button" type="button" data-action="back-phone">
+        <section class="screen device-code-login-screen" data-screen="qr">
+          <button class="back-button" type="button" data-device-code-back>
             <span class="css-icon gg-chevron-left"></span>
             Назад
           </button>
-
           <div class="screen-copy">
             <h1>Вход по коду</h1>
-            <p data-qr-status>Введите код с другого устройства</p>
+            <p>Откройте Настройки → Безопасность на устройстве, где уже выполнен вход.</p>
           </div>
-
-          <div class="qr-box" aria-label="QR-код для входа" data-qr-box>
-            <div class="qr-grid" data-qr-code></div>
-            <div class="qr-logo">Я</div>
-          </div>
-
-          <button class="link-button" type="button" data-action="refresh-qr">Обновить QR-код</button>
+          <form class="auth-form device-code-login-form" data-device-code-login>
+            <label class="device-code-input-shell">
+              <input type="text" inputmode="text" enterkeyhint="done" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="7" placeholder="АБ1-234" data-device-code-input />
+            </label>
+            <div class="form-message" data-device-code-message></div>
+            <button class="main-button" type="submit" disabled>Войти</button>
+          </form>
+          <p class="device-code-location">Код действует 10 минут и используется один раз.</p>
         </section>
 
         <section class="screen done-screen" data-screen="done">

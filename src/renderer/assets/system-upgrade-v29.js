@@ -457,6 +457,34 @@
   updateLoginLabels();
   installDeviceLoginHandlers();
 
+
+  let pushRefreshPromise = null;
+
+  async function refreshRealPushSubscription() {
+    if (pushRefreshPromise) return pushRefreshPromise;
+    if (!("Notification" in window) || Notification.permission !== "granted") return null;
+    if (!("serviceWorker" in navigator) || typeof enablePushNotifications !== "function") return null;
+
+    pushRefreshPromise = (async () => {
+      try {
+        await navigator.serviceWorker.ready;
+        await enablePushNotifications();
+        localStorage.setItem("yachat-push-subscription-ready-v29", String(Date.now()));
+      } catch {
+        // The next foreground opening will retry without blocking the messenger.
+      } finally {
+        pushRefreshPromise = null;
+      }
+    })();
+    return pushRefreshPromise;
+  }
+
+  window.setTimeout(() => void refreshRealPushSubscription(), 900);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void refreshRealPushSubscription();
+  });
+  window.addEventListener("online", () => void refreshRealPushSubscription());
+
   const observer = new MutationObserver((records) => {
     const onlyCountdown = records.length > 0 && records.every((record) =>
       record.target instanceof Element
