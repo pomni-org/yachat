@@ -32,10 +32,15 @@
 
   function syncVisualViewport() {
     if (!layer) return;
-    const height = Math.max(1, Math.round(window.visualViewport?.height || window.innerHeight || 1));
-    const width = Math.max(1, Math.round(window.visualViewport?.width || window.innerWidth || 1));
+    const viewport = window.visualViewport;
+    const height = Math.max(1, Math.round(viewport?.height || window.innerHeight || 1));
+    const width = Math.max(1, Math.round(viewport?.width || window.innerWidth || 1));
+    const left = Math.round(viewport?.offsetLeft || 0);
+    const top = Math.round(viewport?.offsetTop || 0);
     layer.style.setProperty("--yachat-viewer-height", `${height}px`);
     layer.style.setProperty("--yachat-viewer-width", `${width}px`);
+    layer.style.setProperty("--yachat-viewer-left", `${left}px`);
+    layer.style.setProperty("--yachat-viewer-top", `${top}px`);
   }
 
   function ensureViewer() {
@@ -142,8 +147,12 @@
       if (!layer) return;
       layer.hidden = true;
       layer.setAttribute("aria-hidden", "true");
-      layer.style.removeProperty("--yachat-viewer-height");
-      layer.style.removeProperty("--yachat-viewer-width");
+      [
+        "--yachat-viewer-height",
+        "--yachat-viewer-width",
+        "--yachat-viewer-left",
+        "--yachat-viewer-top"
+      ].forEach((property) => layer.style.removeProperty(property));
       if (image) {
         image.removeAttribute("src");
         image.alt = "";
@@ -180,5 +189,6 @@
 
   window.visualViewport?.addEventListener("resize", syncVisualViewport, { passive: true });
   window.visualViewport?.addEventListener("scroll", syncVisualViewport, { passive: true });
+  window.addEventListener("resize", syncVisualViewport, { passive: true });
   window.addEventListener("orientationchange", syncVisualViewport, { passive: true });
 })();
