@@ -6614,10 +6614,10 @@ function createLocalYachatApi() {
           ...(messenger.messages["yachat-codes"] || []),
           createLocalMessage(
             "yachat-codes",
-            `Код подтверждения ЯЧата\n\nНомер: ${challenge.contact}\nКод: ${code}\n\nДействует 10 минут.\nНикому его не сообщайте.`,
+            `🔐 Код подтверждения ЯЧата\n\nНомер: ${challenge.contact}\nКод: ${code}\n\n⌛ Действует 10 минут.\n⚠️ Никому его не сообщайте.`,
             "bot",
             {
-              formattedHtml: `<strong>Код подтверждения ЯЧата</strong><br><br>Номер: <strong>${escapeHtml(challenge.contact)}</strong><br>Код: <strong>${escapeHtml(code)}</strong><br><br>Действует 10 минут.<br><strong>Никому его не сообщайте.</strong>`
+              formattedHtml: `<strong>🔐 Код подтверждения ЯЧата</strong><br><br>Номер: <strong>${escapeHtml(challenge.contact)}</strong><br>Код: <strong>${escapeHtml(code)}</strong><br><br>⌛ Действует 10 минут.<br><strong>⚠️ Никому его не сообщайте.</strong>`
             }
           )
         ];

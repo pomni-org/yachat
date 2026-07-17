@@ -328,8 +328,21 @@
     createTransientOutgoingMessage = function createRichTransient(chat, payload) {
       const message = previousCreateTransient(chat, payload);
       message.formattedHtml = sanitizeHtml(payload?.formattedHtml || submittedHtml || currentHtml());
+      submittedHtml = "";
       queueMicrotask(() => clearEditor(false));
       return message;
+    };
+  }
+
+  if (typeof renderAttachment === "function") {
+    const previousRenderAttachment = renderAttachment;
+    renderAttachment = function renderCleanAttachment(attachment = {}) {
+      const dataUrl = attachment.dataUrl || attachment.url || "";
+      if (attachment.kind === "image" && dataUrl) {
+        const safeSource = escapeHtml(dataUrl);
+        return `<figure class="message-attachment is-image" data-photo-view data-avatar-src="${safeSource}" data-avatar-title="Фото" role="button" tabindex="0" aria-label="Открыть фото"><img src="${safeSource}" alt="Фото" /></figure>`;
+      }
+      return previousRenderAttachment(attachment);
     };
   }
 
@@ -385,6 +398,7 @@
         ...payload,
         formattedHtml: sanitizeHtml(payload.formattedHtml || submittedHtml || currentHtml())
       });
+      submittedHtml = "";
       clearEditor(false);
       return result;
     };

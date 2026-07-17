@@ -802,24 +802,24 @@ def generate_token() -> str:
 def verification_code_text(contact: str, code: str) -> str:
     return "\n".join(
         [
-            "Код подтверждения ЯЧата",
+            "🔐 Код подтверждения ЯЧата",
             "",
             f"Номер: {contact}",
             f"Код: {code}",
             "",
-            "Действует 10 минут.",
-            "Никому его не сообщайте.",
+            "⌛ Действует 10 минут.",
+            "⚠️ Никому его не сообщайте.",
         ]
     )
 
 
 def verification_code_html(contact: str, code: str) -> str:
     return (
-        "<strong>Код подтверждения ЯЧата</strong><br><br>"
+        "<strong>🔐 Код подтверждения ЯЧата</strong><br><br>"
         f"Номер: <strong>{html.escape(contact)}</strong><br>"
         f"Код: <strong>{html.escape(code)}</strong><br><br>"
-        "Действует 10 минут.<br>"
-        "<strong>Никому его не сообщайте.</strong>"
+        "⌛ Действует 10 минут.<br>"
+        "<strong>⚠️ Никому его не сообщайте.</strong>"
     )
 
 
