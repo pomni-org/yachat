@@ -14,8 +14,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "ЯЧат";
   const options = {
     body: payload.body || "Новое сообщение",
-    icon: "/assets/yachat-brand-180.png?v=24",
-    badge: "/assets/yachat-brand-notification.png?v=24",
+    icon: "/assets/yachat-brand-180.png?v=29",
+    badge: "/assets/yachat-brand-notification.png?v=29",
     tag: payload.tag || `yachat:${targetUrl}`,
     renotify: true,
     timestamp: Date.now(),

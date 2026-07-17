@@ -1902,12 +1902,6 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
               <button type="button" data-panel-action="share-profile-link" data-profile-link="${escapeHtml(profileUrl)}" aria-label="${escapeHtml(t("chatProfileLinkTitle"))}">
                 ${iconSvg("share-2")}
               </button>
-              <button type="button" data-panel-action="show-profile-qr" aria-label="${escapeHtml(t("chatProfileQrTitle"))}">
-                ${iconSvg("qr-code")}
-              </button>
-            </div>
-            <div class="chat-profile-qr" data-chat-profile-qr hidden>
-              ${renderQrSvg(profileUrl)}
             </div>
           </div>
         </section>

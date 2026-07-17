@@ -163,8 +163,8 @@
 
     panelBody.innerHTML = `
       <div class="settings-profile-hero">
-        <button class="settings-profile-corner is-left" type="button" data-settings-action="profile-qr" aria-label="QR-код профиля">
-          ${iconSvg("qr-code")}
+        <button class="settings-profile-corner is-left" type="button" data-settings-action="invite-friends" aria-label="Поделиться профилем">
+          ${iconSvg("share-2")}
         </button>
         <button class="settings-profile-corner is-right" type="button" data-panel-action="edit-profile" aria-label="Редактировать профиль">
           ${iconSvg("pencil")}
@@ -279,10 +279,7 @@
         </div>
       `)}
       ${section(`
-        <video class="session-camera" data-session-camera hidden muted playsinline></video>
-        <input class="visually-hidden" type="file" accept="image/*" capture="environment" data-session-capture />
-        <p class="session-message" data-session-message></p>
-        <button class="settings-primary" type="button" data-panel-action="scan-session">${iconSvg("scan-line")}<span>Подключить устройство по QR-коду</span></button>
+        <button class="settings-primary" type="button" data-open-device-code-security>${iconSvg("key-round")}<span>Код для входа находится в разделе «Безопасность»</span></button>
       `)}
     `;
   }
@@ -433,10 +430,6 @@
         </div>
       `, "settings-security-card")}
       ${section(`
-        <video class="session-camera" data-session-camera hidden muted playsinline></video>
-        <input class="visually-hidden" type="file" accept="image/*" capture="environment" data-session-capture />
-        <p class="session-message" data-session-message></p>
-        <button class="settings-primary" type="button" data-panel-action="scan-session">${iconSvg("scan-line")}<span>Подтвердить вход по QR-коду</span></button>
         <button class="settings-primary is-secondary" type="button" data-panel-action="logout">${iconSvg("log-out")}<span>Выйти на этом устройстве</span></button>
         <button class="settings-primary is-danger" type="button" data-panel-action="delete-profile">${iconSvg("trash")}<span>Удалить профиль</span></button>
       `)}

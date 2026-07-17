@@ -280,6 +280,7 @@
   function updateDeviceCodeCard(payload = {}) {
     const card = panelBody?.querySelector("[data-device-code-card]");
     if (!card) return;
+    card.dataset.deviceCodeLoaded = "true";
     const code = String(payload.code || "");
     const value = card.querySelector("[data-device-code-value]");
     const copy = card.querySelector("[data-device-code-copy]");
@@ -343,7 +344,8 @@
     const hero = panelBody.querySelector(".settings-profile-hero");
     if (hero) {
       const corner = hero.querySelector(".settings-profile-corner.is-left");
-      if (corner) {
+      if (corner && corner.dataset.deviceCodeShareReady !== "true") {
+        corner.dataset.deviceCodeShareReady = "true";
         corner.dataset.settingsAction = "invite-friends";
         corner.setAttribute("aria-label", labels().shareProfile);
         corner.innerHTML = iconSvg?.("share-2") || "";
@@ -365,17 +367,24 @@
     if (state.settingsPage === "security") {
       panelBody.querySelectorAll("[data-session-camera], [data-session-capture], [data-session-message]").forEach((element) => element.remove());
       panelBody.querySelectorAll('[data-panel-action="scan-session"]').forEach((element) => element.remove());
-      if (!panelBody.querySelector("[data-device-code-card]")) {
+      let card = panelBody.querySelector("[data-device-code-card]");
+      if (!card) {
         const status = panelBody.querySelector(".settings-security-card");
         status?.insertAdjacentHTML("afterend", codeCardMarkup());
         hydrateIcons?.(panelBody);
+        card = panelBody.querySelector("[data-device-code-card]");
       }
-      void loadSecurityCode(false);
+      if (card && !card.dataset.deviceCodeLoaded) {
+        card.dataset.deviceCodeLoaded = "loading";
+        void loadSecurityCode(false);
+      }
     }
 
     if (state.settingsPage === "devices") {
       panelBody.querySelectorAll("[data-session-camera], [data-session-capture], [data-session-message]").forEach((element) => element.remove());
       panelBody.querySelectorAll('[data-panel-action="scan-session"]').forEach((button) => {
+        if (button.dataset.deviceCodeButtonReady === "true") return;
+        button.dataset.deviceCodeButtonReady = "true";
         button.dataset.openDeviceCodeSecurity = "";
         delete button.dataset.panelAction;
         button.innerHTML = `${iconSvg?.("key-round") || ""}<span>${escapeHtml(labels().devicesHint)}</span>`;
@@ -448,8 +457,13 @@
   updateLoginLabels();
   installDeviceLoginHandlers();
 
-  const observer = new MutationObserver(() => {
-    queueSettingsUpgrade();
+  const observer = new MutationObserver((records) => {
+    const onlyCountdown = records.length > 0 && records.every((record) =>
+      record.target instanceof Element
+        ? record.target.closest("[data-device-code-expiry]")
+        : record.target.parentElement?.closest("[data-device-code-expiry]")
+    );
+    if (!onlyCountdown) queueSettingsUpgrade();
     decorateVerificationCodes();
   });
   observer.observe(document.body, { childList: true, subtree: true });
