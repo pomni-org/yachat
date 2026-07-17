@@ -300,3 +300,27 @@
   .emoji-picker { animation: none; }
   .attachment-processing { animation-duration: 1.4s; }
 }
+
+
+/* Композер без пустой колонки удалённой кнопки документа. */
+.composer {
+  grid-template-columns: 42px minmax(0, 1fr) 42px 50px;
+}
+
+.composer > [data-action="attach-file"] { grid-column: 1; }
+.composer > input[name="message"],
+.composer > .message-editor { grid-column: 2; }
+.composer > [data-action="open-stickers"] { grid-column: 3; }
+.composer > .send-button { grid-column: 4; }
+
+@media (max-width: 640px) {
+  .composer {
+    grid-template-columns: 38px minmax(0, 1fr) 38px 48px;
+  }
+}
+
+@media (max-width: 390px) {
+  .composer {
+    grid-template-columns: 36px minmax(0, 1fr) 36px 46px;
+  }
+}
