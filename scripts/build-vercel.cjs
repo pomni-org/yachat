@@ -20,7 +20,48 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "34";
+const BRAND_VERSION = "35";
+const STYLE_ASSETS = [
+  "web-runtime-fix.css",
+  "chat-presence.css",
+  "username-copy.css",
+  "profile-modal.css",
+  "avatar-preview.css",
+  "loading-shine.css",
+  "verification-scope.css",
+  "composer-upgrade.css",
+  "icon-size-fix.css",
+  "settings-redesign.css",
+  "folders-fix.css",
+  "background-sync.css",
+  "chat-list-layout.css",
+  "chat-selection.css",
+  "avatar-fullscreen.css",
+  "ui-accessibility.css",
+  "message-search.css",
+  "rich-composer.css",
+  "media-emoji-upgrade.css",
+  "system-upgrade-v29.css"
+];
+const SCRIPT_ASSETS = [
+  "chat-presence.js",
+  "username-copy.js",
+  "profile-modal.js",
+  "contacts-sync-v2.js",
+  "contact-open-fix.js",
+  "verification-scope.js",
+  "settings-icons.js",
+  "background-sync.js",
+  "settings-redesign.js",
+  "folders-fix.js",
+  "chat-selection.js",
+  "avatar-fullscreen.js",
+  "ui-accessibility.js",
+  "message-search.js",
+  "rich-composer.js",
+  "media-emoji-upgrade.js",
+  "system-upgrade-v29.js"
+];
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
   ["/assets/yachat-shortcut-180.png", `/assets/yachat-brand-180.png?v=${BRAND_VERSION}`],
@@ -51,6 +92,13 @@ async function rewriteBrandReferences(name) {
   await fs.writeFile(filePath, content, "utf8");
 }
 
+function assetTags(kind, names) {
+  return names.map((name) => kind === "style"
+    ? `    <link rel="stylesheet" href="/assets/${name}?v=${BRAND_VERSION}" />`
+    : `    <script src="/assets/${name}?v=${BRAND_VERSION}"></script>`
+  ).join("\n");
+}
+
 async function injectEnhancementAssets() {
   const indexPath = path.join(outputDir, "index.html");
   const html = await fs.readFile(indexPath, "utf8");
@@ -58,50 +106,14 @@ async function injectEnhancementAssets() {
     '<link rel="stylesheet" href="./styles.css" />',
     [
       `<link rel="stylesheet" href="/styles.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/web-runtime-fix.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/chat-presence.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/username-copy.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/profile-modal.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/avatar-preview.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/loading-shine.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/verification-scope.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/composer-upgrade.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/icon-size-fix.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/settings-redesign.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/folders-fix.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/background-sync.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/chat-list-layout.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/chat-selection.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/avatar-fullscreen.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/ui-accessibility.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/message-search.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/rich-composer.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/media-emoji-upgrade.css?v=${BRAND_VERSION}" />`,
-      `    <link rel="stylesheet" href="/assets/system-upgrade-v29.css?v=${BRAND_VERSION}" />`
+      assetTags("style", STYLE_ASSETS)
     ].join("\n")
   );
   const withScripts = withStyles.replace(
     '<script src="./app.js"></script>',
     [
       `<script src="/app.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/channel-subscriber-count.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/chat-presence.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/username-copy.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/profile-modal.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/contacts-sync-v2.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/contact-open-fix.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/verification-scope.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/settings-icons.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/background-sync.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/settings-redesign.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/folders-fix.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/chat-selection.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/avatar-fullscreen.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/ui-accessibility.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/message-search.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/rich-composer.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/media-emoji-upgrade.js?v=${BRAND_VERSION}"></script>`,
-      `    <script src="/assets/system-upgrade-v29.js?v=${BRAND_VERSION}"></script>`
+      assetTags("script", SCRIPT_ASSETS)
     ].join("\n")
   );
   await fs.writeFile(indexPath, withScripts, "utf8");
