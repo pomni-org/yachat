@@ -18,6 +18,11 @@
       return;
     }
 
+    if (createButton.dataset.centeredPlus !== "true" && typeof iconSvg === "function") {
+      createButton.innerHTML = iconSvg("plus");
+      createButton.dataset.centeredPlus = "true";
+    }
+
     let actions = header.querySelector("[data-chat-head-actions]");
     if (!actions) {
       actions = document.createElement("div");
@@ -39,19 +44,31 @@
         ? iconSvg("ellipsis")
         : '<span aria-hidden="true">•••</span>';
       actions.insertBefore(selectionButton, createButton);
-      if (typeof hydrateIcons === "function") {
-        hydrateIcons(actions);
-      }
+    }
+
+    if (typeof hydrateIcons === "function") {
+      hydrateIcons(actions);
     }
   }
 
-  function selectionCheckbox(chatId) {
+  function updateSelectionCheckbox(row, chatId) {
     const selected = selectedChatIds.has(chatId);
-    const checkbox = document.createElement("span");
-    checkbox.className = `chat-select-check${selected ? " is-selected" : ""}`;
-    checkbox.setAttribute("aria-hidden", "true");
-    checkbox.innerHTML = typeof iconSvg === "function" ? iconSvg("check") : "✓";
-    return checkbox;
+    let checkbox = row.querySelector(":scope > .chat-select-check");
+
+    if (!selectionMode) {
+      checkbox?.remove();
+      return;
+    }
+
+    if (!checkbox) {
+      checkbox = document.createElement("span");
+      checkbox.className = "chat-select-check";
+      checkbox.setAttribute("aria-hidden", "true");
+      checkbox.innerHTML = typeof iconSvg === "function" ? iconSvg("check") : "✓";
+      row.prepend(checkbox);
+    }
+
+    checkbox.classList.toggle("is-selected", selected);
   }
 
   function decorateRows() {
@@ -68,21 +85,10 @@
 
     chatList.querySelectorAll("[data-chat-id]").forEach((row) => {
       const chatId = String(row.dataset.chatId || "");
-      row.classList.toggle("is-chat-selected", selectedChatIds.has(chatId));
-      row.setAttribute("aria-selected", selectedChatIds.has(chatId) ? "true" : "false");
-
-      const existing = row.querySelector(":scope > .chat-select-check");
-      if (!selectionMode) {
-        existing?.remove();
-        return;
-      }
-
-      const nextCheckbox = selectionCheckbox(chatId);
-      if (existing) {
-        existing.replaceWith(nextCheckbox);
-      } else {
-        row.prepend(nextCheckbox);
-      }
+      const selected = selectedChatIds.has(chatId);
+      row.classList.toggle("is-chat-selected", selected);
+      row.setAttribute("aria-selected", selected ? "true" : "false");
+      updateSelectionCheckbox(row, chatId);
     });
 
     if (typeof hydrateIcons === "function") {
