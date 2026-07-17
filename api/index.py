@@ -1,15 +1,18 @@
 import hashlib
 import hmac
+import html
 import json
 import os
 import re
 import secrets
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from typing import Any
 
 import psycopg
@@ -369,6 +372,7 @@ def ensure_schema() -> None:
         """,
         "alter table yachat_system_messages add column if not exists author_id text default 'yachat'",
         "alter table yachat_system_messages add column if not exists attachments jsonb default '[]'::jsonb",
+        "alter table yachat_system_messages add column if not exists formatted_html text default ''",
         "create index if not exists yachat_system_messages_user_chat_idx on yachat_system_messages(user_id, chat_id, created_at)",
         """
         create table if not exists yachat_system_chats (
@@ -443,6 +447,7 @@ def ensure_schema() -> None:
             deleted_at timestamptz
         )
         """,
+        "alter table yachat_messages add column if not exists formatted_html text default ''",
         "create index if not exists yachat_messages_chat_created_idx on yachat_messages(chat_id, created_at)",
         "create index if not exists yachat_messages_unread_idx on yachat_messages(chat_id, created_at, sender_id) where deleted_at is null",
         """
@@ -525,6 +530,115 @@ def row_value(row: dict[str, Any] | None, *keys: str) -> Any:
 
 def clean_text(value: Any, limit: int = 500) -> str:
     return str(value or "").replace("\x00", "").strip()[:limit]
+
+
+
+RICH_TAG_ALIASES = {"b": "strong", "i": "em", "del": "s"}
+RICH_FORMAT_TAGS = {"strong", "em", "u", "s", "code"}
+RICH_LINK_SCHEMES = {"http", "https", "mailto", "tel"}
+
+
+class RichMessageSanitizer(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self.stack: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized = RICH_TAG_ALIASES.get(tag.lower(), tag.lower())
+        if normalized == "br":
+            self.parts.append("<br>")
+            return
+        if normalized in RICH_FORMAT_TAGS:
+            self.parts.append(f"<{normalized}>")
+            self.stack.append(normalized)
+            return
+        if normalized != "a":
+            return
+
+        href = next((value for name, value in attrs if name.lower() == "href"), "") or ""
+        safe = safe_rich_url(href)
+        if not safe:
+            return
+        self.parts.append(
+            f'<a href="{html.escape(safe, quote=True)}" target="_blank" rel="noopener noreferrer">'
+        )
+        self.stack.append("a")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        normalized = RICH_TAG_ALIASES.get(tag.lower(), tag.lower())
+        if normalized != "br":
+            self.handle_endtag(normalized)
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized = RICH_TAG_ALIASES.get(tag.lower(), tag.lower())
+        if normalized not in self.stack:
+            return
+        while self.stack:
+            current = self.stack.pop()
+            self.parts.append(f"</{current}>")
+            if current == normalized:
+                break
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(html.escape(data, quote=False))
+
+    def result(self) -> str:
+        while self.stack:
+            self.parts.append(f"</{self.stack.pop()}>")
+        return "".join(self.parts)
+
+
+def safe_rich_url(value: object) -> str:
+    source = str(value or "").strip()
+    if not source:
+        return ""
+    prepared = source if re.match(r"^[a-z][a-z0-9+.-]*:", source, re.I) else f"https://{source}"
+    try:
+        parsed = urllib.parse.urlparse(prepared)
+    except ValueError:
+        return ""
+    if parsed.scheme.lower() not in RICH_LINK_SCHEMES:
+        return ""
+    if parsed.scheme.lower() in {"http", "https"} and not parsed.netloc:
+        return ""
+    return prepared
+
+
+def clean_rich_html(value: object) -> str:
+    source = str(value or "")[:24000]
+    if not source:
+        return ""
+    sanitizer = RichMessageSanitizer()
+    try:
+        sanitizer.feed(source)
+        sanitizer.close()
+    except (ValueError, TypeError):
+        return ""
+    result = sanitizer.result()
+    result = re.sub(r"(?:<br>\s*){3,}", "<br><br>", result, flags=re.I)
+    return result.strip()
+
+
+def rich_html_plain_text(value: str) -> str:
+    source = re.sub(r"<br\s*/?>", "\n", value, flags=re.I)
+    source = re.sub(r"</?(?:strong|em|u|s|code|a)(?:\s[^>]*)?>", "", source, flags=re.I)
+    return html.unescape(source).replace("\r", "")
+
+
+def prepare_rich_message(payload: dict[str, object]) -> tuple[str, str]:
+    formatted_html = clean_rich_html(payload.get("formattedHtml"))
+    text = str(payload.get("text") or "").replace("\x00", "").strip()
+    if formatted_html:
+        formatted_text = rich_html_plain_text(formatted_html).strip()
+        if formatted_text:
+            text = formatted_text
+        else:
+            formatted_html = ""
+    if len(text) > 4000:
+        raise HTTPException(status_code=400, detail="Message is too long.")
+    return formatted_html, text
 
 
 def identity_text(value: Any) -> str:
@@ -686,7 +800,27 @@ def generate_token() -> str:
 
 
 def verification_code_text(contact: str, code: str) -> str:
-    return f"Код подтверждения ЯЧата для {contact}: {code}. Он действует 10 минут. Никому его не сообщайте."
+    return "\n".join(
+        [
+            "Код подтверждения ЯЧата",
+            "",
+            f"Номер: {contact}",
+            f"Код: {code}",
+            "",
+            "Действует 10 минут.",
+            "Никому его не сообщайте.",
+        ]
+    )
+
+
+def verification_code_html(contact: str, code: str) -> str:
+    return (
+        "<strong>Код подтверждения ЯЧата</strong><br><br>"
+        f"Номер: <strong>{html.escape(contact)}</strong><br>"
+        f"Код: <strong>{html.escape(code)}</strong><br><br>"
+        "Действует 10 минут.<br>"
+        "<strong>Никому его не сообщайте.</strong>"
+    )
 
 
 def telegram_md_code(value: Any) -> str:
@@ -915,13 +1049,22 @@ def find_user_by_contact_cursor(cursor, value: Any) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def add_system_delivery_message(cursor, user_id: str, chat_id: str, text: str, expires_at: datetime | None = None) -> None:
+def add_system_delivery_message(
+    cursor,
+    user_id: str,
+    chat_id: str,
+    text: str,
+    expires_at: datetime | None = None,
+    formatted_html: str = "",
+) -> None:
     cursor.execute(
         """
-        insert into yachat_system_messages(id, user_id, chat_id, text, system_kind, expires_at)
-        values (%s, %s, %s, %s, 'verification-code', %s)
+        insert into yachat_system_messages(
+            id, user_id, chat_id, text, formatted_html, system_kind, expires_at
+        )
+        values (%s, %s, %s, %s, %s, 'verification-code', %s)
         """,
-        (str(uuid.uuid4()), user_id, chat_id, text, expires_at),
+        (str(uuid.uuid4()), user_id, chat_id, text, clean_rich_html(formatted_html), expires_at),
     )
 
 
@@ -1340,27 +1483,16 @@ def system_chats(
 
 
 def system_chat_messages(chat_id: str) -> list[dict[str, Any]]:
-    messages = {
-        "yachat-codes": (
-            "bot",
-            "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов.",
-        ),
-        "yachat-channel": (
-            "channel",
-            "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления.",
-        ),
-    }
-    entry = messages.get(chat_id)
-    if not entry:
+    if chat_id != "yachat-codes":
         return []
-    author, text = entry
     return [
         {
-            "id": f"{chat_id}-intro",
-            "chatId": chat_id,
-            "author": author,
+            "id": "yachat-codes-intro",
+            "chatId": "yachat-codes",
+            "author": "bot",
             "authorId": "yachat",
-            "text": text,
+            "text": "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов.",
+            "formattedHtml": "",
             "attachments": [],
             "replyToMessageId": None,
             "forwardedFrom": "",
@@ -1380,6 +1512,7 @@ def system_message_payload(row: dict[str, Any], current_user_id: str = "") -> di
         "author": "channel" if chat_id == "yachat-channel" else "user" if author_id and author_id == current_user_id else "bot",
         "authorId": author_id,
         "text": str(row_value(row, "text")),
+        "formattedHtml": clean_rich_html(row_value(row, "formatted_html")),
         "attachments": attachments if isinstance(attachments, list) else [],
         "replyToMessageId": None,
         "forwardedFrom": "",
@@ -1394,6 +1527,7 @@ def latest_system_messages(cursor, user_id: str) -> dict[str, dict[str, Any]]:
         select distinct on (chat_id) *
         from yachat_system_messages
         where user_id = %s
+          and (chat_id <> 'yachat-channel' or system_kind = 'channel-post')
         order by chat_id, created_at desc
         """,
         (user_id,),
@@ -1408,6 +1542,7 @@ def system_messages_for_user(cursor, chat_id: str, user_id: str) -> list[dict[st
         from yachat_system_messages
         where user_id = %s
           and chat_id = %s
+          and (chat_id <> 'yachat-channel' or system_kind = 'channel-post')
         order by created_at asc
         limit 500
         """,
@@ -1822,6 +1957,7 @@ def message_payload(
         "author": "user" if sender_id == current_user_id else "contact",
         "authorId": sender_id,
         "text": str(row_value(row, "text")),
+        "formattedHtml": clean_rich_html(row_value(row, "formatted_html")),
         "attachments": row_value(row, "attachments") if isinstance(row_value(row, "attachments"), list) else [],
         "replyToMessageId": row_value(row, "reply_to_message_id") or None,
         "forwardedFrom": str(row_value(row, "forwarded_from")),
@@ -2251,6 +2387,7 @@ async def create_challenge(request: Request):
                     "yachat-codes",
                     verification_code_text(contact, code),
                     expires_at,
+                    verification_code_html(contact, code),
                 )
                 delivery["yachat"] = True
 
@@ -2861,7 +2998,7 @@ async def send_message(request: Request):
     user = require_user(request)
     payload = await read_json_payload(request)
     chat_id = clean_chat_id(payload.get("chatId"))
-    text = clean_text(payload.get("text"), 4000)
+    formatted_html, text = prepare_rich_message(payload)
     attachments = clean_attachments(payload.get("attachments"))
     if not text and not attachments:
         raise HTTPException(status_code=400, detail="Enter a message.")
@@ -2881,14 +3018,18 @@ async def send_message(request: Request):
                 for target_user_id in user_ids:
                     cursor.execute(
                         """
-                        insert into yachat_system_messages(id, user_id, chat_id, author_id, text, attachments, system_kind, created_at)
-                        values (%s, %s, 'yachat-channel', %s, %s, %s::jsonb, 'channel-post', now())
+                        insert into yachat_system_messages(
+                            id, user_id, chat_id, author_id, text, formatted_html,
+                            attachments, system_kind, created_at
+                        )
+                        values (%s, %s, 'yachat-channel', %s, %s, %s, %s::jsonb, 'channel-post', now())
                         """,
                         (
                             message_id if target_user_id == str(user["id"]) else str(uuid.uuid4()),
                             target_user_id,
                             user["id"],
                             text,
+                            formatted_html,
                             json.dumps(attachments[:8]),
                         ),
                     )
@@ -2918,8 +3059,11 @@ async def send_message(request: Request):
 
             cursor.execute(
                 """
-                insert into yachat_messages(id, chat_id, sender_id, text, attachments, reply_to_message_id, created_at)
-                values (%s, %s, %s, %s, %s::jsonb, %s, now())
+                insert into yachat_messages(
+                    id, chat_id, sender_id, text, formatted_html,
+                    attachments, reply_to_message_id, created_at
+                )
+                values (%s, %s, %s, %s, %s, %s::jsonb, %s, now())
                 on conflict(id) do nothing
                 returning *
                 """,
@@ -2928,6 +3072,7 @@ async def send_message(request: Request):
                     chat_id,
                     user["id"],
                     text,
+                    formatted_html,
                     json.dumps(attachments[:8]),
                     payload.get("replyToMessageId") or None,
                 ),
@@ -3073,7 +3218,7 @@ async def update_message(request: Request):
     payload = await read_json_payload(request)
     requested_chat_id = clean_chat_id(payload.get("chatId"))
     message_id = str(payload.get("messageId") or "")
-    text = clean_text(payload.get("text"), 4000)
+    formatted_html, text = prepare_rich_message(payload)
     if not text:
         raise HTTPException(status_code=400, detail="Enter a message.")
     with connect_db() as connection:
@@ -3094,10 +3239,10 @@ async def update_message(request: Request):
             cursor.execute(
                 """
                 update yachat_messages
-                set text = %s, edited_at = now()
+                set text = %s, formatted_html = %s, edited_at = now()
                 where id = %s and chat_id = %s and sender_id = %s and deleted_at is null
                 """,
-                (text, message_id, chat_id, user["id"]),
+                (text, formatted_html, message_id, chat_id, user["id"]),
             )
     return {
         "chats": list_user_chats(str(user["id"])),
@@ -3131,14 +3276,18 @@ async def forward_message(request: Request):
                 raise HTTPException(status_code=404, detail="Message not found.")
             cursor.execute(
                 """
-                insert into yachat_messages(id, chat_id, sender_id, text, attachments, forwarded_from, created_at)
-                values (%s, %s, %s, %s, %s::jsonb, %s, now())
+                insert into yachat_messages(
+                    id, chat_id, sender_id, text, formatted_html,
+                    attachments, forwarded_from, created_at
+                )
+                values (%s, %s, %s, %s, %s, %s::jsonb, %s, now())
                 """,
                 (
                     str(uuid.uuid4()),
                     to_chat_id,
                     user["id"],
                     source["text"],
+                    clean_rich_html(row_value(source, "formatted_html")),
                     json.dumps(source["attachments"] or []),
                     from_chat_id,
                 ),

@@ -6304,9 +6304,7 @@ function createLocalYachatApi() {
         "yachat-codes": [
           createLocalMessage("yachat-codes", "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов.", "bot")
         ],
-        "yachat-channel": [
-          createLocalMessage("yachat-channel", "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления.", "channel")
-        ]
+        "yachat-channel": []
       }
     };
   }
@@ -6346,17 +6344,16 @@ function createLocalYachatApi() {
 
     Object.entries(messages).forEach(([chatId, list]) => {
       if (Array.isArray(list)) {
-        messages[chatId] = list
-          .filter((message) => !REMOVED_TEST_MESSAGE_TEXTS.has(String(message?.text || "").trim()))
-          .map((message) => {
-            if (chatId === "yachat-channel" && String(message?.text || "").includes("Канал ЯЧата")) {
-              return {
-                ...message,
-                text: String(message.text || "").replaceAll("Канал ЯЧата", "ЯЧат").replaceAll("канал встроен", "системный канал встроен")
-              };
-            }
-            return message;
-          });
+        messages[chatId] = list.filter((message) => {
+          const messageText = String(message?.text || "").trim();
+          if (REMOVED_TEST_MESSAGE_TEXTS.has(messageText)) return false;
+          if (chatId !== "yachat-channel") return true;
+          return !(
+            messageText === "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления." ||
+            messageText.includes("Канал ЯЧата готов") ||
+            messageText.includes("канал встроен")
+          );
+        });
       }
     });
 
@@ -6615,7 +6612,14 @@ function createLocalYachatApi() {
         const messenger = readMessenger();
         messenger.messages["yachat-codes"] = [
           ...(messenger.messages["yachat-codes"] || []),
-          createLocalMessage("yachat-codes", `Код подтверждения ЯЧата для ${challenge.contact}: ${code}. Он действует 10 минут. Никому его не сообщайте.`, "bot")
+          createLocalMessage(
+            "yachat-codes",
+            `Код подтверждения ЯЧата\n\nНомер: ${challenge.contact}\nКод: ${code}\n\nДействует 10 минут.\nНикому его не сообщайте.`,
+            "bot",
+            {
+              formattedHtml: `<strong>Код подтверждения ЯЧата</strong><br><br>Номер: <strong>${escapeHtml(challenge.contact)}</strong><br>Код: <strong>${escapeHtml(code)}</strong><br><br>Действует 10 минут.<br><strong>Никому его не сообщайте.</strong>`
+            }
+          )
         ];
         writeMessenger(messenger);
 
@@ -7130,6 +7134,7 @@ function createLocalYachatApi() {
           ...(data.messages[chat.id] || []),
           createLocalMessage(chat.id, text, chat.id === "yachat-channel" ? "channel" : "user", {
             senderId: account?.id || "",
+            formattedHtml: String(payload?.formattedHtml || ""),
             attachments,
             ...(payload?.clientMessageId ? { id: String(payload.clientMessageId) } : {}),
             ...(replyTo ? { replyTo } : {})
@@ -7171,6 +7176,7 @@ function createLocalYachatApi() {
         }
 
         message.text = text;
+        message.formattedHtml = String(payload?.formattedHtml || "");
         message.editedAt = new Date().toISOString();
         writeMessenger(data);
         return {
@@ -7293,6 +7299,7 @@ function createLocalYachatApi() {
           ...(data.messages[toChat.id] || []),
           createLocalMessage(toChat.id, source.text || "", "user", {
             senderId: account?.id || "",
+            formattedHtml: String(source.formattedHtml || ""),
             attachments: Array.isArray(source.attachments) ? source.attachments : [],
             forwardedFrom: fromChat.title || ""
           })
