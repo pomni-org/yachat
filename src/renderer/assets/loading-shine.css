@@ -8,13 +8,6 @@
   --boot-shine-core: rgba(0, 0, 0, 0.82);
 }
 
-/* Safari lays the page viewport below the status bar in standalone mode.
-   Extend only the boot layer into that excluded area so its visual center
-   matches the physical screen center instead of the shortened page center. */
-.boot-screen {
-  top: calc(0px - env(safe-area-inset-top, 0px));
-}
-
 .boot-mark {
   isolation: isolate;
 }
