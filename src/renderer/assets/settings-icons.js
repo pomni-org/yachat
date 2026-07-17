@@ -7,7 +7,7 @@
 
   Object.assign(ICONS, {
     "link-2": '<path d="M9 17H7a5 5 0 0 1 0-10h2" /><path d="M15 7h2a5 5 0 1 1 0 10h-2" /><path d="M8 12h8" />',
-    "message-square": '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4 4h10a4 4 0 0 1 4 4z" />',
+    "message-square": '<rect x="3" y="4" width="18" height="14" rx="4" /><path d="M8 18 5 21v-4" /><path d="M8 11h.01" /><path d="M12 11h.01" /><path d="M16 11h.01" />',
     bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />',
     folder: '<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" />',
     "battery-charging": '<path d="M15 7h1a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-2" /><path d="M22 11v2" /><path d="M6 7H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" /><path d="m11 6-3 6h4l-2 6 6-8h-4z" />',
