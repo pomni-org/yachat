@@ -1,0 +1,15 @@
+name: Inspect QR remnants
+
+on:
+  push:
+    paths:
+      - .github/workflows/codex-inspect-qr-remnants.yml
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: List remaining QR references
+        run: |
+          grep -RniE 'qr|кьюар|QR-код|QR code' api src scripts vercel.json package.json --exclude='*.png' --exclude='*.ico' || true
