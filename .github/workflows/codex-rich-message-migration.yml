@@ -1,0 +1,42 @@
+name: Apply rich message migration
+
+on:
+  push:
+    paths:
+      - .github/workflows/codex-rich-message-migration.yml
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply source migration
+        run: python scripts/codex-rich-message-patch.py
+      - name: Verify Python and browser scripts
+        run: |
+          python -m py_compile api/index.py
+          node --check src/renderer/app.js
+          node --check src/renderer/assets/rich-composer.js
+          node --check src/renderer/assets/message-search.js
+          node --check src/renderer/assets/avatar-fullscreen.js
+          grep -q "formatted_html" api/index.py
+          grep -q "verification_code_html" api/index.py
+          grep -q "yachat-channel\": \[\]" src/renderer/app.js
+      - name: Build web output
+        run: |
+          npm install
+          npm run build:vercel
+          grep -q "rich-composer.js?v=25" public/index.html
+          grep -q "rich-composer.css?v=25" public/index.html
+      - name: Commit migrated sources
+        run: |
+          git config user.name "ЯЧат Codex"
+          git config user.email "actions@users.noreply.github.com"
+          git add api/index.py src/renderer/app.js
+          git commit -m "feat(messages): store rich formatting and clean system feeds"
+          git push
