@@ -15,12 +15,30 @@
   let countLabel = null;
   let matches = [];
   let activeIndex = -1;
-  let applying = false;
   let refreshFrame = 0;
-  let lastChatId = "";
+  let messageObserver = null;
 
   function svg(name) {
     return typeof iconSvg === "function" ? iconSvg(name) : "";
+  }
+
+  function observeMessages() {
+    if (!messageObserver) {
+      messageObserver = new MutationObserver(() => {
+        if (!searchBar || searchBar.hidden || !input?.value.trim()) return;
+        scheduleSearch({ backgroundRefresh: true });
+      });
+    }
+    messageObserver.observe(messageListElement, { childList: true, subtree: true });
+  }
+
+  function pauseMessageObserver(callback) {
+    messageObserver?.disconnect();
+    try {
+      callback();
+    } finally {
+      observeMessages();
+    }
   }
 
   function ensureSearchBar() {
@@ -65,8 +83,7 @@
   }
 
   function clearHighlights() {
-    applying = true;
-    try {
+    pauseMessageObserver(() => {
       messageListElement.querySelectorAll(".message-bubble > p").forEach(restoreParagraph);
       messageListElement.querySelectorAll(".is-message-search-active").forEach((bubble) => {
         bubble.classList.remove("is-message-search-active");
@@ -74,9 +91,7 @@
       matches = [];
       activeIndex = -1;
       updateCounter();
-    } finally {
-      applying = false;
-    }
+    });
   }
 
   function highlightParagraph(paragraph, query) {
@@ -126,16 +141,13 @@
     }
 
     activeIndex = ((index % matches.length) + matches.length) % matches.length;
-    matches.forEach((mark, markIndex) => {
-      mark.classList.toggle("is-active", markIndex === activeIndex);
-      mark.closest(".message-bubble")?.classList.toggle(
-        "is-message-search-active",
-        markIndex === activeIndex
-      );
+    const activeBubble = matches[activeIndex].closest(".message-bubble");
+    matches.forEach((mark, markIndex) => mark.classList.toggle("is-active", markIndex === activeIndex));
+    messageListElement.querySelectorAll(".is-message-search-active").forEach((bubble) => {
+      bubble.classList.toggle("is-message-search-active", bubble === activeBubble);
     });
 
-    const current = matches[activeIndex];
-    current.closest(".message-bubble")?.scrollIntoView({
+    activeBubble?.scrollIntoView({
       block: "center",
       behavior: options.instant ? "auto" : "smooth"
     });
@@ -146,8 +158,7 @@
     if (!input || searchBar?.hidden) return;
     const query = input.value.trim();
 
-    applying = true;
-    try {
+    pauseMessageObserver(() => {
       messageListElement.querySelectorAll(".message-bubble > p").forEach(restoreParagraph);
       messageListElement.querySelectorAll(".is-message-search-active").forEach((bubble) => {
         bubble.classList.remove("is-message-search-active");
@@ -156,16 +167,15 @@
       activeIndex = -1;
 
       if (query) {
+        const lowerQuery = query.toLocaleLowerCase();
         messageListElement.querySelectorAll(".message-bubble > p").forEach((paragraph) => {
           const source = paragraph.textContent || "";
-          if (source.toLocaleLowerCase().includes(query.toLocaleLowerCase())) {
+          if (source.toLocaleLowerCase().includes(lowerQuery)) {
             highlightParagraph(paragraph, query);
           }
         });
       }
-    } finally {
-      applying = false;
-    }
+    });
 
     updateCounter();
     if (matches.length === 1) {
@@ -198,13 +208,12 @@
   }
 
   function closeSearch() {
-    if (!searchBar) return;
+    if (!searchBar || searchBar.hidden) return;
     clearHighlights();
     input.value = "";
     searchBar.hidden = true;
     dialogPane.classList.remove("message-search-open");
     searchButton.setAttribute("aria-pressed", "false");
-    searchButton.focus({ preventScroll: true });
   }
 
   searchButton.setAttribute("aria-pressed", "false");
@@ -219,26 +228,15 @@
     if (event.key === "Escape" && searchBar && !searchBar.hidden) {
       event.preventDefault();
       closeSearch();
+      searchButton.focus({ preventScroll: true });
     }
   });
 
   document.addEventListener("click", (event) => {
-    if (event.target.closest(".chat-list [data-chat-id], [data-search-user-id]")) {
+    if (event.target.closest(".chat-list [data-chat-id], [data-search-user-id], [data-action='dialog-back']")) {
       closeSearch();
     }
   }, true);
 
-  const observer = new MutationObserver(() => {
-    if (applying || !searchBar || searchBar.hidden || !input?.value.trim()) return;
-    scheduleSearch({ backgroundRefresh: true });
-  });
-  observer.observe(messageListElement, { childList: true, subtree: true });
-
-  setInterval(() => {
-    const currentChatId = String(globalThis.state?.activeChatId || "");
-    if (lastChatId && currentChatId && currentChatId !== lastChatId) {
-      closeSearch();
-    }
-    lastChatId = currentChatId;
-  }, 500);
+  observeMessages();
 })();
