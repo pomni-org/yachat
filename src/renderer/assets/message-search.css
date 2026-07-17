@@ -1,0 +1,138 @@
+/* ЯЧат: поиск по сообщениям непосредственно под шапкой чата. */
+
+.dialog-pane.message-search-open {
+  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+}
+
+.dialog-message-search {
+  z-index: 4;
+  display: grid;
+  min-width: 0;
+  min-height: 54px;
+  padding: 7px 10px 7px 14px;
+  grid-template-columns: 24px minmax(0, 1fr) auto 36px 36px 36px;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid var(--card-edge);
+  background: color-mix(in srgb, var(--page), var(--surface) 28%);
+  color: var(--text);
+}
+
+.dialog-message-search[hidden] {
+  display: none !important;
+}
+
+.dialog-message-search-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  color: var(--muted);
+}
+
+.dialog-message-search-icon svg,
+.dialog-message-search button svg {
+  width: 20px !important;
+  height: 20px !important;
+  max-width: 20px !important;
+  max-height: 20px !important;
+}
+
+.dialog-message-search input {
+  min-width: 0;
+  height: 38px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 12px;
+  outline: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+
+.dialog-message-search input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 55%);
+}
+
+.dialog-message-search output {
+  min-width: 38px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.dialog-message-search button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text);
+}
+
+.dialog-message-search button:disabled {
+  opacity: .3;
+}
+
+.dialog-message-search button:not(:disabled):active {
+  background: var(--surface-hover);
+}
+
+.message-search-hit {
+  margin: 0 .035em;
+  padding: 0 .08em;
+  border-radius: 3px;
+  background: #f7d547;
+  color: #211b00;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.message-search-hit.is-active {
+  background: #ffb82e;
+  box-shadow: 0 0 0 2px rgba(255, 184, 46, .32);
+}
+
+.message-bubble.is-message-search-active {
+  outline: 2px solid color-mix(in srgb, #f7d547, transparent 25%);
+  outline-offset: 3px;
+}
+
+/* Последние несколько пикселей, из-за которых геометрия выглядела пьяной. */
+.settings-row:not(.settings-toggle-row) {
+  padding-inline-end: 9px;
+  grid-template-columns: 32px minmax(0, 1fr) auto 18px;
+}
+
+.settings-row-chevron {
+  justify-self: end;
+  margin-inline-end: 0;
+}
+
+.chat-pane-actions .round-action {
+  line-height: 0;
+}
+
+.chat-pane-actions .round-action > svg {
+  display: block;
+  margin: 0;
+  transform: none;
+}
+
+@media (max-width: 640px) {
+  .dialog-message-search {
+    padding-inline: 10px;
+    grid-template-columns: 22px minmax(0, 1fr) auto 34px 34px 34px;
+    gap: 5px;
+  }
+
+  .dialog-message-search button {
+    width: 34px;
+    height: 34px;
+  }
+}
