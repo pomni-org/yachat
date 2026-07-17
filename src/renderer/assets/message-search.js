@@ -5,6 +5,7 @@
   const dialogHead = document.querySelector(".dialog-head");
   const searchButton = document.querySelector(".dialog-search");
   const messageListElement = document.querySelector("[data-message-list]");
+  const TEXT_SELECTOR = ".message-bubble > .message-text, .message-bubble > p";
 
   if (!dialogPane || !dialogHead || !searchButton || !messageListElement) {
     return;
@@ -75,16 +76,16 @@
     return searchBar;
   }
 
-  function restoreParagraph(paragraph) {
-    if (paragraph.dataset.messageSearchSource !== undefined) {
-      paragraph.textContent = paragraph.dataset.messageSearchSource;
-      delete paragraph.dataset.messageSearchSource;
+  function restoreTextElement(element) {
+    if (typeof element.__yachatSearchSourceHtml === "string") {
+      element.innerHTML = element.__yachatSearchSourceHtml;
+      delete element.__yachatSearchSourceHtml;
     }
   }
 
   function clearHighlights() {
     pauseMessageObserver(() => {
-      messageListElement.querySelectorAll(".message-bubble > p").forEach(restoreParagraph);
+      messageListElement.querySelectorAll(TEXT_SELECTOR).forEach(restoreTextElement);
       messageListElement.querySelectorAll(".is-message-search-active").forEach((bubble) => {
         bubble.classList.remove("is-message-search-active");
       });
@@ -94,32 +95,47 @@
     });
   }
 
-  function highlightParagraph(paragraph, query) {
-    const source = paragraph.dataset.messageSearchSource ?? paragraph.textContent ?? "";
-    paragraph.dataset.messageSearchSource = source;
-    paragraph.textContent = "";
-
+  function markTextNode(node, query) {
+    const source = node.nodeValue || "";
     const lowerSource = source.toLocaleLowerCase();
     const lowerQuery = query.toLocaleLowerCase();
     let cursor = 0;
-    let index = lowerSource.indexOf(lowerQuery, cursor);
+    let index = lowerSource.indexOf(lowerQuery);
 
+    if (index < 0) return;
+
+    const fragment = document.createDocumentFragment();
     while (index !== -1) {
       if (index > cursor) {
-        paragraph.append(document.createTextNode(source.slice(cursor, index)));
+        fragment.append(document.createTextNode(source.slice(cursor, index)));
       }
       const mark = document.createElement("mark");
       mark.className = "message-search-hit";
       mark.textContent = source.slice(index, index + query.length);
-      paragraph.append(mark);
+      fragment.append(mark);
       matches.push(mark);
       cursor = index + query.length;
       index = lowerSource.indexOf(lowerQuery, cursor);
     }
 
     if (cursor < source.length) {
-      paragraph.append(document.createTextNode(source.slice(cursor)));
+      fragment.append(document.createTextNode(source.slice(cursor)));
     }
+    node.replaceWith(fragment);
+  }
+
+  function highlightElement(element, query) {
+    element.__yachatSearchSourceHtml = element.innerHTML;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
+        if (node.parentElement?.closest("mark")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const textNodes = [];
+    while (walker.nextNode()) textNodes.push(walker.currentNode);
+    textNodes.forEach((node) => markTextNode(node, query));
   }
 
   function updateCounter() {
@@ -159,7 +175,7 @@
     const query = input.value.trim();
 
     pauseMessageObserver(() => {
-      messageListElement.querySelectorAll(".message-bubble > p").forEach(restoreParagraph);
+      messageListElement.querySelectorAll(TEXT_SELECTOR).forEach(restoreTextElement);
       messageListElement.querySelectorAll(".is-message-search-active").forEach((bubble) => {
         bubble.classList.remove("is-message-search-active");
       });
@@ -168,10 +184,9 @@
 
       if (query) {
         const lowerQuery = query.toLocaleLowerCase();
-        messageListElement.querySelectorAll(".message-bubble > p").forEach((paragraph) => {
-          const source = paragraph.textContent || "";
-          if (source.toLocaleLowerCase().includes(lowerQuery)) {
-            highlightParagraph(paragraph, query);
+        messageListElement.querySelectorAll(TEXT_SELECTOR).forEach((element) => {
+          if ((element.textContent || "").toLocaleLowerCase().includes(lowerQuery)) {
+            highlightElement(element, query);
           }
         });
       }
