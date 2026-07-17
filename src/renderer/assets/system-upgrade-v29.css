@@ -1,0 +1,154 @@
+/* ЯЧат v29: коды входа вместо QR, копирование кодов и номера. */
+
+.device-code-login-screen {
+  align-content: start;
+}
+
+.device-code-login-form {
+  width: min(420px, 100%);
+}
+
+.device-code-input-shell {
+  display: block;
+  width: 100%;
+}
+
+.device-code-input-shell input {
+  width: 100%;
+  height: 66px;
+  padding: 0 18px;
+  border: 1px solid var(--card-edge);
+  border-radius: 20px;
+  outline: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: 700 clamp(27px, 8vw, 38px)/1 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .12em;
+  text-align: center;
+  text-transform: uppercase;
+  caret-color: var(--accent);
+  box-sizing: border-box;
+}
+
+.device-code-input-shell input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent), transparent 78%);
+}
+
+.device-code-location {
+  width: min(420px, 100%);
+  margin: 16px auto 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.device-code-card {
+  padding: 18px;
+}
+
+.device-code-card-copy {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.device-code-card-copy > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.device-code-card-copy strong {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.device-code-card-copy small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.device-code-value {
+  display: grid;
+  width: 100%;
+  min-height: 78px;
+  margin: 18px 0 8px;
+  padding: 0 12px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent), transparent 54%);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent), var(--surface) 88%);
+  color: var(--text);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.device-code-value code {
+  font: 750 clamp(29px, 8vw, 42px)/1 ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .09em;
+  white-space: nowrap;
+}
+
+.device-code-value:disabled {
+  opacity: .54;
+}
+
+.device-code-card > p {
+  min-height: 18px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.settings-copy-phone {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.settings-copy-phone:focus-visible,
+.device-code-value:focus-visible,
+.copyable-verification-code:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.copyable-verification-code {
+  display: inline-block;
+  margin-inline: .18em;
+  padding: .12em .38em;
+  border-radius: .45em;
+  background: color-mix(in srgb, currentColor, transparent 88%);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: .05em;
+  cursor: pointer;
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+.chat-profile-link-actions [data-panel-action="show-profile-qr"],
+.chat-profile-qr,
+.settings-qr-layer {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  .device-code-login-screen {
+    padding-bottom: max(22px, env(safe-area-inset-bottom));
+  }
+
+  .device-code-input-shell input {
+    height: 62px;
+  }
+
+  .device-code-card {
+    padding: 16px;
+  }
+}
