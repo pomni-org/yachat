@@ -3,23 +3,21 @@
 
   const editor = document.querySelector("[data-rich-message-editor]");
   const composer = document.querySelector('[data-form="message"]');
-  const messageListElement = document.querySelector("[data-message-list]");
+  const messageList = document.querySelector("[data-message-list]");
 
-  if (!editor || !composer || !messageListElement) {
-    return;
-  }
+  if (!editor || !composer || !messageList) return;
 
-  const mentionState = {
+  const mention = {
     strip: null,
     users: [],
     selectedIndex: 0,
-    triggerRange: null,
+    range: null,
     query: "",
     requestId: 0,
-    userByUsername: new Map()
+    byUsername: new Map()
   };
 
-  function applicationState() {
+  function appState() {
     try {
       return typeof state !== "undefined" ? state : null;
     } catch {
@@ -27,7 +25,7 @@
     }
   }
 
-  function applicationApi() {
+  function api() {
     try {
       return typeof yachatApi !== "undefined" ? yachatApi : null;
     } catch {
@@ -35,7 +33,7 @@
     }
   }
 
-  function activeChat() {
+  function currentChat() {
     try {
       return typeof getActiveChat === "function" ? getActiveChat() : null;
     } catch {
@@ -43,7 +41,7 @@
     }
   }
 
-  function escape(value) {
+  function html(value) {
     try {
       return typeof escapeHtml === "function"
         ? escapeHtml(String(value ?? ""))
@@ -57,280 +55,214 @@
     }
   }
 
-  function cleanUsername(value) {
-    return String(value || "")
-      .trim()
-      .replace(/^@+/, "")
-      .toLocaleLowerCase();
+  function username(value) {
+    return String(value || "").trim().replace(/^@+/, "").toLocaleLowerCase();
   }
 
-  function normalizeMentionUser(user = {}) {
-    const username = cleanUsername(user.username || user.profileUsername);
-    const id = String(user.id || user.userId || user.profileUserId || "").trim();
-    if (!id || !username) {
-      return null;
-    }
+  function normalizeUser(value = {}) {
+    const id = String(value.id || value.userId || value.profileUserId || "").trim();
+    const handle = username(value.username || value.profileUsername);
+    if (!id || !handle) return null;
 
     return {
       id,
-      username,
-      displayName: String(user.displayName || user.previewName || user.title || username).trim() || username,
-      avatarDataUrl: String(user.avatarDataUrl || ""),
-      avatarAccent: String(user.avatarAccent || "#471AFF"),
-      verified: Boolean(user.verified),
-      verifiedTitle: String(user.verifiedTitle || ""),
-      verifiedDescription: String(user.verifiedDescription || "")
+      username: handle,
+      displayName: String(value.displayName || value.previewName || value.title || handle).trim() || handle,
+      avatarDataUrl: String(value.avatarDataUrl || ""),
+      avatarAccent: String(value.avatarAccent || "#471AFF"),
+      verified: Boolean(value.verified)
     };
   }
 
   function mergeUsers(...groups) {
-    const appState = applicationState();
-    const ownId = String(appState?.account?.id || "");
+    const ownId = String(appState()?.account?.id || "");
     const seen = new Set();
     const result = [];
 
-    groups.flat().forEach((candidate) => {
-      const user = normalizeMentionUser(candidate);
-      if (!user || user.id === ownId || seen.has(user.id)) {
-        return;
-      }
+    groups.flat().forEach((value) => {
+      const user = normalizeUser(value);
+      if (!user || user.id === ownId || seen.has(user.id)) return;
       seen.add(user.id);
       result.push(user);
-      mentionState.userByUsername.set(user.username, user);
+      mention.byUsername.set(user.username, user);
     });
 
     return result;
   }
 
-  function chatUsers(chat) {
-    if (!chat) {
-      return [];
-    }
+  function usersFromChat(chat) {
+    if (!chat) return [];
 
-    const appState = applicationState();
+    const stateValue = appState();
     const profiles = chat.participantProfiles && typeof chat.participantProfiles === "object"
       ? Object.values(chat.participantProfiles)
       : [];
     const peerId = Array.isArray(chat.participantIds)
-      ? chat.participantIds.find((id) => String(id) !== String(appState?.account?.id || ""))
+      ? chat.participantIds.find((id) => String(id) !== String(stateValue?.account?.id || ""))
       : "";
-    const directPeer = chat.kind === "private" && chat.profileUsername
+    const peer = chat.kind === "private" && chat.profileUsername
       ? [{
           id: chat.profileUserId || chat.peerId || peerId,
           username: chat.profileUsername,
           displayName: chat.title,
           avatarDataUrl: chat.avatarDataUrl,
           avatarAccent: chat.avatarAccent,
-          verified: chat.verified,
-          verifiedTitle: chat.verifiedTitle,
-          verifiedDescription: chat.verifiedDescription
+          verified: chat.verified
         }]
       : [];
 
-    return mergeUsers(profiles, directPeer);
+    return mergeUsers(profiles, peer);
   }
 
   function knownUsers() {
-    const appState = applicationState();
-    const currentChatUsers = chatUsers(activeChat());
-    const cachedUsers = [
-      ...(appState?.contactMatches || []),
-      ...(appState?.createChatUsers || []),
-      ...(appState?.chatSearchUsers || [])
-    ];
-    const historicalUsers = (appState?.chats || []).flatMap(chatUsers);
-    return mergeUsers(currentChatUsers, cachedUsers, historicalUsers);
+    const stateValue = appState();
+    return mergeUsers(
+      usersFromChat(currentChat()),
+      stateValue?.contactMatches || [],
+      stateValue?.createChatUsers || [],
+      stateValue?.chatSearchUsers || [],
+      (stateValue?.chats || []).flatMap(usersFromChat)
+    );
   }
 
-  function verifiedMarkup(user) {
-    try {
-      return user.verified && typeof renderVerified === "function" ? renderVerified(user) : "";
-    } catch {
-      return "";
-    }
-  }
-
-  function avatarMarkup(user) {
+  function avatar(user) {
     if (user.avatarDataUrl) {
-      return `<span class="mention-person-avatar"><img src="${escape(user.avatarDataUrl)}" alt="" /></span>`;
+      return `<span class="mention-person-avatar"><img src="${html(user.avatarDataUrl)}" alt="" /></span>`;
     }
-    const initial = String(user.displayName || user.username).trim().slice(0, 1).toUpperCase() || "Я";
-    return `<span class="mention-person-avatar" style="--mention-avatar:${escape(user.avatarAccent)}">${escape(initial)}</span>`;
+    const initial = user.displayName.slice(0, 1).toUpperCase() || "Я";
+    return `<span class="mention-person-avatar" style="--mention-avatar:${html(user.avatarAccent)}">${html(initial)}</span>`;
+  }
+
+  function verified(user) {
+    if (!user.verified) return "";
+    let icon = "";
+    try {
+      icon = typeof iconSvg === "function" ? iconSvg("badge-check") : "✓";
+    } catch {
+      icon = "✓";
+    }
+    return `<span class="mention-person-verified" aria-label="Подтверждённый профиль">${icon}</span>`;
   }
 
   function ensureStrip() {
-    if (mentionState.strip?.isConnected) {
-      return mentionState.strip;
-    }
+    if (mention.strip?.isConnected) return mention.strip;
 
-    const strip = document.createElement("section");
-    strip.className = "mention-people-strip";
-    strip.hidden = true;
-    strip.setAttribute("role", "listbox");
-    strip.setAttribute("aria-label", "Упомянуть человека");
-    strip.innerHTML = '<div class="mention-people-scroller" data-mention-people></div>';
-    composer.insertAdjacentElement("afterbegin", strip);
-    mentionState.strip = strip;
+    mention.strip = document.createElement("section");
+    mention.strip.className = "mention-people-strip";
+    mention.strip.hidden = true;
+    mention.strip.setAttribute("role", "listbox");
+    mention.strip.setAttribute("aria-label", "Упомянуть человека");
+    mention.strip.innerHTML = '<div class="mention-people-scroller" data-mention-people></div>';
+    composer.insertAdjacentElement("afterbegin", mention.strip);
 
-    strip.addEventListener("pointerdown", (event) => {
-      if (event.target.closest("[data-mention-user-id]")) {
-        event.preventDefault();
-      }
+    mention.strip.addEventListener("pointerdown", (event) => {
+      if (event.target.closest("[data-mention-user-id]")) event.preventDefault();
     });
-
-    strip.addEventListener("click", (event) => {
+    mention.strip.addEventListener("click", (event) => {
       const button = event.target.closest("[data-mention-user-id]");
-      if (!button) {
-        return;
-      }
-      const user = mentionState.users.find((item) => item.id === button.dataset.mentionUserId);
-      if (user) {
-        insertMention(user);
-      }
+      const user = button && mention.users.find((item) => item.id === button.dataset.mentionUserId);
+      if (user) insertUser(user);
     });
 
-    return strip;
+    return mention.strip;
   }
 
   function closeStrip() {
-    if (mentionState.strip) {
-      mentionState.strip.hidden = true;
-    }
-    mentionState.users = [];
-    mentionState.selectedIndex = 0;
-    mentionState.triggerRange = null;
-    mentionState.query = "";
+    if (mention.strip) mention.strip.hidden = true;
+    mention.users = [];
+    mention.selectedIndex = 0;
+    mention.range = null;
+    mention.query = "";
   }
 
   function renderStrip() {
+    if (!mention.users.length) return closeStrip();
+
     const strip = ensureStrip();
     const target = strip.querySelector("[data-mention-people]");
-    if (!target) {
-      return;
-    }
-
-    if (!mentionState.users.length) {
-      closeStrip();
-      return;
-    }
-
+    mention.selectedIndex = Math.min(mention.selectedIndex, mention.users.length - 1);
     strip.hidden = false;
-    mentionState.selectedIndex = Math.min(mentionState.selectedIndex, mentionState.users.length - 1);
-    target.innerHTML = mentionState.users.map((user, index) => `
+    target.innerHTML = mention.users.map((user, index) => `
       <button
-        class="mention-person${index === mentionState.selectedIndex ? " is-selected" : ""}"
+        class="mention-person${index === mention.selectedIndex ? " is-selected" : ""}"
         type="button"
         role="option"
-        aria-selected="${index === mentionState.selectedIndex ? "true" : "false"}"
-        data-mention-user-id="${escape(user.id)}"
+        aria-selected="${index === mention.selectedIndex}"
+        data-mention-user-id="${html(user.id)}"
       >
-        ${avatarMarkup(user)}
+        ${avatar(user)}
         <span class="mention-person-copy">
-          <strong>${escape(user.displayName)} ${verifiedMarkup(user)}</strong>
-          <small>@${escape(user.username)}</small>
+          <strong>${html(user.displayName)} ${verified(user)}</strong>
+          <small>@${html(user.username)}</small>
         </span>
       </button>
     `).join("");
-
-    try {
-      if (typeof hydrateIcons === "function") {
-        hydrateIcons(strip);
-      }
-    } catch {
-      // Значки не должны ломать выбор упоминания.
-    }
   }
 
-  function currentTrigger() {
+  function triggerAtCaret() {
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
-      return null;
-    }
+    if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) return null;
 
     const caret = selection.getRangeAt(0);
-    if (!editor.contains(caret.endContainer)) {
-      return null;
-    }
+    if (!editor.contains(caret.endContainer)) return null;
 
     let node = caret.endContainer;
     let offset = caret.endOffset;
     if (node.nodeType !== Node.TEXT_NODE) {
       const previous = node.childNodes?.[Math.max(0, offset - 1)];
-      if (previous?.nodeType !== Node.TEXT_NODE) {
-        return null;
-      }
+      if (previous?.nodeType !== Node.TEXT_NODE) return null;
       node = previous;
       offset = previous.nodeValue?.length || 0;
     }
 
-    const before = String(node.nodeValue || "").slice(0, offset);
-    const match = before.match(/(^|\s)@([\p{L}\p{N}_.-]{0,32})$/u);
-    if (!match) {
-      return null;
-    }
+    const match = String(node.nodeValue || "")
+      .slice(0, offset)
+      .match(/(^|\s)@([\p{L}\p{N}_.-]{0,32})$/u);
+    if (!match) return null;
 
     const range = document.createRange();
     range.setStart(node, offset - match[2].length - 1);
     range.setEnd(node, offset);
-    return {
-      query: cleanUsername(match[2]),
-      range
-    };
+    return { query: username(match[2]), range };
   }
 
-  function filterUsers(users, query) {
-    const normalized = cleanUsername(query);
-    if (!normalized) {
-      return users.slice(0, 12);
-    }
-
-    return users.filter((user) => {
-      const haystack = `${user.displayName} ${user.username}`.toLocaleLowerCase();
-      return haystack.includes(normalized);
-    }).slice(0, 12);
+  function filtered(users, query) {
+    if (!query) return users.slice(0, 12);
+    return users.filter((user) =>
+      `${user.displayName} ${user.username}`.toLocaleLowerCase().includes(query)
+    ).slice(0, 12);
   }
 
-  async function refreshSuggestions() {
-    const trigger = currentTrigger();
-    if (!trigger) {
-      closeStrip();
-      return;
-    }
+  async function refresh() {
+    const trigger = triggerAtCaret();
+    if (!trigger) return closeStrip();
 
-    mentionState.triggerRange = trigger.range.cloneRange();
-    mentionState.query = trigger.query;
-    mentionState.selectedIndex = 0;
-
-    const localUsers = filterUsers(knownUsers(), trigger.query);
-    mentionState.users = localUsers;
+    mention.range = trigger.range.cloneRange();
+    mention.query = trigger.query;
+    mention.selectedIndex = 0;
+    const local = filtered(knownUsers(), trigger.query);
+    mention.users = local;
     renderStrip();
 
-    const api = applicationApi();
-    if (trigger.query.length < 2 || !api?.users?.search) {
-      return;
-    }
+    const usersApi = api()?.users;
+    if (trigger.query.length < 2 || !usersApi?.search) return;
 
-    const requestId = ++mentionState.requestId;
+    const requestId = ++mention.requestId;
     try {
-      const remoteUsers = await api.users.search(trigger.query);
-      if (requestId !== mentionState.requestId || mentionState.query !== trigger.query) {
-        return;
-      }
-      mentionState.users = filterUsers(mergeUsers(localUsers, remoteUsers), trigger.query);
+      const remote = await usersApi.search(trigger.query);
+      if (requestId !== mention.requestId || mention.query !== trigger.query) return;
+      mention.users = filtered(mergeUsers(local, remote), trigger.query);
       renderStrip();
     } catch {
-      // Локальные контакты остаются доступны при временной ошибке каталога.
+      // Уже найденные контакты остаются доступны без каталога.
     }
   }
 
-  function insertMention(user) {
-    const range = mentionState.triggerRange;
-    if (!range || !editor.contains(range.commonAncestorContainer)) {
-      closeStrip();
-      return;
-    }
+  function insertUser(user) {
+    if (!mention.range || !editor.contains(mention.range.commonAncestorContainer)) return closeStrip();
 
     const selection = window.getSelection();
+    const range = mention.range;
     selection?.removeAllRanges();
     selection?.addRange(range);
     range.deleteContents();
@@ -349,89 +281,65 @@
     range.collapse(true);
     selection?.removeAllRanges();
     selection?.addRange(range);
-
     editor.focus({ preventScroll: true });
     editor.dispatchEvent(new Event("input", { bubbles: true }));
     closeStrip();
   }
 
-  function decorateMentionLinks(root = messageListElement) {
-    root.querySelectorAll('a[href*="/@"]').forEach((link) => {
-      let username = "";
+  function decorateLinks() {
+    messageList.querySelectorAll('a[href*="/@"]').forEach((link) => {
       try {
-        const url = new URL(link.href, window.location.origin);
-        const match = decodeURIComponent(url.pathname).match(/^\/@([^/]+)$/);
-        username = cleanUsername(match?.[1]);
+        const match = decodeURIComponent(new URL(link.href, window.location.origin).pathname).match(/^\/@([^/]+)$/);
+        const handle = username(match?.[1]);
+        if (!handle) return;
+        link.classList.add("message-mention");
+        link.dataset.mentionUsername = handle;
+        link.removeAttribute("target");
+        link.removeAttribute("rel");
       } catch {
-        username = "";
+        // Обычные ссылки не являются упоминаниями.
       }
-      if (!username) {
-        return;
-      }
-      link.classList.add("message-mention");
-      link.dataset.mentionUsername = username;
-      link.removeAttribute("target");
-      link.removeAttribute("rel");
-      link.setAttribute("role", "link");
     });
   }
 
-  async function openMentionProfile(username) {
-    const normalized = cleanUsername(username);
-    if (!normalized) {
-      return;
-    }
+  async function openProfile(rawUsername) {
+    const handle = username(rawUsername);
+    if (!handle) return;
 
     closeStrip();
-    const api = applicationApi();
-    let user = mentionState.userByUsername.get(normalized) || null;
+    const usersApi = api()?.users;
+    let user = mention.byUsername.get(handle) || null;
 
-    if (!user && api?.users?.byUsername) {
+    if (!user && usersApi?.byUsername) {
       try {
-        user = normalizeMentionUser(await api.users.byUsername(normalized));
+        user = normalizeUser(await usersApi.byUsername(handle));
       } catch {
         user = null;
       }
     }
-
-    if (!user && api?.users?.search) {
+    if (!user && usersApi?.search) {
       try {
-        user = mergeUsers(await api.users.search(normalized))
-          .find((candidate) => candidate.username === normalized) || null;
+        user = mergeUsers(await usersApi.search(handle)).find((item) => item.username === handle) || null;
       } catch {
         user = null;
       }
     }
 
     try {
-      const appState = applicationState();
       const existing = user && typeof findPrivateChatForUser === "function"
         ? findPrivateChatForUser(user.id)
-        : (appState?.chats || []).find((chat) => cleanUsername(chat.profileUsername) === normalized);
+        : (appState()?.chats || []).find((chat) => username(chat.profileUsername) === handle);
 
       if (existing?.id && typeof selectChat === "function") {
         await selectChat(existing.id);
-        if (typeof openPanel === "function") {
-          openPanel("chat");
-        }
-        return;
-      }
-
-      if (user && typeof openPendingPrivateChat === "function") {
+      } else if (user && typeof openPendingPrivateChat === "function") {
         await openPendingPrivateChat(user);
-        if (typeof openPanel === "function") {
-          openPanel("chat");
-        }
-        return;
+      } else {
+        window.history.pushState({}, "", `/@${encodeURIComponent(handle)}`);
+        if (typeof openRouteTargetFromLocation === "function") await openRouteTargetFromLocation();
       }
 
-      window.history.pushState({}, "", `/@${encodeURIComponent(normalized)}`);
-      if (typeof openRouteTargetFromLocation === "function") {
-        await openRouteTargetFromLocation();
-        if (typeof openPanel === "function") {
-          openPanel("chat");
-        }
-      }
+      if (typeof openPanel === "function") openPanel("chat");
     } catch {
       window.yachatFeedback?.show?.("Профиль временно недоступен", {
         tone: "error",
@@ -440,65 +348,47 @@
     }
   }
 
-  editor.addEventListener("input", () => {
-    window.requestAnimationFrame(refreshSuggestions);
-  });
-
+  editor.addEventListener("input", () => requestAnimationFrame(refresh));
   editor.addEventListener("keydown", (event) => {
-    if (!mentionState.strip || mentionState.strip.hidden || !mentionState.users.length) {
-      return;
-    }
+    if (!mention.strip || mention.strip.hidden || !mention.users.length) return;
 
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    if (["ArrowRight", "ArrowDown"].includes(event.key)) {
       event.preventDefault();
-      mentionState.selectedIndex = (mentionState.selectedIndex + 1) % mentionState.users.length;
+      mention.selectedIndex = (mention.selectedIndex + 1) % mention.users.length;
       renderStrip();
-      mentionState.strip.querySelector(".mention-person.is-selected")?.scrollIntoView({ block: "nearest", inline: "nearest" });
-      return;
-    }
-
-    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    } else if (["ArrowLeft", "ArrowUp"].includes(event.key)) {
       event.preventDefault();
-      mentionState.selectedIndex = (mentionState.selectedIndex - 1 + mentionState.users.length) % mentionState.users.length;
+      mention.selectedIndex = (mention.selectedIndex - 1 + mention.users.length) % mention.users.length;
       renderStrip();
-      mentionState.strip.querySelector(".mention-person.is-selected")?.scrollIntoView({ block: "nearest", inline: "nearest" });
-      return;
-    }
-
-    if (event.key === "Enter" || event.key === "Tab") {
+    } else if (event.key === "Enter" || event.key === "Tab") {
       event.preventDefault();
-      insertMention(mentionState.users[mentionState.selectedIndex]);
-      return;
-    }
-
-    if (event.key === "Escape") {
+      insertUser(mention.users[mention.selectedIndex]);
+    } else if (event.key === "Escape") {
       event.preventDefault();
       closeStrip();
+    } else {
+      return;
     }
+
+    mention.strip.querySelector(".mention-person.is-selected")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
 
   document.addEventListener("click", (event) => {
-    const mention = event.target.closest(".message-mention, a[href*='/@']");
-    if (mention && messageListElement.contains(mention)) {
+    const link = event.target.closest(".message-mention, a[href*='/@']");
+    if (link && messageList.contains(link)) {
       event.preventDefault();
       event.stopPropagation();
-      void openMentionProfile(mention.dataset.mentionUsername || mention.textContent);
+      void openProfile(link.dataset.mentionUsername || link.textContent);
       return;
     }
 
-    if (!event.target.closest(".mention-people-strip") && !event.target.closest("[data-rich-message-editor]")) {
-      closeStrip();
-    }
+    if (!event.target.closest(".mention-people-strip, [data-rich-message-editor]")) closeStrip();
   }, true);
 
   composer.addEventListener("submit", closeStrip, true);
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) {
-      closeStrip();
-    }
-  });
+  document.addEventListener("visibilitychange", () => document.hidden && closeStrip());
 
-  const observer = new MutationObserver(() => decorateMentionLinks());
-  observer.observe(messageListElement, { childList: true, subtree: true });
-  decorateMentionLinks();
+  new MutationObserver(decorateLinks).observe(messageList, { childList: true, subtree: true });
+  decorateLinks();
 })();
