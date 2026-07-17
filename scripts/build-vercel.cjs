@@ -20,7 +20,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "35";
+const BRAND_VERSION = "36";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -40,6 +40,7 @@ const STYLE_ASSETS = [
   "ui-accessibility.css",
   "message-search.css",
   "rich-composer.css",
+  "message-mentions.css",
   "media-emoji-upgrade.css",
   "system-upgrade-v29.css"
 ];
@@ -59,6 +60,7 @@ const SCRIPT_ASSETS = [
   "ui-accessibility.js",
   "message-search.js",
   "rich-composer.js",
+  "message-mentions.js",
   "media-emoji-upgrade.js",
   "system-upgrade-v29.js"
 ];
