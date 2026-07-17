@@ -4,10 +4,64 @@
   "outputDirectory": "public",
   "cleanUrls": true,
   "trailingSlash": false,
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/api/presence",
+      "destination": "/api/presence.py"
+    },
+    {
+      "source": "/api/contacts",
+      "destination": "/api/contacts.py"
+    },
+    {
+      "source": "/api/contacts/import",
+      "destination": "/api/contacts.py"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/privacy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/policy",
+      "destination": "/privacy.html"
+    },
+    {
+      "source": "/terms",
+      "destination": "/terms.html"
+    },
+    {
+      "source": "/agreement",
+      "destination": "/terms.html"
+    },
+    {
+      "source": "/help",
+      "destination": "/help.html"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
+        },
         {
           "key": "X-Content-Type-Options",
           "value": "nosniff"
@@ -23,42 +77,19 @@
         {
           "key": "Permissions-Policy",
           "value": "camera=(self), microphone=(), geolocation=(), payment=(), usb=()"
-        },
-        {
-          "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests"
         }
       ]
     }
   ],
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "/api/index.py"
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 10
     },
-    {
-      "source": "/privacy",
-      "destination": "/privacy.html"
+    "api/presence.py": {
+      "maxDuration": 10
     },
-    {
-      "source": "/terms",
-      "destination": "/terms.html"
-    },
-    {
-      "source": "/help",
-      "destination": "/help.html"
-    },
-    {
-      "source": "/verificationcodes_bot",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/yachat_channel",
-      "destination": "/index.html"
-    },
-    {
-      "source": "/:username((?!api|assets|privacy|terms|help|favicon(?:-v2)?\\.ico|manifest\\.webmanifest|sw\\.js|index\\.html|page\\.css|styles\\.css|app\\.js)[a-zA-Z0-9_]{3,24})",
-      "destination": "/index.html"
+    "api/contacts.py": {
+      "maxDuration": 10
     }
-  ]
+  }
 }
