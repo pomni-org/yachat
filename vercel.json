@@ -9,7 +9,7 @@
     },
     {
       "source": "/api/presence",
-      "destination": "/api/presence.py"
+      "destination": "/api/presence_runtime.py"
     },
     {
       "source": "/api/contacts",
@@ -18,6 +18,10 @@
     {
       "source": "/api/contacts/import",
       "destination": "/api/contacts.py"
+    },
+    {
+      "source": "/api/chat",
+      "destination": "/api/chat_create.py"
     },
     {
       "source": "/api/chat/update",
@@ -102,7 +106,13 @@
     "api/presence.py": {
       "maxDuration": 10
     },
+    "api/presence_runtime.py": {
+      "maxDuration": 10
+    },
     "api/contacts.py": {
+      "maxDuration": 10
+    },
+    "api/chat_create.py": {
       "maxDuration": 10
     },
     "api/chat_update.py": {
