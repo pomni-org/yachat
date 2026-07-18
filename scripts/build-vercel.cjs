@@ -23,7 +23,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "46";
+const BRAND_VERSION = "47";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -49,13 +49,16 @@ const STYLE_ASSETS = [
   "system-upgrade-v29.css",
   "profile-settings-polish.css",
   "theme-message-reference.css",
-  "avatar-preview.css"
+  "avatar-preview.css",
+  "chat-profile-runtime.css"
 ];
 const PRE_APP_SCRIPT_ASSETS = [
   "language-runtime.js"
 ];
 const SCRIPT_ASSETS = [
   "chat-load-optimization.js",
+  "ui-stability.js",
+  "chat-profile-runtime.js",
   "chat-presence.js",
   "typing-stop-fix.js",
   "username-copy.js",
@@ -105,6 +108,8 @@ async function validateRuntimeScripts() {
   const requiredScripts = [
     "language-runtime.js",
     "chat-load-optimization.js",
+    "ui-stability.js",
+    "chat-profile-runtime.js",
     "typing-stop-fix.js",
     "settings-i18n.js",
     "group-creation-flow.js",
