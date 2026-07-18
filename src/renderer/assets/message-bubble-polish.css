@@ -1,0 +1,101 @@
+/* ЯЧат: компактные группы сообщений и цвета тёмной темы по мобильному референсу. */
+
+:root[data-theme="dark"] {
+  --bubble-in: #242428;
+  --bubble-out-start: #18b6f0;
+  --bubble-out-end: #5222ef;
+  --bubble-meta: rgba(255, 255, 255, 0.66);
+}
+
+.message-list {
+  gap: 3px;
+}
+
+.message-bubble {
+  max-width: min(480px, 78%);
+  padding: 8px 11px 6px;
+  border-radius: 18px 18px 18px 6px;
+}
+
+.message-bubble.is-mine {
+  border-radius: 18px 18px 6px 18px;
+}
+
+:root[data-theme="dark"] .message-bubble:not(.is-mine) {
+  background: #242428;
+  color: #f7f7f8;
+}
+
+:root[data-theme="dark"] .message-bubble.is-mine {
+  background: linear-gradient(112deg, #1bbbf2 0%, #178de4 42%, #5222ef 100%);
+  color: #ffffff;
+}
+
+/* Следующие подряд сообщения одного автора визуально собираются в одну группу. */
+.message-bubble:not(.is-mine):has(+ .message-bubble:not(.is-mine)) {
+  border-bottom-left-radius: 5px;
+}
+
+.message-bubble:not(.is-mine) + .message-bubble:not(.is-mine) {
+  border-top-left-radius: 5px;
+}
+
+.message-bubble.is-mine:has(+ .message-bubble.is-mine) {
+  border-bottom-right-radius: 5px;
+}
+
+.message-bubble.is-mine + .message-bubble.is-mine {
+  border-top-right-radius: 5px;
+}
+
+.message-bubble.is-mine + .message-bubble:not(.is-mine),
+.message-bubble:not(.is-mine) + .message-bubble.is-mine {
+  margin-top: 6px;
+}
+
+.message-bubble p,
+.message-bubble .message-text {
+  font-size: 15px;
+  line-height: 19px;
+  letter-spacing: 0;
+}
+
+.message-bubble time {
+  gap: 3px;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 14px;
+}
+
+:root[data-theme="dark"] .message-bubble:not(.is-mine) time {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+:root[data-theme="dark"] .message-bubble.is-mine time {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+:root[data-theme="dark"] .message-status.is-read {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+@media (max-width: 640px) {
+  .message-list {
+    gap: 3px;
+    padding-inline: 10px;
+  }
+
+  .message-bubble {
+    max-width: 86%;
+    border-radius: 17px 17px 17px 6px;
+  }
+
+  .message-bubble.is-mine {
+    border-radius: 17px 17px 6px 17px;
+  }
+
+  .message-bubble:not(.is-mine):has(+ .message-bubble:not(.is-mine)),
+  .message-bubble:not(.is-mine) + .message-bubble:not(.is-mine) {
+    border-left-width: 0;
+  }
+}
