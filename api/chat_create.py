@@ -17,7 +17,7 @@ from api.index import (
     require_user,
 )
 
-app = FastAPI(title="YaChat chat creation API", version="0.4.0")
+app = FastAPI(title="YaChat chat creation API", version="0.4.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
@@ -56,6 +56,7 @@ async def create_chat(request: Request):
     current_user_id = str(user["id"])
     kind = "group" if payload.get("kind") == "group" else "private"
     selected_ids = participant_ids(payload, current_user_id)
+    requested_participants = bool(selected_ids)
     title = clean_text(payload.get("title"), 60)
 
     if kind == "private" and len(selected_ids) != 1:
@@ -71,6 +72,8 @@ async def create_chat(request: Request):
                 selected_ids = [user_id for user_id in selected_ids if user_id in found_ids]
 
             if kind == "private" and len(selected_ids) != 1:
+                raise HTTPException(status_code=404, detail="User not found.")
+            if kind == "group" and requested_participants and not selected_ids:
                 raise HTTPException(status_code=404, detail="User not found.")
 
             if kind == "private":
