@@ -20,6 +20,10 @@
       "destination": "/api/contacts.py"
     },
     {
+      "source": "/api/chat/update",
+      "destination": "/api/chat_update.py"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     },
@@ -87,6 +91,9 @@
       "maxDuration": 10
     },
     "api/contacts.py": {
+      "maxDuration": 10
+    },
+    "api/chat_update.py": {
       "maxDuration": 10
     }
   }
