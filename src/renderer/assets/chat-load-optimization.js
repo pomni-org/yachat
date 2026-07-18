@@ -136,7 +136,7 @@
   }
 
   yachatApi.messenger.messages = (chatId) => loadMessages(String(chatId || ""), true);
-  yachatApi.messenger.chats = () => apiGet("/api/chats?avatars=0");
+  yachatApi.messenger.chats = () => apiGet("/api/chats/poll");
 
   messengerPollDelay = function optimizedMessengerPollDelay() {
     if (document.visibilityState !== "visible") return BACKGROUND_POLL_MS;
