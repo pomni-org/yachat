@@ -23,7 +23,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "45";
+const BRAND_VERSION = "46";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -35,6 +35,7 @@ const STYLE_ASSETS = [
   "icon-size-fix.css",
   "settings-redesign.css",
   "group-creation-flow.css",
+  "group-title-fit.css",
   "folders-fix.css",
   "background-sync.css",
   "chat-list-layout.css",
@@ -54,6 +55,7 @@ const PRE_APP_SCRIPT_ASSETS = [
   "language-runtime.js"
 ];
 const SCRIPT_ASSETS = [
+  "chat-load-optimization.js",
   "chat-presence.js",
   "typing-stop-fix.js",
   "username-copy.js",
@@ -102,6 +104,7 @@ async function copyFile(name) {
 async function validateRuntimeScripts() {
   const requiredScripts = [
     "language-runtime.js",
+    "chat-load-optimization.js",
     "typing-stop-fix.js",
     "settings-i18n.js",
     "group-creation-flow.js",
