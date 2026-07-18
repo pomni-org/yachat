@@ -6,6 +6,22 @@
 
   let reconcileTimer = 0;
 
+  const RECOVERY_UI_SELECTOR = [
+    "body",
+    "[data-side-panel]",
+    "[data-message-menu-layer]",
+    "[data-message-menu]",
+    "[data-forward-picker]",
+    "[data-chat-more-backdrop]",
+    "[data-chat-profile-more]",
+    "[data-avatar-crop-modal]",
+    "[data-avatar-modal]",
+    "[data-info-modal]",
+    "[data-delete-profile-modal]",
+    "[data-create-chat-modal]",
+    ".group-flow-layer"
+  ].join(",");
+
   function visible(element) {
     if (!element || element.hidden || !element.isConnected) return false;
     const style = getComputedStyle(element);
@@ -110,6 +126,29 @@
     reconcileTimer = window.setTimeout(reconcileUi, delay);
   }
 
+  function nodeTouchesRecoveryUi(node) {
+    if (!(node instanceof Element)) return false;
+    return node.matches(RECOVERY_UI_SELECTOR) || Boolean(node.querySelector(RECOVERY_UI_SELECTOR));
+  }
+
+  function mutationNeedsRecovery(records) {
+    return records.some((record) => {
+      const target = record.target instanceof Element ? record.target : record.target.parentElement;
+
+      // Text entry must be left completely alone. On iOS, global DOM work during a
+      // contenteditable input event can collapse the caret to the start of the field.
+      if (target?.closest("[data-form='message'], [data-rich-message-editor]")) {
+        return false;
+      }
+
+      if (record.type === "attributes") {
+        return Boolean(target?.matches(RECOVERY_UI_SELECTOR) || target?.closest(RECOVERY_UI_SELECTOR));
+      }
+
+      return [...record.addedNodes, ...record.removedNodes].some(nodeTouchesRecoveryUi);
+    });
+  }
+
   ["pointercancel", "touchcancel", "lostpointercapture"].forEach((type) => {
     document.addEventListener(type, () => {
       resetPointerState();
@@ -157,7 +196,9 @@
     scheduleReconcile(20);
   });
 
-  const observer = new MutationObserver(() => scheduleReconcile(30));
+  const observer = new MutationObserver((records) => {
+    if (mutationNeedsRecovery(records)) scheduleReconcile(30);
+  });
   observer.observe(document.documentElement, {
     subtree: true,
     childList: true,
