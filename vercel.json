@@ -20,6 +20,30 @@
       "destination": "/api/contacts.py"
     },
     {
+      "source": "/api/chats/poll",
+      "destination": "/api/chat_poll.py"
+    },
+    {
+      "source": "/api/bootstrap",
+      "destination": "/api/messenger_fast.py"
+    },
+    {
+      "source": "/api/messenger",
+      "destination": "/api/messenger_fast.py"
+    },
+    {
+      "source": "/api/chats",
+      "destination": "/api/messenger_fast.py"
+    },
+    {
+      "source": "/api/messages",
+      "destination": "/api/messenger_fast.py"
+    },
+    {
+      "source": "/api/chat/mark-read",
+      "destination": "/api/messenger_fast.py"
+    },
+    {
       "source": "/api/chat",
       "destination": "/api/chat_create.py"
     },
@@ -101,6 +125,12 @@
   ],
   "functions": {
     "api/index.py": {
+      "maxDuration": 10
+    },
+    "api/messenger_fast.py": {
+      "maxDuration": 10
+    },
+    "api/chat_poll.py": {
       "maxDuration": 10
     },
     "api/presence.py": {
