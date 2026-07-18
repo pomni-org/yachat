@@ -1,0 +1,99 @@
+/* ЯЧат: явный выбор системной, тёмной или светлой темы. */
+
+.settings-theme-picker {
+  display: grid;
+  width: 100%;
+}
+
+.settings-theme-option {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 68px;
+  padding: 9px 18px;
+  grid-template-columns: 32px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.settings-theme-option + .settings-theme-option::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 18px;
+  left: 64px;
+  height: 1px;
+  background: color-mix(in srgb, var(--card-edge), transparent 45%);
+}
+
+.settings-theme-option:active,
+.settings-theme-option.is-active {
+  background: color-mix(in srgb, var(--accent), transparent 91%);
+}
+
+.settings-theme-option:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent), transparent 22%);
+  outline-offset: -2px;
+}
+
+.settings-theme-option-icon,
+.settings-theme-option-check {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+}
+
+.settings-theme-option-icon svg {
+  width: 25px !important;
+  height: 25px !important;
+  max-width: 25px !important;
+  max-height: 25px !important;
+  stroke-width: 1.7;
+}
+
+.settings-theme-option-check {
+  color: var(--accent);
+}
+
+.settings-theme-option-check svg {
+  width: 21px !important;
+  height: 21px !important;
+  max-width: 21px !important;
+  max-height: 21px !important;
+  stroke-width: 2.2;
+}
+
+.settings-theme-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.settings-theme-option-copy strong,
+.settings-theme-option-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-theme-option-copy strong {
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.settings-theme-option-copy small {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.28;
+  white-space: normal;
+}
