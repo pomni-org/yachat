@@ -1,3 +1,4 @@
+import hashlib
 import re
 from typing import Any
 
@@ -30,11 +31,11 @@ DEFAULT_CHANNEL_DESCRIPTION = (
 )
 IMAGE_DATA_URL_PATTERN = re.compile(r"^data:image/[a-z0-9.+-]+;base64,$", re.IGNORECASE)
 
-app = FastAPI(title="YaChat chat update API", version="0.2.1")
+app = FastAPI(title="YaChat chat update API", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
-    allow_methods=["POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -42,7 +43,7 @@ app.add_middleware(
 @app.middleware("http")
 async def harden_response(request: Request, call_next):
     response = await call_next(request)
-    response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("Cache-Control", "no-store, max-age=0")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     return response
@@ -62,11 +63,52 @@ def clean_avatar_data_url(value: Any) -> str:
     return source
 
 
+def avatar_digest(value: Any) -> str:
+    return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def fresh_system_chat(chat_id: str) -> dict[str, Any]:
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            return system_chat_settings(cursor, chat_id)
+
+
+def channel_payload(chat_id: str, user_id: str, stored: dict[str, Any]) -> dict[str, Any]:
+    avatar_url = str(row_value(stored, "avatar_url"))
+    chats = list_user_chats(user_id)
+    chat = next((item for item in chats if item.get("id") == chat_id), None)
+    if not chat:
+        raise HTTPException(status_code=500, detail="Saved channel is missing from the server response.")
+    if str(chat.get("avatarDataUrl") or "") != avatar_url:
+        raise HTTPException(status_code=500, detail="Saved channel avatar does not match the database.")
+    return {
+        "chat": chat,
+        "chats": chats,
+        "messages": get_chat_messages(chat_id, user_id),
+        "avatarDataUrl": avatar_url,
+        "avatarSha256": avatar_digest(avatar_url),
+        "avatarUpdatedAt": row_value(stored, "updated_at"),
+        "persisted": True,
+    }
+
+
 def system_chat_value(payload: dict[str, Any], existing: dict[str, Any], key: str, column: str, fallback: str) -> str:
     if key not in payload:
         return str(row_value(existing, column)) or fallback
     value = clean_text(payload.get(key), 60 if key == "title" else 180)
     return value or fallback
+
+
+@app.get("/api/chat/update")
+def read_chat_update(request: Request, chatId: str = "yachat-channel"):
+    user = require_user(request)
+    chat_id = clean_chat_id(chatId)
+    if chat_id != "yachat-channel":
+        raise HTTPException(status_code=400, detail="Only the system channel can be verified here.")
+    stored = fresh_system_chat(chat_id)
+    if not stored:
+        raise HTTPException(status_code=404, detail="Channel settings were not found.")
+    return channel_payload(chat_id, str(user["id"]), stored)
 
 
 @app.post("/api/chat/update")
@@ -76,12 +118,12 @@ async def update_chat(request: Request):
     chat_id = clean_chat_id(payload.get("chatId"))
     user_id = str(user["id"])
 
-    with connect_db() as connection:
-        with connection.cursor(row_factory=dict_row) as cursor:
-            if chat_id == "yachat-channel":
-                if not is_murochko_profile(user):
-                    raise HTTPException(status_code=403, detail="Only Murochko can edit the YaChat channel.")
+    if chat_id == "yachat-channel":
+        if not is_murochko_profile(user):
+            raise HTTPException(status_code=403, detail="Only Murochko can edit the YaChat channel.")
 
+        with connect_db() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
                 existing = system_chat_settings(cursor, chat_id)
                 title = system_chat_value(payload, existing, "title", "title", DEFAULT_CHANNEL_TITLE)
                 description = system_chat_value(
@@ -110,14 +152,18 @@ async def update_chat(request: Request):
                     """,
                     (title, description, avatar_url),
                 )
+                written = cursor.fetchone()
+                if not written:
+                    raise HTTPException(status_code=500, detail="Channel settings were not written.")
                 connection.commit()
-                chats = list_user_chats(user_id)
-                return {
-                    "chat": next((chat for chat in chats if chat["id"] == chat_id), None),
-                    "chats": chats,
-                    "messages": get_chat_messages(chat_id, user_id),
-                }
 
+        stored = fresh_system_chat(chat_id)
+        if not stored or str(row_value(stored, "avatar_url")) != avatar_url:
+            raise HTTPException(status_code=500, detail="Channel avatar failed the database persistence check.")
+        return channel_payload(chat_id, user_id, stored)
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
             chat = require_chat_member(cursor, chat_id, user_id)
             if not can_manage_chat(chat, user_id):
                 raise HTTPException(status_code=403, detail="Only the group owner can edit this chat.")
