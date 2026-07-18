@@ -71,8 +71,12 @@
       "[data-message-menu-layer][hidden]",
       ".group-flow-layer[hidden]"
     ].join(",")).forEach((layer) => {
-      layer.style.pointerEvents = "none";
-      layer.setAttribute("aria-hidden", "true");
+      if (layer.style.pointerEvents !== "none") {
+        layer.style.pointerEvents = "none";
+      }
+      if (layer.getAttribute("aria-hidden") !== "true") {
+        layer.setAttribute("aria-hidden", "true");
+      }
     });
 
     document.querySelectorAll([
@@ -85,8 +89,12 @@
       "[data-message-menu-layer]:not([hidden])",
       ".group-flow-layer:not([hidden])"
     ].join(",")).forEach((layer) => {
-      layer.style.removeProperty("pointer-events");
-      layer.removeAttribute("aria-hidden");
+      if (layer.style.pointerEvents) {
+        layer.style.removeProperty("pointer-events");
+      }
+      if (layer.hasAttribute("aria-hidden")) {
+        layer.removeAttribute("aria-hidden");
+      }
     });
 
     if (document.body.style.pointerEvents === "none") {
