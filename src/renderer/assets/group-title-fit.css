@@ -1,0 +1,20 @@
+.group-flow-heading h1 {
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+}
+
+.group-flow-layer[data-group-flow-step="participants"] .group-flow-heading h1 {
+  font-size: clamp(18px, 4.9vw, 25px) !important;
+  letter-spacing: -0.025em;
+}
+
+@media (max-width: 420px) {
+  .group-flow-header {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+
+  .group-flow-layer[data-group-flow-step="participants"] .group-flow-heading h1 {
+    font-size: clamp(16px, 5vw, 21px) !important;
+  }
+}
