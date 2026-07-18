@@ -23,7 +23,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "48";
+const BRAND_VERSION = "49";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -56,6 +56,7 @@ const PRE_APP_SCRIPT_ASSETS = [
   "language-runtime.js"
 ];
 const SCRIPT_ASSETS = [
+  "db-resilience.js",
   "chat-load-optimization.js",
   "ui-stability.js",
   "chat-profile-runtime.js",
@@ -108,6 +109,7 @@ async function copyFile(name) {
 async function validateRuntimeScripts() {
   const requiredScripts = [
     "language-runtime.js",
+    "db-resilience.js",
     "chat-load-optimization.js",
     "ui-stability.js",
     "chat-profile-runtime.js",
