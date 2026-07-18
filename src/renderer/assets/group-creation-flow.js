@@ -14,7 +14,8 @@
 
   const flow = {
     prepared: false,
-    step: "participants"
+    step: "participants",
+    selectedUsers: new Map()
   };
 
   const originalOpenCreateChat = openCreateChat;
@@ -158,6 +159,22 @@
       }
     });
 
+    createChatForm.addEventListener("click", (event) => {
+      const addButton = event.target.closest("[data-create-user-id]");
+      if (addButton) {
+        const user = (state.createChatUsers || []).find((item) => item.id === addButton.dataset.createUserId);
+        if (user) {
+          flow.selectedUsers.set(user.id, user);
+        }
+        return;
+      }
+
+      const removeButton = event.target.closest("[data-remove-create-user]");
+      if (removeButton) {
+        flow.selectedUsers.delete(removeButton.dataset.removeCreateUser);
+      }
+    }, true);
+
     back.addEventListener("click", () => {
       if (flow.step === "details") {
         flow.step = "participants";
@@ -174,8 +191,17 @@
 
   function selectedUsers() {
     const selectedIds = new Set(state.createChatSelectedIds || []);
-    const indexed = new Map((state.createChatUsers || []).map((user) => [user.id, user]));
-    return [...selectedIds].map((id) => indexed.get(id)).filter(Boolean);
+    (state.createChatUsers || []).forEach((user) => {
+      if (user?.id && selectedIds.has(user.id)) {
+        flow.selectedUsers.set(user.id, user);
+      }
+    });
+    for (const id of [...flow.selectedUsers.keys()]) {
+      if (!selectedIds.has(id)) {
+        flow.selectedUsers.delete(id);
+      }
+    }
+    return [...selectedIds].map((id) => flow.selectedUsers.get(id)).filter(Boolean);
   }
 
   function renderSelectedStrip(users) {
@@ -387,6 +413,7 @@
   openCreateChat = function openCreateChatFullScreen() {
     ensureStructure();
     flow.step = "participants";
+    flow.selectedUsers.clear();
     originalOpenCreateChat();
     document.body.classList.add("group-creation-open");
     createChatModal.dataset.groupFlowStep = flow.step;
@@ -395,6 +422,7 @@
 
   closeCreateChat = function closeCreateChatFullScreen() {
     flow.step = "participants";
+    flow.selectedUsers.clear();
     document.body.classList.remove("group-creation-open");
     originalCloseCreateChat();
   };
