@@ -23,7 +23,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "42";
+const BRAND_VERSION = "43";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -48,6 +48,9 @@ const STYLE_ASSETS = [
   "system-upgrade-v29.css",
   "profile-settings-polish.css",
   "theme-message-reference.css"
+];
+const PRE_APP_SCRIPT_ASSETS = [
+  "language-runtime.js"
 ];
 const SCRIPT_ASSETS = [
   "chat-presence.js",
@@ -94,6 +97,7 @@ async function copyFile(name) {
 
 async function validateRuntimeScripts() {
   const requiredScripts = [
+    "language-runtime.js",
     "message-search.js",
     "message-mentions.js",
     "theme-message-reference.js",
@@ -136,6 +140,7 @@ async function injectEnhancementAssets() {
   const withScripts = withStyles.replace(
     '<script src="./app.js"></script>',
     [
+      assetTags("script", PRE_APP_SCRIPT_ASSETS),
       `<script src="/app.js?v=${BRAND_VERSION}"></script>`,
       assetTags("script", SCRIPT_ASSETS)
     ].join("\n")
