@@ -65,11 +65,11 @@
     },
     {
       "source": "/api/group-profile",
-      "destination": "/api/group_profile.py"
+      "destination": "/api/chat_update.py"
     },
     {
       "source": "/api/group-profile/(.*)",
-      "destination": "/api/group_profile.py"
+      "destination": "/api/chat_update.py"
     },
     {
       "source": "/api/(.*)",
@@ -154,9 +154,6 @@
       "maxDuration": 10
     },
     "api/chat_update.py": {
-      "maxDuration": 10
-    },
-    "api/group_profile.py": {
       "maxDuration": 10
     },
     "api/challenge.py": {
