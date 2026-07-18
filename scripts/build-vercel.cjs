@@ -23,13 +23,12 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "44";
+const BRAND_VERSION = "45";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
   "username-copy.css",
   "profile-modal.css",
-  "avatar-preview.css",
   "loading-shine.css",
   "verification-scope.css",
   "composer-upgrade.css",
@@ -48,7 +47,8 @@ const STYLE_ASSETS = [
   "media-emoji-upgrade.css",
   "system-upgrade-v29.css",
   "profile-settings-polish.css",
-  "theme-message-reference.css"
+  "theme-message-reference.css",
+  "avatar-preview.css"
 ];
 const PRE_APP_SCRIPT_ASSETS = [
   "language-runtime.js"
