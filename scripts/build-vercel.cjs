@@ -23,7 +23,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "36";
+const BRAND_VERSION = "37";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -45,7 +45,8 @@ const STYLE_ASSETS = [
   "rich-composer.css",
   "message-mentions.css",
   "media-emoji-upgrade.css",
-  "system-upgrade-v29.css"
+  "system-upgrade-v29.css",
+  "profile-settings-polish.css"
 ];
 const SCRIPT_ASSETS = [
   "chat-presence.js",
@@ -65,7 +66,8 @@ const SCRIPT_ASSETS = [
   "rich-composer.js",
   "message-mentions.js",
   "media-emoji-upgrade.js",
-  "system-upgrade-v29.js"
+  "system-upgrade-v29.js",
+  "channel-avatar-persistence.js"
 ];
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
@@ -88,7 +90,7 @@ async function copyFile(name) {
 }
 
 async function validateRuntimeScripts() {
-  const requiredScripts = ["message-search.js", "message-mentions.js"];
+  const requiredScripts = ["message-search.js", "message-mentions.js", "channel-avatar-persistence.js"];
   await Promise.all(requiredScripts.map((name) => execFileAsync(process.execPath, [
     "--check",
     path.join(rendererDir, "assets", name)
