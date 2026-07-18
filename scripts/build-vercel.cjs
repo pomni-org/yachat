@@ -23,7 +23,7 @@ const files = [
   "help.html"
 ];
 
-const BRAND_VERSION = "37";
+const BRAND_VERSION = "38";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -35,6 +35,7 @@ const STYLE_ASSETS = [
   "composer-upgrade.css",
   "icon-size-fix.css",
   "settings-redesign.css",
+  "theme-preferences.css",
   "folders-fix.css",
   "background-sync.css",
   "chat-list-layout.css",
@@ -46,7 +47,8 @@ const STYLE_ASSETS = [
   "message-mentions.css",
   "media-emoji-upgrade.css",
   "system-upgrade-v29.css",
-  "profile-settings-polish.css"
+  "profile-settings-polish.css",
+  "message-bubble-polish.css"
 ];
 const SCRIPT_ASSETS = [
   "chat-presence.js",
@@ -58,6 +60,7 @@ const SCRIPT_ASSETS = [
   "settings-icons.js",
   "background-sync.js",
   "settings-redesign.js",
+  "theme-preferences.js",
   "folders-fix.js",
   "chat-selection.js",
   "avatar-fullscreen.js",
@@ -90,7 +93,12 @@ async function copyFile(name) {
 }
 
 async function validateRuntimeScripts() {
-  const requiredScripts = ["message-search.js", "message-mentions.js", "channel-avatar-persistence.js"];
+  const requiredScripts = [
+    "message-search.js",
+    "message-mentions.js",
+    "theme-preferences.js",
+    "channel-avatar-persistence.js"
+  ];
   await Promise.all(requiredScripts.map((name) => execFileAsync(process.execPath, [
     "--check",
     path.join(rendererDir, "assets", name)
