@@ -10,6 +10,7 @@
   const originalUpdateChat = messenger.updateChat.bind(messenger);
   const originalChats = messenger.chats.bind(messenger);
   let lastAuthoritativeAvatar = "";
+  let hasAuthoritativeChannel = false;
   let refreshingProfile = false;
 
   function hasOwn(object, key) {
@@ -25,15 +26,19 @@
   }
 
   function applyAuthoritativeChats(chats) {
-    const list = Array.isArray(chats) ? chats : [];
-    const channel = findChat(list, CHANNEL_ID);
+    if (!Array.isArray(chats)) {
+      return [];
+    }
+
+    const channel = findChat(chats, CHANNEL_ID);
     if (channel) {
+      hasAuthoritativeChannel = true;
       lastAuthoritativeAvatar = avatarValue(channel);
     }
     if (typeof state !== "undefined" && Array.isArray(state.chats)) {
-      state.chats = list;
+      state.chats = chats;
     }
-    return list;
+    return chats;
   }
 
   async function authoritativeChats() {
@@ -46,7 +51,7 @@
 
   messenger.updateChat = async function updateChatWithPersistenceCheck(payload = {}) {
     const result = await originalUpdateChat(payload);
-    const returnedChats = applyAuthoritativeChats(result?.chats || []);
+    const returnedChats = Array.isArray(result?.chats) ? applyAuthoritativeChats(result.chats) : [];
 
     if (!hasOwn(payload, "avatarDataUrl")) {
       return {
@@ -70,6 +75,7 @@
     }
 
     if (String(payload.chatId || "") === CHANNEL_ID) {
+      hasAuthoritativeChannel = true;
       lastAuthoritativeAvatar = expectedAvatar;
     }
 
@@ -93,7 +99,13 @@
       }
 
       const liveChannel = typeof state !== "undefined" ? findChat(state.chats, CHANNEL_ID) : null;
-      return avatarValue(liveChannel) || lastAuthoritativeAvatar || avatarValue(chat) || originalChatAvatarSource(chat);
+      if (liveChannel) {
+        return avatarValue(liveChannel) || originalChatAvatarSource(liveChannel);
+      }
+      if (hasAuthoritativeChannel) {
+        return lastAuthoritativeAvatar;
+      }
+      return avatarValue(chat) || originalChatAvatarSource(chat);
     };
   }
 
@@ -124,6 +136,9 @@
 
   if (typeof state !== "undefined") {
     const initialChannel = findChat(state.chats, CHANNEL_ID);
-    lastAuthoritativeAvatar = avatarValue(initialChannel);
+    if (initialChannel) {
+      hasAuthoritativeChannel = true;
+      lastAuthoritativeAvatar = avatarValue(initialChannel);
+    }
   }
 })();
