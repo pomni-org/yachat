@@ -1,3 +1,13 @@
+const YACHAT_SW_VERSION = "42";
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener("push", (event) => {
   let payload = {};
 
@@ -14,13 +24,17 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "ЯЧат";
   const options = {
     body: payload.body || "Новое сообщение",
-    icon: "/assets/yachat-brand-180.png?v=29",
-    badge: "/assets/yachat-brand-notification.png?v=29",
+    icon: `/assets/yachat-brand-180.png?v=${YACHAT_SW_VERSION}`,
+    badge: `/assets/yachat-brand-notification.png?v=${YACHAT_SW_VERSION}`,
     tag: payload.tag || `yachat:${targetUrl}`,
     renotify: true,
+    silent: false,
     timestamp: Date.now(),
+    lang: "ru",
+    dir: "auto",
     data: {
-      url: targetUrl
+      url: targetUrl,
+      version: YACHAT_SW_VERSION
     }
   };
 
