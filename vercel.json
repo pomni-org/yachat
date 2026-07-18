@@ -24,6 +24,18 @@
       "destination": "/api/chat_update.py"
     },
     {
+      "source": "/api/challenge",
+      "destination": "/api/challenge.py"
+    },
+    {
+      "source": "/api/message",
+      "destination": "/api/message.py"
+    },
+    {
+      "source": "/api/push/(.*)",
+      "destination": "/api/push.py"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/index.py"
     },
@@ -95,6 +107,15 @@
     },
     "api/chat_update.py": {
       "maxDuration": 10
+    },
+    "api/challenge.py": {
+      "maxDuration": 20
+    },
+    "api/message.py": {
+      "maxDuration": 30
+    },
+    "api/push.py": {
+      "maxDuration": 20
     }
   }
 }
