@@ -8,6 +8,8 @@
   const nativeSetTheme = setTheme;
   const nativeRenderPanel = renderPanel;
   const systemQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
+  let lastPersistedThemeSignature = "";
+  let themePersistenceInFlight = null;
 
   function resolvedSystemTheme() {
     return systemQuery?.matches ? "dark" : "light";
@@ -18,16 +20,30 @@
   }
 
   function persistTheme() {
-    yachatApi.settings?.update?.({
+    const payload = {
       theme: state.theme,
       themeSource: state.themeSource
-    }).catch(() => {});
+    };
+    const signature = JSON.stringify(payload);
+    if (signature === lastPersistedThemeSignature) {
+      return themePersistenceInFlight || Promise.resolve();
+    }
+
+    lastPersistedThemeSignature = signature;
+    themePersistenceInFlight = Promise.resolve(yachatApi.settings?.update?.(payload))
+      .catch(() => {
+        if (lastPersistedThemeSignature === signature) lastPersistedThemeSignature = "";
+      })
+      .finally(() => {
+        themePersistenceInFlight = null;
+      });
+    return themePersistenceInFlight;
   }
 
-  setTheme = function setThemeWithServerPersistence(theme, persist = true, source = "manual") {
+  setTheme = function setThemeWithServerPersistence(theme, persist = false, source = "manual") {
     nativeSetTheme(theme, false, source);
     if (persist) {
-      persistTheme();
+      void persistTheme();
     }
   };
 
