@@ -32,7 +32,6 @@
 
   function reconcileUi() {
     reconcileTimer = 0;
-    resetPointerState();
 
     const groupFlow = document.querySelector(".group-flow-layer:not([hidden])");
     if (!visible(groupFlow)) document.body.classList.remove("group-creation-open");
@@ -54,6 +53,12 @@
     if (forwardPicker && typeof state !== "undefined" && !state.forwardMessage) {
       forwardPicker.hidden = true;
       forwardPicker.style.pointerEvents = "none";
+    }
+
+    const moreBackdrop = document.querySelector("[data-chat-more-backdrop]");
+    const moreSheet = document.querySelector("[data-chat-profile-more].is-open");
+    if (!visible(moreBackdrop) || !visible(moreSheet)) {
+      document.body.classList.remove("chat-more-open");
     }
 
     document.querySelectorAll([
@@ -98,11 +103,21 @@
   }
 
   ["pointercancel", "touchcancel", "lostpointercapture"].forEach((type) => {
-    document.addEventListener(type, () => scheduleReconcile(), true);
+    document.addEventListener(type, () => {
+      resetPointerState();
+      scheduleReconcile();
+    }, true);
   });
-  window.addEventListener("blur", () => scheduleReconcile(), true);
-  window.addEventListener("pagehide", () => scheduleReconcile(), true);
+  window.addEventListener("blur", () => {
+    resetPointerState();
+    scheduleReconcile();
+  }, true);
+  window.addEventListener("pagehide", () => {
+    resetPointerState();
+    scheduleReconcile();
+  }, true);
   window.addEventListener("pageshow", (event) => {
+    resetPointerState();
     scheduleReconcile();
     if (event.persisted && typeof state !== "undefined" && state.account) {
       try {
@@ -125,8 +140,14 @@
       scheduleReconcile(25);
     }
   });
-  window.addEventListener("error", () => scheduleReconcile(20));
-  window.addEventListener("unhandledrejection", () => scheduleReconcile(20));
+  window.addEventListener("error", () => {
+    resetPointerState();
+    scheduleReconcile(20);
+  });
+  window.addEventListener("unhandledrejection", () => {
+    resetPointerState();
+    scheduleReconcile(20);
+  });
 
   const observer = new MutationObserver(() => scheduleReconcile(30));
   observer.observe(document.documentElement, {
