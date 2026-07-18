@@ -94,10 +94,10 @@
 
   function translateUnits(value) {
     return value
-      .replace(/\bГБ\b/g, "GB")
-      .replace(/\bМБ\b/g, "MB")
-      .replace(/\bКБ\b/g, "KB")
-      .replace(/\bБ\b/g, "B");
+      .replaceAll("ГБ", "GB")
+      .replaceAll("МБ", "MB")
+      .replaceAll("КБ", "KB")
+      .replace(/(^|\s)Б(?=\s|$)/g, "$1B");
   }
 
   function dynamic(value) {
