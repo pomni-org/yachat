@@ -158,11 +158,13 @@
     refreshPromise = (async () => {
       const now = Date.now();
       const selectedChatId = state.activeChatId;
+      const chatChanged = selectedChatId !== lastMessageChatId;
+      const noMessagesLoaded = !state.messages.length;
       const shouldRefreshChats = now - lastChatRefreshAt >= CHAT_REFRESH_MS;
       const shouldLoadMessages = Boolean(selectedChatId && activeChatIsVisible());
       const shouldFullRefreshMessages = shouldLoadMessages && (
-        selectedChatId !== lastMessageChatId
-        || !state.messages.length
+        chatChanged
+        || noMessagesLoaded
         || now - lastFullMessageRefreshAt >= FULL_MESSAGE_REFRESH_MS
       );
 
@@ -184,7 +186,7 @@
       }
 
       if (incomingMessages && selectedChatId === state.activeChatId) {
-        state.messages = shouldFullRefreshMessages
+        state.messages = shouldFullRefreshMessages && (chatChanged || noMessagesLoaded)
           ? incomingMessages
           : mergeMessages(state.messages, incomingMessages);
         lastMessageChatId = selectedChatId;
