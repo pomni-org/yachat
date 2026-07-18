@@ -6,275 +6,201 @@
     || typeof createChatForm === "undefined"
     || !createChatModal
     || !createChatForm
-    || typeof openCreateChat !== "function"
-    || typeof closeCreateChat !== "function"
   ) {
     return;
   }
 
-  const flow = {
-    prepared: false,
-    step: "participants",
-    selectedUsers: new Map()
-  };
-
-  const originalOpenCreateChat = openCreateChat;
-  const originalCloseCreateChat = closeCreateChat;
-
   const copy = {
     ru: {
       participantsTitle: "Выберите участников",
-      participantsSearch: "Найти по имени или нику",
+      search: "Найти по имени",
       emptyGroup: "Создать пустую группу",
       continue: "Продолжить",
       detailsTitle: "Новая группа",
       detailsHint: "Добавьте фото, чтобы чат узнавали с первого взгляда",
       groupName: "Название группы",
       createGroup: "Создать группу",
-      noPeople: "Подходящих аккаунтов нет.",
-      searching: "Ищем людей…",
-      selected: "Выбрано: {count}",
+      noPeople: "Подходящих контактов нет",
+      loading: "Загружаем контакты…",
       back: "Назад",
-      close: "Закрыть"
+      addPhoto: "Добавить фото группы",
+      createFailed: "Не удалось создать группу"
     },
     en: {
       participantsTitle: "Choose participants",
-      participantsSearch: "Search by name or username",
+      search: "Search by name",
       emptyGroup: "Create empty group",
       continue: "Continue",
       detailsTitle: "New group",
       detailsHint: "Add a photo so the chat is easy to recognize",
       groupName: "Group name",
       createGroup: "Create group",
-      noPeople: "No matching accounts.",
-      searching: "Searching for people…",
-      selected: "Selected: {count}",
+      noPeople: "No matching contacts",
+      loading: "Loading contacts…",
       back: "Back",
-      close: "Close"
+      addPhoto: "Add group photo",
+      createFailed: "Could not create the group"
     }
+  };
+
+  const alphabet = {
+    ru: ["А", "Б", "В", "Г", "Д", "Е", "Ж", "З", "И", "К", "Л", "М", "Н", "О", "П", "Р", "С", "Т", "У", "Ф", "Х", "Ц", "Ч", "Ш", "Щ", "Э", "Ю", "Я", "#"],
+    en: [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "#"]
+  };
+
+  const flow = {
+    ready: false,
+    step: "participants",
+    title: "",
+    query: "",
+    creating: false,
+    directoryUsers: [],
+    selectedUsers: new Map(),
+    searchTimer: null,
+    requestId: 0,
+    restoreSearchFocus: false,
+    searchCaret: 0
   };
 
   function language() {
     return state?.language === "en" ? "en" : "ru";
   }
 
-  function tr(key, params = {}) {
-    let value = copy[language()][key] || copy.ru[key] || key;
-    Object.entries(params).forEach(([name, replacement]) => {
-      value = value.replaceAll(`{${name}}`, String(replacement));
-    });
-    return value;
+  function tr(key) {
+    return copy[language()][key] || copy.ru[key] || key;
   }
 
-  function normalizedLetter(value) {
+  function escape(value) {
+    return typeof escapeHtml === "function" ? escapeHtml(String(value ?? "")) : String(value ?? "");
+  }
+
+  function normalizeLetter(value) {
     const letter = String(value || "#").trim().slice(0, 1).toUpperCase();
-    return /[A-ZА-ЯЁ]/.test(letter) ? letter : "#";
+    return /[A-ZА-ЯЁ]/u.test(letter) ? letter.replace("Ё", "Е") : "#";
   }
 
-  function ensureStructure() {
-    if (flow.prepared) {
-      return;
-    }
-
-    const header = createChatForm.querySelector("header");
-    const oldBack = header?.querySelector('[data-action="close-create-chat"]');
-    const titleField = createChatForm.querySelector('label:has([name="title"])');
-    const avatarBlock = createChatForm.querySelector(".create-chat-avatar");
-    const descriptionField = createChatForm.querySelector('label:has([name="description"])');
-    const peopleField = createChatForm.querySelector('label:has([data-create-people-search])');
-    const results = createChatForm.querySelector("[data-create-user-results]");
-    const selected = createChatForm.querySelector("[data-create-selected-users]");
-    const message = createChatForm.querySelector('[data-message="create-chat"]');
-    const submit = createChatForm.querySelector('.main-button[type="submit"]');
-
-    if (!header || !oldBack || !titleField || !avatarBlock || !peopleField || !results || !selected || !message || !submit) {
-      return;
-    }
-
-    createChatModal.classList.add("group-creation-layer");
-    createChatForm.classList.add("group-creation-screen");
-
-    const back = oldBack.cloneNode(true);
-    back.removeAttribute("data-action");
-    back.dataset.groupFlowBack = "";
-    back.className = "group-flow-back";
-    back.innerHTML = iconSvg("chevron-left");
-    oldBack.replaceWith(back);
-
-    const heading = document.createElement("div");
-    heading.className = "group-flow-heading";
-    heading.innerHTML = '<h2 data-group-flow-title></h2><p data-group-flow-subtitle></p>';
-
-    const spacer = document.createElement("span");
-    spacer.className = "group-flow-header-spacer";
-    spacer.setAttribute("aria-hidden", "true");
-    header.replaceChildren(back, heading, spacer);
-    header.classList.add("group-flow-header");
-
-    const body = document.createElement("div");
-    body.className = "group-flow-body";
-
-    const participantsStep = document.createElement("section");
-    participantsStep.className = "group-flow-step group-flow-participants";
-    participantsStep.dataset.groupFlowStep = "participants";
-
-    const detailsStep = document.createElement("section");
-    detailsStep.className = "group-flow-step group-flow-details";
-    detailsStep.dataset.groupFlowStep = "details";
-
-    const footer = document.createElement("footer");
-    footer.className = "group-flow-footer";
-
-    peopleField.classList.add("group-flow-search");
-    results.classList.add("group-flow-user-list");
-    selected.classList.add("group-flow-selected-strip");
-    titleField.classList.add("group-flow-title-field");
-    avatarBlock.classList.add("group-flow-avatar");
-    message.classList.add("group-flow-message");
-    submit.classList.add("group-flow-submit");
-
-    if (descriptionField) {
-      descriptionField.hidden = true;
-      descriptionField.classList.add("group-flow-description-disabled");
-      const textarea = descriptionField.querySelector("textarea");
-      if (textarea) {
-        textarea.disabled = true;
-        textarea.value = "";
-      }
-    }
-
-    participantsStep.append(peopleField, selected, results);
-    detailsStep.append(avatarBlock, titleField);
-    if (descriptionField) {
-      detailsStep.append(descriptionField);
-    }
-    body.append(participantsStep, detailsStep);
-    footer.append(message, submit);
-    createChatForm.append(body, footer);
-
-    const searchInput = peopleField.querySelector("[data-create-people-search]");
-    searchInput?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-      }
-    });
-
-    createChatForm.addEventListener("click", (event) => {
-      const addButton = event.target.closest("[data-create-user-id]");
-      if (addButton) {
-        const user = (state.createChatUsers || []).find((item) => item.id === addButton.dataset.createUserId);
-        if (user) {
-          flow.selectedUsers.set(user.id, user);
-        }
-        return;
-      }
-
-      const removeButton = event.target.closest("[data-remove-create-user]");
-      if (removeButton) {
-        flow.selectedUsers.delete(removeButton.dataset.removeCreateUser);
-      }
-    }, true);
-
-    back.addEventListener("click", () => {
-      if (flow.step === "details") {
-        flow.step = "participants";
-        setMessage("create-chat", "");
-        renderCreateChatForm();
-        requestAnimationFrame(() => createChatForm.elements.peopleSearch?.focus());
-        return;
-      }
-      closeCreateChat();
-    });
-
-    flow.prepared = true;
+  function selectedIds() {
+    return [...new Set(state.createChatSelectedIds || [])];
   }
 
-  function selectedUsers() {
-    const selectedIds = new Set(state.createChatSelectedIds || []);
-    (state.createChatUsers || []).forEach((user) => {
-      if (user?.id && selectedIds.has(user.id)) {
+  function selectedCount() {
+    return selectedIds().length;
+  }
+
+  function rememberUsers(users) {
+    (users || []).forEach((user) => {
+      if (user?.id && selectedIds().includes(user.id)) {
         flow.selectedUsers.set(user.id, user);
       }
     });
     for (const id of [...flow.selectedUsers.keys()]) {
-      if (!selectedIds.has(id)) {
+      if (!selectedIds().includes(id)) {
         flow.selectedUsers.delete(id);
       }
     }
-    return [...selectedIds].map((id) => flow.selectedUsers.get(id)).filter(Boolean);
   }
 
-  function renderSelectedStrip(users) {
-    const target = createChatForm.querySelector("[data-create-selected-users]");
-    if (!target) {
-      return;
-    }
-
-    target.hidden = users.length === 0;
-    target.setAttribute("aria-label", tr("selected", { count: users.length }));
-    target.innerHTML = users.map((user) => `
-      <button class="group-flow-selected-person" type="button" data-remove-create-user="${escapeHtml(user.id)}" aria-label="${escapeHtml(user.displayName)}">
-        ${renderUserAvatar(user)}
-        <span>${escapeHtml(user.displayName)}</span>
-        ${iconSvg("x")}
-      </button>
-    `).join("");
+  function allVisibleUsers() {
+    const query = flow.query.trim().toLocaleLowerCase(language() === "en" ? "en" : "ru");
+    const source = mergeUsers(
+      [...flow.selectedUsers.values()],
+      flow.directoryUsers,
+      typeof historicalChatUsers === "function" ? historicalChatUsers(flow.query) : []
+    );
+    return source
+      .filter((user) => user?.id && user.id !== state.account?.id)
+      .filter((user) => {
+        if (!query) return true;
+        const haystack = [user.displayName, user.previewName, user.username, user.contact]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase(language() === "en" ? "en" : "ru");
+        return haystack.includes(query);
+      })
+      .sort((left, right) => String(left.displayName || left.username || "")
+        .localeCompare(String(right.displayName || right.username || ""), language() === "en" ? "en" : "ru", { sensitivity: "base" }));
   }
 
-  function renderUserRows() {
-    const target = createChatForm.querySelector("[data-create-user-results]");
-    if (!target) {
-      return;
-    }
+  function userSubtitle(user) {
+    return cleanDisplayText(
+      user.statusText || user.lastSeenText || user.subtitle || (user.username ? `@${user.username}` : user.contact),
+      ""
+    );
+  }
 
-    if (state.createChatSearchLoading) {
-      target.innerHTML = `<p class="group-flow-empty">${escapeHtml(tr("searching"))}</p>`;
-      return;
+  function cameraMarkup() {
+    return `
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M20 20l4-6h16l4 6h6a6 6 0 0 1 6 6v22a6 6 0 0 1-6 6H14a6 6 0 0 1-6-6V26a6 6 0 0 1 6-6h6Z" fill="currentColor" opacity=".9"/>
+        <circle cx="32" cy="37" r="10" fill="none" stroke="var(--page)" stroke-width="5"/>
+        <path d="M49 43v14M42 50h14" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>
+      </svg>
+    `;
+  }
+
+  function backMarkup() {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m15 18-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `;
+  }
+
+  function checkMarkup() {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m5 12 4 4L19 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `;
+  }
+
+  function headerMarkup() {
+    const details = flow.step === "details";
+    return `
+      <header class="group-flow-header">
+        <button class="group-flow-back" type="button" data-group-back aria-label="${escape(tr("back"))}">${backMarkup()}</button>
+        <div class="group-flow-heading">
+          <h1>${escape(details ? tr("detailsTitle") : tr("participantsTitle"))}</h1>
+          ${details ? `<p>${escape(tr("detailsHint"))}</p>` : ""}
+        </div>
+        <span class="group-flow-header-spacer" aria-hidden="true"></span>
+      </header>
+    `;
+  }
+
+  function participantRowsMarkup() {
+    if (state.createChatSearchLoading && !flow.directoryUsers.length) {
+      return `<p class="group-flow-empty">${escape(tr("loading"))}</p>`;
     }
 
     if (state.createChatSearchError) {
-      target.innerHTML = `<p class="group-flow-empty">${escapeHtml(state.createChatSearchError)}</p>`;
-      return;
+      return `<p class="group-flow-empty">${escape(state.createChatSearchError)}</p>`;
     }
 
-    const selectedIds = new Set(state.createChatSelectedIds || []);
-    const users = [...(state.createChatUsers || [])]
-      .filter((user) => user?.id && user.id !== state.account?.id)
-      .sort((left, right) => String(left.displayName || left.username || "")
-        .localeCompare(String(right.displayName || right.username || ""), language() === "en" ? "en" : "ru", { sensitivity: "base" }));
-
+    const users = allVisibleUsers();
     if (!users.length) {
-      target.innerHTML = `<p class="group-flow-empty">${escapeHtml(tr("noPeople"))}</p>`;
-      return;
+      return `<p class="group-flow-empty">${escape(tr("noPeople"))}</p>`;
     }
 
     const groups = new Map();
     users.forEach((user) => {
-      const letter = normalizedLetter(user.displayName || user.username);
-      if (!groups.has(letter)) {
-        groups.set(letter, []);
-      }
+      const letter = normalizeLetter(user.displayName || user.username);
+      if (!groups.has(letter)) groups.set(letter, []);
       groups.get(letter).push(user);
     });
 
-    target.innerHTML = [...groups.entries()].map(([letter, group]) => `
-      <section class="group-flow-letter-section">
-        <h3>${escapeHtml(letter)}</h3>
-        ${group.map((user) => {
-          const isSelected = selectedIds.has(user.id);
-          const actionAttribute = isSelected
-            ? `data-remove-create-user="${escapeHtml(user.id)}"`
-            : `data-create-user-id="${escapeHtml(user.id)}"`;
-          const subtitle = user.username
-            ? `@${user.username}`
-            : cleanDisplayText(user.contact, "");
+    return [...groups.entries()].map(([letter, items]) => `
+      <section class="group-flow-letter-section" id="group-letter-${encodeURIComponent(letter)}" data-group-letter-section="${escape(letter)}">
+        <h2>${escape(letter)}</h2>
+        ${items.map((user) => {
+          const checked = selectedIds().includes(user.id);
           return `
-            <button class="group-flow-user-row${isSelected ? " is-selected" : ""}" type="button" ${actionAttribute} aria-pressed="${isSelected ? "true" : "false"}">
-              <span class="group-flow-selection">${isSelected ? iconSvg("check") : ""}</span>
+            <button class="group-flow-user-row${checked ? " is-selected" : ""}" type="button" data-group-user="${escape(user.id)}" aria-pressed="${checked}">
+              <span class="group-flow-selection" aria-hidden="true">${checked ? checkMarkup() : ""}</span>
               ${renderUserAvatar(user)}
               <span class="group-flow-user-copy">
-                <strong>${escapeHtml(user.displayName)} ${renderVerified(user)}</strong>
-                <small>${escapeHtml(subtitle)}</small>
+                <strong>${escape(user.displayName)} ${renderVerified(user)}</strong>
+                <small>${escape(userSubtitle(user))}</small>
               </span>
             </button>
           `;
@@ -283,157 +209,315 @@
     `).join("");
   }
 
-  function updateHeader() {
-    const title = createChatForm.querySelector("[data-group-flow-title]");
-    const subtitle = createChatForm.querySelector("[data-group-flow-subtitle]");
-    const back = createChatForm.querySelector("[data-group-flow-back]");
+  function alphabetMarkup() {
+    const present = new Set(allVisibleUsers().map((user) => normalizeLetter(user.displayName || user.username)));
+    return `
+      <nav class="group-flow-alphabet" aria-label="${escape(tr("participantsTitle"))}">
+        ${alphabet[language()].map((letter) => `
+          <button type="button" data-group-jump="${escape(letter)}" ${present.has(letter) ? "" : "disabled"}>${escape(letter)}</button>
+        `).join("")}
+      </nav>
+    `;
+  }
 
-    if (title) {
-      title.textContent = flow.step === "details" ? tr("detailsTitle") : tr("participantsTitle");
-    }
-    if (subtitle) {
-      subtitle.textContent = flow.step === "details" ? tr("detailsHint") : "";
-      subtitle.hidden = flow.step !== "details";
-    }
-    if (back) {
-      back.setAttribute("aria-label", flow.step === "details" ? tr("back") : tr("close"));
+  function participantStepMarkup() {
+    const count = selectedCount();
+    return `
+      ${headerMarkup()}
+      <main class="group-flow-main group-flow-participants-main">
+        <label class="group-flow-search">
+          <span>${escape(tr("search"))}</span>
+          <input name="peopleSearch" type="search" autocomplete="off" value="${escape(flow.query)}" placeholder="${escape(tr("search"))}" data-group-search />
+        </label>
+        <div class="group-flow-contact-list" data-group-contact-list>${participantRowsMarkup()}</div>
+        ${alphabetMarkup()}
+      </main>
+      <footer class="group-flow-footer">
+        <p class="group-flow-message" data-message="create-chat"></p>
+        <button class="group-flow-primary" type="submit" ${flow.creating ? "disabled" : ""}>
+          <span>${escape(count ? tr("continue") : tr("emptyGroup"))}</span>
+          ${count ? `<b class="group-flow-count">${count}</b>` : ""}
+        </button>
+      </footer>
+    `;
+  }
+
+  function detailStepMarkup() {
+    const avatar = state.pendingCreateChatAvatarDataUrl || "";
+    return `
+      ${headerMarkup()}
+      <main class="group-flow-main group-flow-details-main">
+        <button class="group-details-avatar" type="button" data-group-avatar aria-label="${escape(tr("addPhoto"))}">
+          ${avatar ? `<img src="${escape(avatar)}" alt="" />` : cameraMarkup()}
+        </button>
+        <input class="group-details-name" name="title" type="text" maxlength="60" autocomplete="off" value="${escape(flow.title)}" placeholder="${escape(tr("groupName"))}" aria-label="${escape(tr("groupName"))}" data-group-title />
+        <input class="visually-hidden" type="file" accept="image/*" data-group-avatar-input />
+      </main>
+      <footer class="group-flow-footer">
+        <p class="group-flow-message" data-message="create-chat"></p>
+        <button class="group-flow-primary" type="submit" ${!flow.title.trim() || flow.creating ? "disabled" : ""}>
+          <span>${escape(tr("createGroup"))}</span>
+        </button>
+      </footer>
+    `;
+  }
+
+  function render() {
+    if (!flow.ready) return;
+    createChatModal.dataset.groupFlowStep = flow.step;
+    createChatForm.innerHTML = flow.step === "details" ? detailStepMarkup() : participantStepMarkup();
+
+    if (flow.step === "participants" && flow.restoreSearchFocus) {
+      const input = createChatForm.querySelector("[data-group-search]");
+      requestAnimationFrame(() => {
+        input?.focus({ preventScroll: true });
+        input?.setSelectionRange(flow.searchCaret, flow.searchCaret);
+      });
+      flow.restoreSearchFocus = false;
     }
   }
 
-  renderCreateChatForm = function renderCreateChatFullScreenFlow() {
-    ensureStructure();
-    if (!flow.prepared) {
-      return;
-    }
+  function preserveSearchFocus() {
+    if (flow.step !== "participants") return;
+    flow.restoreSearchFocus = true;
+    flow.searchCaret = flow.query.length;
+  }
 
-    state.newChatKind = "group";
-    const people = selectedUsers();
-    const selectedCount = (state.createChatSelectedIds || []).length;
-    const searchInput = createChatForm.elements.peopleSearch;
-    const titleInput = createChatForm.elements.title;
-    const titleLabel = createChatForm.querySelector("[data-create-title-label]");
-    const peopleLabel = createChatForm.querySelector("[data-create-people-label]");
-    const avatarTitle = createChatForm.querySelector("[data-create-avatar-title]");
-    const avatarAction = createChatForm.querySelector("[data-create-avatar-action]");
-    const submit = createChatForm.querySelector('.main-button[type="submit"]');
+  async function fetchDirectory(query = "") {
+    const requestId = ++flow.requestId;
+    state.createChatSearchLoading = true;
+    state.createChatSearchError = "";
+    preserveSearchFocus();
+    render();
 
-    createChatModal.dataset.groupFlowStep = flow.step;
-    createChatForm.querySelectorAll("[data-group-flow-step]").forEach((section) => {
-      section.hidden = section.dataset.groupFlowStep !== flow.step;
-    });
-
-    updateHeader();
-
-    if (searchInput) {
-      searchInput.placeholder = tr("participantsSearch");
-      searchInput.setAttribute("aria-label", tr("participantsSearch"));
-    }
-    if (peopleLabel) {
-      peopleLabel.textContent = tr("participantsSearch");
-    }
-    if (titleInput) {
-      titleInput.required = flow.step === "details";
-      titleInput.placeholder = tr("groupName");
-      titleInput.setAttribute("aria-label", tr("groupName"));
-    }
-    if (titleLabel) {
-      titleLabel.textContent = tr("groupName");
-    }
-    if (avatarTitle) {
-      avatarTitle.textContent = t("groupAvatar");
-    }
-    if (avatarAction) {
-      avatarAction.textContent = t("chooseGroupAvatar");
-    }
-
-    renderSelectedStrip(people);
-    renderUserRows();
-
-    if (submit) {
-      if (flow.step === "participants") {
-        submit.disabled = false;
-        submit.innerHTML = selectedCount > 0
-          ? `<span>${escapeHtml(tr("continue"))}</span><b class="group-flow-count">${selectedCount}</b>`
-          : `<span>${escapeHtml(tr("emptyGroup"))}</span>`;
-      } else {
-        submit.disabled = !String(titleInput?.value || "").trim();
-        submit.innerHTML = `<span>${escapeHtml(tr("createGroup"))}</span>`;
+    try {
+      const users = yachatApi.users?.search
+        ? await yachatApi.users.search(query)
+        : await yachatApi.users.list();
+      if (requestId !== flow.requestId) return;
+      const normalized = (users || []).map((user) => typeof normalizeUser === "function" ? normalizeUser(user) : user);
+      flow.directoryUsers = mergeUsers(flow.directoryUsers, normalized);
+      rememberUsers(normalized);
+    } catch (error) {
+      if (requestId !== flow.requestId) return;
+      state.createChatSearchError = translatedServerMessage(error.message, "contactsUnavailable");
+    } finally {
+      if (requestId === flow.requestId) {
+        state.createChatSearchLoading = false;
+        preserveSearchFocus();
+        render();
       }
     }
+  }
 
-    updateCreateChatAvatarPreview();
-  };
-
-  createChatFromForm = async function createChatFromFullScreenFlow(submitButton) {
-    if (flow.step === "participants") {
-      flow.step = "details";
-      setMessage("create-chat", "");
-      renderCreateChatForm();
-      requestAnimationFrame(() => createChatForm.elements.title?.focus());
+  function scheduleDirectorySearch() {
+    window.clearTimeout(flow.searchTimer);
+    const query = flow.query.trim();
+    if (query.length < 2) {
+      state.createChatSearchLoading = false;
+      state.createChatSearchError = "";
+      render();
       return;
     }
+    flow.searchTimer = window.setTimeout(() => void fetchDirectory(query), 180);
+  }
 
-    const title = String(createChatForm.elements.title?.value || "").trim();
-    const participantIds = [...new Set(state.createChatSelectedIds || [])];
-    if (!title) {
-      setMessage("create-chat", t("errGroupName"));
-      createChatForm.elements.title?.focus();
-      return;
+  function resetFlow() {
+    window.clearTimeout(flow.searchTimer);
+    flow.step = "participants";
+    flow.title = "";
+    flow.query = "";
+    flow.creating = false;
+    flow.directoryUsers = [];
+    flow.selectedUsers.clear();
+    flow.requestId += 1;
+    flow.restoreSearchFocus = false;
+    state.newChatKind = "group";
+    state.createChatSelectedIds = [];
+    state.pendingCreateChatAvatarDataUrl = "";
+    state.createChatSearchError = "";
+    state.createChatSearchLoading = false;
+    state.createChatSearchRequestId += 1;
+  }
+
+  function openFlow() {
+    resetFlow();
+    createChatModal.hidden = false;
+    document.body.classList.add("group-creation-open");
+    render();
+    requestAnimationFrame(() => createChatForm.querySelector("[data-group-search]")?.focus());
+    void fetchDirectory("");
+  }
+
+  function closeFlow() {
+    window.clearTimeout(flow.searchTimer);
+    flow.requestId += 1;
+    createChatModal.hidden = true;
+    document.body.classList.remove("group-creation-open");
+    resetFlow();
+  }
+
+  function toggleUser(userId) {
+    const user = allVisibleUsers().find((item) => item.id === userId)
+      || flow.directoryUsers.find((item) => item.id === userId)
+      || flow.selectedUsers.get(userId);
+    const ids = new Set(selectedIds());
+    if (ids.has(userId)) {
+      ids.delete(userId);
+      flow.selectedUsers.delete(userId);
+    } else {
+      ids.add(userId);
+      if (user) flow.selectedUsers.set(userId, user);
     }
+    state.createChatSelectedIds = [...ids];
+    render();
+  }
 
-    setLoading(submitButton, true);
-    setMessage("create-chat", "");
+  async function createGroup() {
+    if (flow.creating || !flow.title.trim()) return;
+    flow.creating = true;
+    render();
 
     try {
       const result = await yachatApi.messenger.createChat({
         kind: "group",
-        participantIds,
-        title,
+        participantIds: selectedIds(),
+        title: flow.title.trim(),
         description: "",
         avatarDataUrl: state.pendingCreateChatAvatarDataUrl || ""
       });
+
       state.chats = result.chats || await yachatApi.messenger.chats();
       state.activeChatId = result.chat?.id || state.activeChatId;
-      state.messages = result.messages || await yachatApi.messenger.messages(state.activeChatId);
-      closeCreateChat();
-      renderChatList();
-      renderActiveChat();
-      renderMessages();
-      setMobileDialogOpen(true);
+      state.messages = result.messages || [];
+
+      closeFlow();
+
+      try { renderChatList(); } catch {}
+      try { renderActiveChat(); } catch {}
+      try { renderMessages(); } catch {}
+      try { setMobileDialogOpen(true); } catch {}
     } catch (error) {
-      setMessage("create-chat", translatedServerMessage(error.message, "errSendMessage"));
-    } finally {
-      setLoading(submitButton, false);
-      if (!createChatModal.hidden) {
-        renderCreateChatForm();
+      flow.creating = false;
+      render();
+      const message = createChatForm.querySelector('[data-message="create-chat"]');
+      if (message) {
+        message.textContent = translatedServerMessage(error.message, "errSendMessage") || tr("createFailed");
       }
     }
-  };
+  }
 
-  openCreateChat = function openCreateChatFullScreen() {
-    ensureStructure();
-    flow.step = "participants";
-    flow.selectedUsers.clear();
-    originalOpenCreateChat();
-    document.body.classList.add("group-creation-open");
-    createChatModal.dataset.groupFlowStep = flow.step;
-    renderCreateChatForm();
-  };
+  function prepare() {
+    if (flow.ready) return;
+    flow.ready = true;
+    createChatModal.className = "group-flow-layer";
+    createChatForm.className = "group-flow-screen";
+    createChatForm.setAttribute("novalidate", "");
 
-  closeCreateChat = function closeCreateChatFullScreen() {
-    flow.step = "participants";
-    flow.selectedUsers.clear();
-    document.body.classList.remove("group-creation-open");
-    originalCloseCreateChat();
-  };
+    createChatForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (flow.step === "participants") {
+        flow.step = "details";
+        render();
+        requestAnimationFrame(() => createChatForm.querySelector("[data-group-title]")?.focus());
+        return;
+      }
+      void createGroup();
+    }, true);
+
+    createChatForm.addEventListener("input", (event) => {
+      const search = event.target.closest("[data-group-search]");
+      if (search) {
+        event.stopImmediatePropagation();
+        flow.query = search.value;
+        flow.restoreSearchFocus = true;
+        flow.searchCaret = search.selectionStart ?? search.value.length;
+        scheduleDirectorySearch();
+        return;
+      }
+
+      const title = event.target.closest("[data-group-title]");
+      if (title) {
+        event.stopImmediatePropagation();
+        flow.title = title.value;
+        const submit = createChatForm.querySelector('.group-flow-primary[type="submit"]');
+        if (submit) submit.disabled = !flow.title.trim() || flow.creating;
+      }
+    }, true);
+
+    createChatForm.addEventListener("click", (event) => {
+      const back = event.target.closest("[data-group-back]");
+      if (back) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (flow.step === "details") {
+          flow.step = "participants";
+          render();
+          return;
+        }
+        closeFlow();
+        return;
+      }
+
+      const user = event.target.closest("[data-group-user]");
+      if (user) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        toggleUser(user.dataset.groupUser);
+        return;
+      }
+
+      const jump = event.target.closest("[data-group-jump]");
+      if (jump && !jump.disabled) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const target = createChatForm.querySelector(`[data-group-letter-section="${CSS.escape(jump.dataset.groupJump)}"]`);
+        target?.scrollIntoView({ block: "start", behavior: "smooth" });
+        return;
+      }
+
+      const avatar = event.target.closest("[data-group-avatar]");
+      if (avatar) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        createChatForm.querySelector("[data-group-avatar-input]")?.click();
+      }
+    }, true);
+
+    createChatForm.addEventListener("change", async (event) => {
+      const input = event.target.closest("[data-group-avatar-input]");
+      if (!input) return;
+      event.stopImmediatePropagation();
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        state.pendingCreateChatAvatarDataUrl = await readAvatarFile(file);
+        render();
+      } catch (error) {
+        if (!error?.cancelled) {
+          const message = createChatForm.querySelector('[data-message="create-chat"]');
+          if (message) message.textContent = translatedServerMessage(error.message, "errAvatar");
+        }
+      }
+    }, true);
+
+    createChatModal.addEventListener("click", (event) => {
+      if (event.target === createChatModal) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    }, true);
+  }
+
+  prepare();
+  openCreateChat = openFlow;
+  closeCreateChat = closeFlow;
+  renderCreateChatForm = render;
+  createChatFromForm = () => {};
 
   const languageObserver = new MutationObserver(() => {
-    if (!createChatModal.hidden) {
-      renderCreateChatForm();
-    }
+    if (!createChatModal.hidden) render();
   });
-  languageObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ["lang"]
-  });
+  languageObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
 })();
