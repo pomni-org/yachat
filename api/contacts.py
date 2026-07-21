@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg.rows import dict_row
 
-from api.database import auth_secret, connect_db, secure_server_tables
+from server.database import auth_secret, connect_db, secure_server_tables
 
 KNOWN_DIAL_CODES = tuple(sorted({
     "7", "375", "994", "374", "995", "996", "373", "992", "998", "971", "93",

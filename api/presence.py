@@ -10,7 +10,7 @@ import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from psycopg.rows import dict_row
 
-from api.database import auth_secret, connect_db, secure_server_tables
+from server.database import auth_secret, connect_db, secure_server_tables
 
 app = FastAPI(title="YaChat Presence API", version="0.2.0")
 

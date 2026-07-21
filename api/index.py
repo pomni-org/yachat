@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from psycopg.rows import dict_row
 
-from api.database import (
+from server.database import (
     auth_secret,
     connect_db,
     database_env_name,
