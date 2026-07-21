@@ -13,21 +13,10 @@ import os
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 
+from api.database import auth_secret
+
 
 P256_ORDER = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
-DATABASE_ENV_NAMES = (
-    "YACHAT_USERS_DB_URL",
-    "DATABASE_URL",
-    "DATABASE_URL_UNPOOLED",
-    "POSTGRES_URL",
-    "POSTGRES_URL_POOLER",
-    "POSTGRES_PRISMA_URL",
-    "POSTGRES_URL_NON_POOLING",
-    "POSTGRES_URL_NO_SSL",
-    "NEON_DATABASE_URL",
-    "NEON_DATABASE_URL_UNPOOLED",
-    "SUPABASE_DB_URL",
-)
 
 
 def base64url(data: bytes) -> str:
@@ -35,14 +24,7 @@ def base64url(data: bytes) -> str:
 
 
 def server_secret() -> str:
-    explicit = os.getenv("YACHAT_AUTH_SECRET", "").strip()
-    if explicit:
-        return explicit
-    for name in DATABASE_ENV_NAMES:
-        value = os.getenv(name, "").strip()
-        if value:
-            return value
-    return "yachat-dev-secret"
+    return auth_secret()
 
 
 def ensure_vapid_environment() -> None:

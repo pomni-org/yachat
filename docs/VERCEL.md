@@ -19,7 +19,7 @@ This repository is prepared for a Vercel deployment of the YaChat web UI and Pyt
 
 Set these in Vercel Project Settings:
 
-- `YACHAT_USERS_DB_URL`: hosted Postgres connection string. The API also accepts `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_URL`, `POSTGRES_URL_POOLER`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL_NON_POOLING`, `POSTGRES_URL_NO_SSL`, `NEON_DATABASE_URL`, `NEON_DATABASE_URL_UNPOOLED`, and `SUPABASE_DB_URL`.
+- `SUPABASE_DB_URL`: Supabase Supavisor transaction-pooler connection string (port `6543`). This is the only database variable accepted by the API, so an old provider integration cannot be selected accidentally.
 - `YACHAT_AUTH_SECRET`: secret used to hash sessions, confirmation codes, and registration tokens.
 - `YACHAT_PUBLIC_USER_LIMIT`: optional, defaults to `100`.
 - `YACHAT_PUBLIC_CONTACTS`: optional, defaults to `false`.
@@ -36,8 +36,10 @@ Do not commit real environment values.
 
 ## Database contract
 
-The Python API creates and migrates the required tables on first request when Postgres is configured.
+The Python API creates and migrates the required tables on first request when Supabase is configured.
 The main public account table is `public_users`.
+
+All YaChat tables have Row Level Security enabled and grants to Supabase's `anon` and `authenticated` roles revoked. The browser never receives the database connection string and talks only to the YaChat API.
 
 If an older database was prepared with the previous `public_users` view over `yachat_users`, the API now migrates it on startup:
 
@@ -86,11 +88,11 @@ $url = "https://your-domain.example/api/telegram/webhook"
 Invoke-RestMethod -Method Post -Uri "https://api.telegram.org/bot$token/setWebhook" -Body @{ url = $url; secret_token = $secret }
 ```
 
-See `docs/vercel-users-db.sql` for a starter public-user schema if you want to prepare the database manually.
+See `docs/vercel-users-db.sql` for the server schema if you want to prepare the database manually. The application connects from Vercel through Supavisor transaction mode and disables psycopg prepared statements, as required by that pooler mode.
 
 ## Local fallback
 
-The browser fallback is no longer automatic on localhost. This keeps broken Vercel/Postgres setups visible instead of silently creating local-only accounts.
+The browser fallback is no longer automatic on localhost. This keeps broken Vercel/Supabase setups visible instead of silently creating local-only accounts.
 
 Production web builds are HTTPS-first. If the app is opened through a non-local `http://` URL, the renderer redirects to the same URL on `https://`, and the API adds HSTS on HTTPS responses.
 

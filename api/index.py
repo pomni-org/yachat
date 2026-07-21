@@ -22,6 +22,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from psycopg.rows import dict_row
 
+from api.database import (
+    auth_secret,
+    connect_db,
+    database_env_name,
+    database_url,
+    require_database,
+    secure_server_tables,
+)
+
 
 def configured_cors_origins() -> list[str]:
     def enabled(name: str, default: bool = False) -> bool:
@@ -72,19 +81,6 @@ PUBLIC_USER_FIELDS = (
     "public_key_type",
 )
 
-DATABASE_ENV_NAMES = (
-    "YACHAT_USERS_DB_URL",
-    "DATABASE_URL",
-    "DATABASE_URL_UNPOOLED",
-    "POSTGRES_URL",
-    "POSTGRES_URL_POOLER",
-    "POSTGRES_PRISMA_URL",
-    "POSTGRES_URL_NON_POOLING",
-    "POSTGRES_URL_NO_SSL",
-    "NEON_DATABASE_URL",
-    "NEON_DATABASE_URL_UNPOOLED",
-    "SUPABASE_DB_URL",
-)
 REMOVED_TEST_MESSAGE_TEXTS = ("Приыет?", "Привет?")
 DEFAULT_SETTINGS = {
     "language": "ru",
@@ -110,6 +106,24 @@ CHAT_ID_PATTERN = re.compile(r"^(yachat-[a-z0-9-]+|private-[a-f0-9]{32}|group-[a
 _rate_limits: dict[str, list[float]] = {}
 
 _schema_ready = False
+SERVER_TABLES = (
+    "public_users",
+    "yachat_auth_challenges",
+    "yachat_system_messages",
+    "yachat_system_chats",
+    "yachat_telegram_links",
+    "yachat_sessions",
+    "yachat_chats",
+    "yachat_chat_members",
+    "yachat_messages",
+    "yachat_message_hidden",
+    "yachat_user_blocks",
+    "yachat_push_subscriptions",
+    "yachat_device_codes",
+    "yachat_data_migrations",
+    "yachat_user_settings",
+    "yachat_qr_sessions",
+)
 
 
 def utc_now() -> datetime:
@@ -185,49 +199,12 @@ def public_limit() -> int:
         return 100
 
 
-def database_url() -> str:
-    for name in DATABASE_ENV_NAMES:
-        value = os.getenv(name, "").strip()
-        if value:
-            return value
-    return ""
-
-
-def database_env_name() -> str:
-    for name in DATABASE_ENV_NAMES:
-        if os.getenv(name, "").strip():
-            return name
-    return ""
-
-
-def auth_secret() -> str:
-    return os.getenv("YACHAT_AUTH_SECRET") or database_url() or "yachat-dev-secret"
-
-
 def telegram_bot_token() -> str:
     return os.getenv("YACHAT_TELEGRAM_BOT_TOKEN", "").strip()
 
 
 def telegram_webhook_secret() -> str:
     return os.getenv("YACHAT_TELEGRAM_WEBHOOK_SECRET", "").strip()
-
-
-def connect_db():
-    url = database_url()
-    if not url:
-        raise HTTPException(
-            status_code=503,
-            detail="Users database is not configured. Set YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.",
-        )
-    return psycopg.connect(url, autocommit=True)
-
-
-def require_database() -> None:
-    if not database_url():
-        raise HTTPException(
-            status_code=503,
-            detail="Users database is not configured. Set YACHAT_USERS_DB_URL or DATABASE_URL in Vercel.",
-        )
 
 
 def relation_kind(cursor, relation_name: str) -> str:
@@ -433,6 +410,7 @@ def ensure_schema() -> None:
             updated_at timestamptz default now()
         )
         """,
+        "create index if not exists yachat_chats_owner_idx on yachat_chats(owner_id)",
         """
         create table if not exists yachat_chat_members (
             chat_id text not null references yachat_chats(id) on delete cascade,
@@ -460,6 +438,7 @@ def ensure_schema() -> None:
         """,
         "alter table yachat_messages add column if not exists formatted_html text default ''",
         "create index if not exists yachat_messages_chat_created_idx on yachat_messages(chat_id, created_at)",
+        "create index if not exists yachat_messages_sender_idx on yachat_messages(sender_id)",
         "create index if not exists yachat_messages_unread_idx on yachat_messages(chat_id, created_at, sender_id) where deleted_at is null",
         """
         create table if not exists yachat_message_hidden (
@@ -536,6 +515,7 @@ def ensure_schema() -> None:
         )
         """,
         "create index if not exists yachat_qr_sessions_status_idx on yachat_qr_sessions(status, expires_at)",
+        "create index if not exists yachat_qr_sessions_account_idx on yachat_qr_sessions(account_id)",
     ]
 
     try:
@@ -544,6 +524,7 @@ def ensure_schema() -> None:
                 ensure_public_users_table(cursor)
                 for statement in statements:
                     cursor.execute(statement)
+                secure_server_tables(cursor, SERVER_TABLES)
                 apply_data_migrations(cursor)
                 cleanup_removed_test_messages(cursor)
         _schema_ready = True
@@ -2467,7 +2448,7 @@ async def redeem_device_code(request: Request):
 @app.get("/api/status")
 def status():
     return {
-        "storage": "vercel-postgres" if database_url() else "not-configured",
+        "storage": "supabase-postgres" if database_url() else "not-configured",
         "users": "database-public-directory" if database_url() else "not-configured",
         "databaseEnv": database_env_name(),
         "webUrl": None,
@@ -2476,7 +2457,7 @@ def status():
         "telegram": bool(telegram_bot_token()),
         "encryption": {
             "storage": "external-database",
-            "kdf": "provider-managed",
+            "kdf": "supabase-managed",
             "identity": "public-directory",
         },
     }

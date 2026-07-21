@@ -11,20 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from psycopg.rows import dict_row
 
+from api.database import auth_secret, connect_db, secure_server_tables
 
-DATABASE_ENV_NAMES = (
-    "YACHAT_USERS_DB_URL",
-    "DATABASE_URL",
-    "DATABASE_URL_UNPOOLED",
-    "POSTGRES_URL",
-    "POSTGRES_URL_POOLER",
-    "POSTGRES_PRISMA_URL",
-    "POSTGRES_URL_NON_POOLING",
-    "POSTGRES_URL_NO_SSL",
-    "NEON_DATABASE_URL",
-    "NEON_DATABASE_URL_UNPOOLED",
-    "SUPABASE_DB_URL",
-)
 KNOWN_DIAL_CODES = tuple(sorted({
     "7", "375", "994", "374", "995", "996", "373", "992", "998", "971", "93",
     "591", "243", "242", "57", "53", "20", "1473", "62", "91", "964", "855",
@@ -67,27 +55,8 @@ app.add_middleware(
 )
 
 
-def database_url() -> str:
-    for name in DATABASE_ENV_NAMES:
-        value = os.getenv(name, "").strip()
-        if value:
-            return value
-    return ""
-
-
-def auth_secret() -> str:
-    return os.getenv("YACHAT_AUTH_SECRET") or database_url() or "yachat-dev-secret"
-
-
 def hash_secret(value: str) -> str:
     return hmac.new(auth_secret().encode("utf-8"), value.encode("utf-8"), hashlib.sha256).hexdigest()
-
-
-def connect_db():
-    url = database_url()
-    if not url:
-        raise HTTPException(status_code=503, detail="Users database is not configured.")
-    return psycopg.connect(url, autocommit=True)
 
 
 def request_token(request: Request) -> str:
@@ -136,6 +105,7 @@ def ensure_contacts_schema(cursor) -> None:
     cursor.execute(
         "create index if not exists yachat_imported_contacts_phone_idx on yachat_imported_contacts(phone_key)"
     )
+    secure_server_tables(cursor, ("yachat_imported_contacts",))
 
 
 def clean_text(value: Any, limit: int) -> str:

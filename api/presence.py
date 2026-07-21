@@ -1,7 +1,6 @@
 import hashlib
 import hmac
 import json
-import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -10,21 +9,10 @@ import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from psycopg.rows import dict_row
 
+from api.database import auth_secret, connect_db, secure_server_tables
+
 app = FastAPI(title="YaChat Presence API", version="0.2.0")
 
-DATABASE_ENV_NAMES = (
-    "YACHAT_USERS_DB_URL",
-    "DATABASE_URL",
-    "DATABASE_URL_UNPOOLED",
-    "POSTGRES_URL",
-    "POSTGRES_URL_POOLER",
-    "POSTGRES_PRISMA_URL",
-    "POSTGRES_URL_NON_POOLING",
-    "POSTGRES_URL_NO_SSL",
-    "NEON_DATABASE_URL",
-    "NEON_DATABASE_URL_UNPOOLED",
-    "SUPABASE_DB_URL",
-)
 CHAT_ID_PATTERN = re.compile(
     r"^(yachat-[a-z0-9-]+|private-[a-f0-9]{32}|group-[a-f0-9-]{36}|saved-[a-f0-9]{32})$"
 )
@@ -34,27 +22,8 @@ TYPING_TTL_SECONDS = 7
 _schema_ready = False
 
 
-def database_url() -> str:
-    for name in DATABASE_ENV_NAMES:
-        value = os.getenv(name, "").strip()
-        if value:
-            return value
-    return ""
-
-
-def auth_secret() -> str:
-    return os.getenv("YACHAT_AUTH_SECRET") or database_url() or "yachat-dev-secret"
-
-
 def hash_secret(value: str) -> str:
     return hmac.new(auth_secret().encode("utf-8"), value.encode("utf-8"), hashlib.sha256).hexdigest()
-
-
-def connect_db():
-    url = database_url()
-    if not url:
-        raise HTTPException(status_code=503, detail="Users database is not configured.")
-    return psycopg.connect(url, autocommit=True)
 
 
 def ensure_schema() -> None:
@@ -88,6 +57,10 @@ def ensure_schema() -> None:
                 cursor.execute(
                     "create index if not exists yachat_typing_expiry_idx on yachat_typing(expires_at)"
                 )
+                cursor.execute(
+                    "create index if not exists yachat_typing_user_idx on yachat_typing(user_id)"
+                )
+                secure_server_tables(cursor, ("yachat_user_presence", "yachat_typing"))
         _schema_ready = True
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Users database is unavailable.") from error
