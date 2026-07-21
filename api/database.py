@@ -32,6 +32,25 @@ def require_database() -> str:
     return url
 
 
+def _connection_error_category(error: psycopg.Error) -> str:
+    """Return a log-safe Supabase connection failure category."""
+
+    detail = str(error).lower()
+    categories = (
+        (("password authentication failed", "authentication failed"), "auth_failed"),
+        (("tenant or user not found", "invalid tenant"), "pooler_tenant_not_found"),
+        (("could not translate host name", "name or service not known"), "dns_failed"),
+        (("timeout expired", "connection timed out", "connect timeout"), "timeout"),
+        (("network is unreachable", "no route to host"), "network_unreachable"),
+        (("ssl", "certificate"), "tls_failed"),
+        (("invalid dsn", "missing '=' after"), "invalid_connection_string"),
+    )
+    for markers, category in categories:
+        if any(marker in detail for marker in markers):
+            return category
+    return "postgres_operational_error"
+
+
 def connect_db():
     """Open one short-lived Vercel connection through Supavisor transaction mode.
 
@@ -39,13 +58,22 @@ def connect_db():
     psycopg's automatic preparation is explicitly disabled.
     """
 
-    return psycopg.connect(
-        require_database(),
-        autocommit=True,
-        connect_timeout=5,
-        prepare_threshold=None,
-        application_name="yachat-vercel",
-    )
+    try:
+        return psycopg.connect(
+            require_database(),
+            autocommit=True,
+            connect_timeout=5,
+            prepare_threshold=None,
+            application_name="yachat-vercel",
+        )
+    except psycopg.Error as error:
+        category = _connection_error_category(error)
+        print(
+            f"supabase_connect_failed category={category} "
+            f"error_type={type(error).__name__}",
+            flush=True,
+        )
+        raise
 
 
 def secure_server_tables(cursor, table_names: tuple[str, ...]) -> None:
