@@ -56,7 +56,7 @@
       <section class="api-grid" aria-label="Свойства протокола">
         <article class="api-card"><b>Подтверждение в ЯЧате</b><p>Код видит только владелец аккаунта в системном боте «Коды подтверждения».</p></article>
         <article class="api-card"><b>PKCE S256</b><p>Код и токен привязаны к вашему случайному verifier — перехваченного токена недостаточно.</p></article>
-        <article class="api-card"><b>Одноразовый токен</b><p>Токен действует 5 минут и погашается атомарно только один раз.</p></article>
+        <article class="api-card"><b>Короткоживущий токен</b><p>Токен действует 5 минут. Повтор того же серверного запроса безопасен только с исходными verifier и externalReference.</p></article>
         <article class="api-card"><b>Стабильный subject</b><p>Ваш сервер получает отдельный непрозрачный <code>subject</code>, постоянный для пары пользователь + клиент.</p></article>
       </section>
 
@@ -141,11 +141,11 @@ await createOrder({ yachat: proof.identity, proofId: proof.transactionId });</pr
         <ul>
           <li><code>401</code> — неверный код, API key, PKCE или identity token.</li>
           <li><code>403</code> — origin не зарегистрирован для публичного клиента.</li>
-          <li><code>409</code> — challenge завершён, токен уже погашен или <code>externalReference</code> уже использован.</li>
+          <li><code>409</code> — challenge завершён или <code>externalReference</code> уже связан с другой проверкой.</li>
           <li><code>410</code> — код или identity token истёк.</li>
           <li><code>429</code> — превышен лимит запросов или неверных попыток.</li>
         </ul>
-        <p>Для повторной попытки создайте новый PKCE verifier и новый challenge. Не повторяйте создание бизнес-транзакции с тем же <code>externalReference</code>.</p>
+        <p>Если ответ <code>identity/consume</code> потерялся из-за сети, сервер может повторить тот же запрос с теми же token, verifier и <code>externalReference</code>: API вернёт ту же подтверждённую транзакцию с <code>replayed: true</code>. Для новой проверки создайте новый PKCE verifier и новый challenge.</p>
       </section>
 
       <footer class="api-footer">YaChat Digital ID API · Базовый URL: <code>https://yachat.vercel.app</code></footer>

@@ -3,7 +3,8 @@
 The human-readable Digital ID is only a lookup key. A third-party service gets
 proof of identity only after the YaChat user enters a one-time code delivered to
 the built-in "Коды подтверждения" bot. The resulting identity token is short
-lived, PKCE-bound, and can be consumed exactly once by the service server.
+lived and PKCE-bound. Replaying the same server request is idempotent only for
+the original verifier and external reference.
 """
 
 import base64

@@ -39,18 +39,21 @@ def configured_cors_origins() -> list[str]:
             return default
         return value.strip().lower() in {"1", "true", "yes", "on"}
 
-    raw = os.getenv("YACHAT_CORS_ORIGINS", "").strip()
-    if raw:
-        origins = [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
-        if "*" in origins and not enabled("YACHAT_ALLOW_ANY_ORIGIN", False):
-            origins.remove("*")
-        return origins
-
     origins = {
         "https://yachat.vercel.app",
         "https://digital-bar-murex.vercel.app",
         "https://digital-bar-roblox-kittens-projects-ae36c01e.vercel.app",
     }
+    raw = os.getenv("YACHAT_CORS_ORIGINS", "").strip()
+    if raw:
+        configured = {
+            origin.strip().rstrip("/")
+            for origin in raw.split(",")
+            if origin.strip()
+        }
+        if "*" in configured and not enabled("YACHAT_ALLOW_ANY_ORIGIN", False):
+            configured.remove("*")
+        origins.update(configured)
     if os.getenv("VERCEL_URL"):
         origins.add(f"https://{os.getenv('VERCEL_URL', '').strip().rstrip('/')}")
     if os.getenv("YACHAT_WEB_ORIGIN"):
@@ -70,7 +73,12 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Telegram-Bot-Api-Secret-Token"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Telegram-Bot-Api-Secret-Token",
+        "X-YaChat-API-Key",
+    ],
 )
 
 PUBLIC_USER_FIELDS = (
