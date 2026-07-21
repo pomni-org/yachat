@@ -1,6 +1,7 @@
 """Supabase Postgres connection helpers shared by every API entry point."""
 
 import os
+import time
 
 import psycopg
 from fastapi import HTTPException
@@ -58,22 +59,47 @@ def connect_db():
     psycopg's automatic preparation is explicitly disabled.
     """
 
+    url = require_database()
     try:
-        return psycopg.connect(
-            require_database(),
-            autocommit=True,
-            connect_timeout=5,
-            prepare_threshold=None,
-            application_name="yachat-vercel",
-        )
-    except psycopg.Error as error:
-        category = _connection_error_category(error)
-        print(
-            f"supabase_connect_failed category={category} "
-            f"error_type={type(error).__name__}",
-            flush=True,
-        )
-        raise
+        attempts = max(1, min(int(os.getenv("YACHAT_DB_CONNECT_ATTEMPTS", "2")), 3))
+    except ValueError:
+        attempts = 2
+    try:
+        timeout = max(2, min(int(os.getenv("YACHAT_DB_CONNECT_TIMEOUT_SECONDS", "3")), 8))
+    except ValueError:
+        timeout = 3
+
+    retryable = {"timeout", "dns_failed", "network_unreachable", "postgres_operational_error"}
+    last_error: psycopg.Error | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return psycopg.connect(
+                url,
+                autocommit=True,
+                connect_timeout=timeout,
+                prepare_threshold=None,
+                application_name="yachat-vercel",
+            )
+        except psycopg.Error as error:
+            last_error = error
+            category = _connection_error_category(error)
+            if category in retryable and attempt < attempts:
+                print(
+                    f"supabase_connect_retry category={category} attempt={attempt}",
+                    flush=True,
+                )
+                time.sleep(0.18 * attempt)
+                continue
+            print(
+                f"supabase_connect_failed category={category} "
+                f"attempts={attempt} error_type={type(error).__name__}",
+                flush=True,
+            )
+            raise
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("Supabase connection could not be created.")
 
 
 def secure_server_tables(cursor, table_names: tuple[str, ...]) -> None:

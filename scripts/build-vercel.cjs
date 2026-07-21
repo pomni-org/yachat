@@ -20,10 +20,11 @@ const files = [
   "sw.js",
   "privacy.html",
   "terms.html",
-  "help.html"
+  "help.html",
+  "developers.html"
 ];
 
-const BRAND_VERSION = "49";
+const BRAND_VERSION = "50";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -199,6 +200,7 @@ async function build() {
     "privacy.html",
     "terms.html",
     "help.html",
+    "developers.html",
     "styles.css",
     "page.css"
   ].map(rewriteBrandReferences));

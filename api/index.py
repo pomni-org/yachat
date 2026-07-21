@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from psycopg.rows import dict_row
 
-from api.database import (
+from server.database import (
     auth_secret,
     connect_db,
     database_env_name,
@@ -46,7 +46,11 @@ def configured_cors_origins() -> list[str]:
             origins.remove("*")
         return origins
 
-    origins = {"https://yachat.vercel.app"}
+    origins = {
+        "https://yachat.vercel.app",
+        "https://digital-bar-murex.vercel.app",
+        "https://digital-bar-roblox-kittens-projects-ae36c01e.vercel.app",
+    }
     if os.getenv("VERCEL_URL"):
         origins.add(f"https://{os.getenv('VERCEL_URL', '').strip().rstrip('/')}")
     if os.getenv("YACHAT_WEB_ORIGIN"):
@@ -61,7 +65,7 @@ def configured_cors_origins() -> list[str]:
     return sorted(origin for origin in origins if origin)
 
 
-app = FastAPI(title="YaChat API", version="0.2.0")
+app = FastAPI(title="YaChat API", version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
@@ -123,6 +127,9 @@ SERVER_TABLES = (
     "yachat_data_migrations",
     "yachat_user_settings",
     "yachat_qr_sessions",
+    "yachat_developer_clients",
+    "yachat_identity_challenges",
+    "yachat_identity_transactions",
 )
 
 
@@ -308,6 +315,15 @@ def ensure_schema() -> None:
     if _schema_ready or not database_url():
         return
 
+    # Supabase migrations own the production schema. Running dozens of DDL
+    # statements from every cold Vercel function used to consume the entire
+    # first-request budget and made the next attempt appear to "fix" the API.
+    # Keep runtime bootstrapping only for local/dev databases or an explicit
+    # emergency opt-in.
+    if os.getenv("VERCEL") and not env_flag("YACHAT_RUNTIME_SCHEMA_BOOTSTRAP", False):
+        _schema_ready = True
+        return
+
     statements = [
         "alter table public_users add column if not exists contact text",
         "alter table public_users add column if not exists contact_key text",
@@ -322,6 +338,41 @@ def ensure_schema() -> None:
         "alter table public_users add column if not exists updated_at timestamptz default now()",
         "alter table public_users add column if not exists public_key_type text default 'x25519'",
         "alter table public_users add column if not exists is_public boolean default true",
+        "alter table public_users add column if not exists digital_id text",
+        """
+        create or replace function public.yachat_generate_digital_id()
+        returns text
+        language plpgsql
+        volatile
+        set search_path = pg_catalog, public
+        as $$
+        declare
+            alphabet constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+            letter_count integer;
+            candidate text;
+            position integer;
+        begin
+            loop
+                letter_count := 2 + floor(random() * 2)::integer;
+                candidate := '';
+                for position in 1..letter_count loop
+                    candidate := candidate || substr(alphabet, 1 + floor(random() * length(alphabet))::integer, 1);
+                end loop;
+                for position in (letter_count + 1)..6 loop
+                    candidate := candidate || floor(random() * 10)::integer::text;
+                end loop;
+                exit when not exists (
+                    select 1 from public.public_users where digital_id = candidate
+                );
+            end loop;
+            return candidate;
+        end;
+        $$
+        """,
+        "revoke all on function public.yachat_generate_digital_id() from public, anon, authenticated",
+        "alter table public_users alter column digital_id set default public.yachat_generate_digital_id()",
+        "update public_users set digital_id = public.yachat_generate_digital_id() where digital_id is null or digital_id = ''",
+        "alter table public_users alter column digital_id set not null",
         """
         update public_users
         set contact_key = nullif(regexp_replace(lower(coalesce(contact, '')), '[^0-9+a-z@._-]+', '', 'g'), '')
@@ -330,6 +381,7 @@ def ensure_schema() -> None:
         "update public_users set updated_at = coalesce(updated_at, created_at, now()) where updated_at is null",
         "create unique index if not exists public_users_contact_key_idx on public_users(contact_key) where contact_key is not null and contact_key <> ''",
         "create unique index if not exists public_users_username_idx on public_users(lower(username)) where username is not null and username <> ''",
+        "create unique index if not exists public_users_digital_id_idx on public_users(digital_id)",
         """
         create table if not exists yachat_auth_challenges (
             id text primary key,
@@ -516,6 +568,80 @@ def ensure_schema() -> None:
         """,
         "create index if not exists yachat_qr_sessions_status_idx on yachat_qr_sessions(status, expires_at)",
         "create index if not exists yachat_qr_sessions_account_idx on yachat_qr_sessions(account_id)",
+        """
+        create table if not exists yachat_developer_clients (
+            id text primary key,
+            name text not null,
+            secret_hash text,
+            public_pkce boolean not null default false,
+            allowed_origins jsonb not null default '[]'::jsonb,
+            scopes jsonb not null default '["identity:verify"]'::jsonb,
+            active boolean not null default true,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+        )
+        """,
+        """
+        create table if not exists yachat_identity_challenges (
+            id text primary key,
+            client_id text not null references yachat_developer_clients(id) on delete cascade,
+            user_id text not null references public_users(id) on delete cascade,
+            digital_id text not null,
+            code_hash text not null,
+            code_challenge text not null,
+            purpose text not null default 'Подтверждение личности',
+            external_reference text not null default '',
+            request_metadata jsonb not null default '{}'::jsonb,
+            request_origin text not null default '',
+            attempts integer not null default 0 check (attempts between 0 and 5),
+            status text not null default 'pending' check (status in ('pending', 'verified', 'consumed', 'expired', 'locked', 'replaced')),
+            identity_token_hash text unique,
+            created_at timestamptz not null default now(),
+            expires_at timestamptz not null,
+            verified_at timestamptz,
+            token_expires_at timestamptz,
+            consumed_at timestamptz
+        )
+        """,
+        "create index if not exists yachat_identity_challenges_user_idx on yachat_identity_challenges(user_id, created_at desc)",
+        "create index if not exists yachat_identity_challenges_client_idx on yachat_identity_challenges(client_id, external_reference, created_at desc)",
+        "create index if not exists yachat_identity_challenges_expiry_idx on yachat_identity_challenges(status, expires_at, token_expires_at)",
+        """
+        create table if not exists yachat_identity_transactions (
+            id text primary key,
+            challenge_id text not null unique references yachat_identity_challenges(id) on delete cascade,
+            client_id text not null references yachat_developer_clients(id) on delete cascade,
+            user_id text not null references public_users(id) on delete cascade,
+            subject text not null,
+            digital_id text not null,
+            purpose text not null default '',
+            external_reference text not null default '',
+            metadata jsonb not null default '{}'::jsonb,
+            created_at timestamptz not null default now()
+        )
+        """,
+        "create index if not exists yachat_identity_transactions_user_idx on yachat_identity_transactions(user_id, created_at desc)",
+        "create index if not exists yachat_identity_transactions_client_idx on yachat_identity_transactions(client_id, created_at desc)",
+        "create unique index if not exists yachat_identity_transactions_reference_idx on yachat_identity_transactions(client_id, external_reference) where external_reference <> ''",
+        """
+        insert into yachat_developer_clients(id, name, public_pkce, allowed_origins, scopes, active, updated_at)
+        values (
+            'digital-bar',
+            'Домашний бар',
+            true,
+            '["https://digital-bar-murex.vercel.app", "https://digital-bar-roblox-kittens-projects-ae36c01e.vercel.app", "http://localhost:3000", "http://127.0.0.1:3000"]'::jsonb,
+            '["identity:verify"]'::jsonb,
+            true,
+            now()
+        )
+        on conflict (id) do update
+        set name = excluded.name,
+            public_pkce = excluded.public_pkce,
+            allowed_origins = excluded.allowed_origins,
+            scopes = excluded.scopes,
+            active = true,
+            updated_at = now()
+        """,
     ]
 
     try:
@@ -835,6 +961,19 @@ def generate_device_code(language: str = "ru") -> tuple[str, str]:
     return raw, format_device_code(raw)
 
 
+DIGITAL_ID_PATTERN = re.compile(r"^[ABCDEFGHJKLMNPQRSTUVWXYZ]{2,3}[0-9]{3,4}$")
+
+
+def normalize_digital_id(value: Any) -> str:
+    normalized = re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())[:6]
+    return normalized if len(normalized) == 6 and DIGITAL_ID_PATTERN.fullmatch(normalized) else ""
+
+
+def format_digital_id(value: Any) -> str:
+    normalized = normalize_digital_id(value)
+    return f"{normalized[:3]} — {normalized[3:]}" if normalized else ""
+
+
 def verification_code_text(contact: str, code: str) -> str:
     return "\n".join(
         [
@@ -960,6 +1099,7 @@ def public_user(row: dict[str, Any], matched_contact: str = "") -> dict[str, Any
 
 
 def public_account(row: dict[str, Any], session_token: str = "") -> dict[str, Any]:
+    digital_id = normalize_digital_id(row_value(row, "digital_id"))
     account = {
         "id": str(row_value(row, "id")),
         "title": "YaChat",
@@ -971,6 +1111,8 @@ def public_account(row: dict[str, Any], session_token: str = "") -> dict[str, An
         "avatarDataUrl": str(row_value(row, "avatar_url", "avatar_data_url")),
         "avatarAccent": str(row_value(row, "avatar_accent")) or "#471AFF",
         "createdAt": row_value(row, "created_at"),
+        "digitalId": format_digital_id(digital_id),
+        "rawDigitalId": digital_id,
         "status": "account-created",
         "encrypted": True,
         **verification_fields(row),
@@ -2474,6 +2616,19 @@ def health():
 def account(request: Request):
     user = current_user(request)
     return public_account(user) if user else None
+
+
+@app.get("/api/digital-id")
+def digital_id_account(request: Request):
+    user = require_user(request)
+    raw_id = normalize_digital_id(user.get("digital_id"))
+    if not raw_id:
+        raise HTTPException(status_code=503, detail="Digital ID is temporarily unavailable.")
+    return {
+        "digitalId": format_digital_id(raw_id),
+        "rawDigitalId": raw_id,
+        "createdAt": user.get("created_at"),
+    }
 
 
 @app.get("/api/bootstrap")

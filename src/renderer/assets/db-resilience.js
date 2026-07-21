@@ -11,8 +11,8 @@
   const MAX_CACHE_ENTRIES = 24;
   const MAX_CACHE_BODY_BYTES = 1_750_000;
   const STALE_MAX_AGE_MS = 10 * 60 * 1000;
-  const READ_TIMEOUT_MS = 7000;
-  const WRITE_TIMEOUT_MS = 10000;
+  const READ_TIMEOUT_MS = 4500;
+  const WRITE_TIMEOUT_MS = 9000;
   const SETTINGS_WRITE_DEDUP_MS = 5 * 60 * 1000;
   let consecutiveDatabaseFailures = 0;
   let circuitOpenUntil = 0;
@@ -159,6 +159,28 @@
     });
   }
 
+  function shortDelay(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  async function readWithOneRetry(input, init) {
+    let firstResponse = null;
+    try {
+      firstResponse = await fetchWithTimeout(input, init, READ_TIMEOUT_MS);
+      if (!isDatabaseFailure(firstResponse)) return firstResponse;
+    } catch {
+      // A single retry below absorbs transient Supavisor/serverless wake-ups.
+    }
+
+    await shortDelay(180 + Math.floor(Math.random() * 120));
+    try {
+      return await fetchWithTimeout(input, init, READ_TIMEOUT_MS);
+    } catch {
+      if (firstResponse) return firstResponse;
+      throw new Error("YaChat API read failed after retry.");
+    }
+  }
+
   function invalidateReadsAfterWrite(pathname) {
     if (pathname === "/api/settings") {
       for (const key of [...responseCache.keys()]) {
@@ -183,7 +205,7 @@
     const existing = inFlightReads.get(key);
     if (existing) return existing.then((response) => response.clone());
 
-    const request = fetchWithTimeout(input, init, READ_TIMEOUT_MS)
+    const request = readWithOneRetry(input, init)
       .then(async (response) => {
         if (isDatabaseFailure(response)) {
           noteFailure();

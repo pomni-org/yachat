@@ -56,6 +56,22 @@
       "destination": "/api/challenge.py"
     },
     {
+      "source": "/api/digital-id",
+      "destination": "/api/digital_id.py"
+    },
+    {
+      "source": "/api/developer/v1/health",
+      "destination": "/api/digital_id.py"
+    },
+    {
+      "source": "/api/developer/v1/openapi.json",
+      "destination": "/api/digital_id.py"
+    },
+    {
+      "source": "/api/developer/v1/identity/(.*)",
+      "destination": "/api/digital_id.py"
+    },
+    {
       "source": "/api/message",
       "destination": "/api/message.py"
     },
@@ -94,6 +110,10 @@
     {
       "source": "/help",
       "destination": "/help.html"
+    },
+    {
+      "source": "/developers",
+      "destination": "/developers.html"
     },
     {
       "source": "/(.*)",
@@ -157,6 +177,9 @@
       "maxDuration": 10
     },
     "api/challenge.py": {
+      "maxDuration": 20
+    },
+    "api/digital_id.py": {
       "maxDuration": 20
     },
     "api/message.py": {

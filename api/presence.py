@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -9,7 +10,7 @@ import psycopg
 from fastapi import FastAPI, HTTPException, Request
 from psycopg.rows import dict_row
 
-from api.database import auth_secret, connect_db, secure_server_tables
+from server.database import auth_secret, connect_db, secure_server_tables
 
 app = FastAPI(title="YaChat Presence API", version="0.2.0")
 
@@ -29,6 +30,9 @@ def hash_secret(value: str) -> str:
 def ensure_schema() -> None:
     global _schema_ready
     if _schema_ready:
+        return
+    if os.getenv("VERCEL") and os.getenv("YACHAT_RUNTIME_SCHEMA_BOOTSTRAP", "").lower() not in {"1", "true", "yes", "on"}:
+        _schema_ready = True
         return
 
     try:
@@ -73,12 +77,28 @@ def request_token(request: Request) -> str:
     return ""
 
 
-def require_user(request: Request) -> dict[str, Any]:
+def require_user(request: Request, cursor=None) -> dict[str, Any]:
     token = request_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Sign in first.")
 
     ensure_schema()
+    if cursor is not None:
+        cursor.execute(
+            """
+            select u.*
+            from yachat_sessions s
+            join public_users u on u.id = s.user_id
+            where s.token_hash = %s and s.expires_at > now()
+            limit 1
+            """,
+            (hash_secret(token),),
+        )
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=401, detail="Sign in first.")
+        return dict(row)
+
     try:
         with connect_db() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
@@ -220,13 +240,13 @@ async def harden_response(request: Request, call_next):
 
 @app.get("/api/presence")
 def get_presence(request: Request, chatId: str = ""):
-    user = require_user(request)
-    user_id = str(user["id"])
     chat_id = clean_chat_id(chatId)
 
     try:
         with connect_db() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
+                user = require_user(request, cursor)
+                user_id = str(user["id"])
                 touch_presence(cursor, user_id)
                 chat = require_chat_access(cursor, chat_id, user_id)
                 kind = str(chat.get("kind") or "")
@@ -245,8 +265,6 @@ def get_presence(request: Request, chatId: str = ""):
 
 @app.post("/api/presence")
 async def set_presence(request: Request):
-    user = require_user(request)
-    user_id = str(user["id"])
     try:
         payload = await request.json()
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -260,6 +278,8 @@ async def set_presence(request: Request):
     try:
         with connect_db() as connection:
             with connection.cursor(row_factory=dict_row) as cursor:
+                user = require_user(request, cursor)
+                user_id = str(user["id"])
                 touch_presence(cursor, user_id)
                 chat = require_chat_access(cursor, chat_id, user_id)
                 kind = str(chat.get("kind") or "")

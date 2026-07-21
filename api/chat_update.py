@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 from typing import Any
 
@@ -112,6 +113,8 @@ def system_chat_value(payload: dict[str, Any], existing: dict[str, Any], key: st
 
 
 def ensure_group_profile_schema(cursor) -> None:
+    if os.getenv("VERCEL") and os.getenv("YACHAT_RUNTIME_SCHEMA_BOOTSTRAP", "").lower() not in {"1", "true", "yes", "on"}:
+        return
     cursor.execute("alter table yachat_chats add column if not exists username text default ''")
     cursor.execute(
         """
