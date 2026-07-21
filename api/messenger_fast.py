@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any
 
@@ -17,13 +18,16 @@ from api.index import (
     ensure_schema,
     fetch_user_by_username,
     get_user_settings,
+    hash_secret,
     message_payload,
     normalize_username,
     public_account,
     read_json_payload,
+    request_token,
     require_chat_member,
     require_user,
     row_value,
+    settings_from_row,
     system_chat_messages,
     system_chat_settings,
     system_chats,
@@ -88,7 +92,7 @@ def _latest_system_messages(cursor, user_id: str) -> dict[str, dict[str, Any]]:
     return {str(row["chat_id"]): dict(row) for row in cursor.fetchall()}
 
 
-def list_user_chats_fast(user_id: str) -> list[dict[str, Any]]:
+def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
     """Return only data required to paint the chat list and basic headers.
 
     Group participant avatars are deliberately omitted. Previously every chat-list
@@ -97,8 +101,8 @@ def list_user_chats_fast(user_id: str) -> list[dict[str, Any]]:
     """
 
     ensure_schema()
-    with connect_db() as connection:
-        with connection.cursor(row_factory=dict_row) as cursor:
+    with (connect_db() if connection is None else nullcontext(connection)) as active_connection:
+        with active_connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 select
@@ -311,14 +315,20 @@ def _parse_after(value: str) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def get_messages_fast(chat_id: str, user_id: str, limit: int = 80, after: str = "") -> list[dict[str, Any]]:
+def get_messages_fast(
+    chat_id: str,
+    user_id: str,
+    limit: int = 80,
+    after: str = "",
+    connection=None,
+) -> list[dict[str, Any]]:
     requested_chat_id = clean_chat_id(chat_id)
     cursor_after = _parse_after(after)
     safe_limit = max(1, min(int(limit or 80), 150))
 
     ensure_schema()
-    with connect_db() as connection:
-        with connection.cursor(row_factory=dict_row) as cursor:
+    with (connect_db() if connection is None else nullcontext(connection)) as active_connection:
+        with active_connection.cursor(row_factory=dict_row) as cursor:
             if requested_chat_id.startswith("yachat-") and requested_chat_id != "yachat-favorites":
                 parameters: list[Any] = [user_id, requested_chat_id]
                 after_clause = ""
@@ -392,8 +402,14 @@ def get_messages_fast(chat_id: str, user_id: str, limit: int = 80, after: str = 
             return [message_payload(row, user_id, recipient_read_times) for row in rows]
 
 
-def _snapshot(user_id: str, chat_id: str = "", username: str = "", message_limit: int = 60) -> dict[str, Any]:
-    chats = list_user_chats_fast(user_id)
+def _snapshot(
+    user_id: str,
+    chat_id: str = "",
+    username: str = "",
+    message_limit: int = 60,
+    connection=None,
+) -> dict[str, Any]:
+    chats = list_user_chats_fast(user_id, connection=connection)
     chat_ids = {str(chat["id"]) for chat in chats}
     active_chat_id = clean_chat_id(chat_id, allow_empty=True)
     route_user = fetch_user_by_username(username) if normalize_username(username) else None
@@ -418,49 +434,84 @@ def _snapshot(user_id: str, chat_id: str = "", username: str = "", message_limit
     return {
         "chats": chats,
         "activeChatId": active_chat_id or None,
-        "messages": get_messages_fast(active_chat_id, user_id, message_limit) if active_chat_id else [],
+        "messages": get_messages_fast(active_chat_id, user_id, message_limit, connection=connection) if active_chat_id else [],
         "routeUser": route_user,
         "optimized": True,
     }
 
 
+def _user_from_cursor(cursor, request: Request, *, required: bool) -> dict[str, Any] | None:
+    token = request_token(request)
+    if not token:
+        if required:
+            raise HTTPException(status_code=401, detail="Sign in first.")
+        return None
+    cursor.execute(
+        """
+        select u.*
+        from yachat_sessions s
+        join public_users u on u.id = s.user_id
+        where s.token_hash = %s and s.expires_at > now()
+        limit 1
+        """,
+        (hash_secret(token),),
+    )
+    row = cursor.fetchone()
+    if not row and required:
+        raise HTTPException(status_code=401, detail="Sign in first.")
+    return dict(row) if row else None
+
+
 @app.get("/api/bootstrap")
 def bootstrap(request: Request, chatId: str = "", username: str = ""):
-    user = current_user(request)
-    settings = get_user_settings(str(user["id"])) if user else {
-        "language": "ru",
-        "theme": "dark",
-        "themeSource": "system",
-        "country": "RU",
-        "countryCode": "+7",
-    }
-    result: dict[str, Any] = {
-        "authenticated": bool(user),
-        "account": public_account(user) if user else None,
-        "settings": settings,
-        "chats": [],
-        "messages": [],
-        "activeChatId": None,
-        "routeUser": None,
-        "optimized": True,
-    }
-    if user:
-        result.update(_snapshot(str(user["id"]), chatId, username, message_limit=40))
-    elif normalize_username(username):
-        result["routeUser"] = fetch_user_by_username(username)
-    return result
+    ensure_schema()
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            user = _user_from_cursor(cursor, request, required=False)
+            if user:
+                cursor.execute("select * from yachat_user_settings where user_id = %s limit 1", (user["id"],))
+                settings = settings_from_row(dict(row) if (row := cursor.fetchone()) else None)
+            else:
+                settings = {
+                    "language": "ru",
+                    "theme": "dark",
+                    "themeSource": "system",
+                    "country": "RU",
+                    "countryCode": "+7",
+                }
+        result: dict[str, Any] = {
+            "authenticated": bool(user),
+            "account": public_account(user) if user else None,
+            "settings": settings,
+            "chats": [],
+            "messages": [],
+            "activeChatId": None,
+            "routeUser": None,
+            "optimized": True,
+        }
+        if user:
+            result.update(_snapshot(str(user["id"]), chatId, username, message_limit=40, connection=connection))
+        elif normalize_username(username):
+            result["routeUser"] = fetch_user_by_username(username)
+        return result
 
 
 @app.get("/api/messenger")
 def messenger(request: Request, chatId: str = "", username: str = ""):
-    user = require_user(request)
-    return _snapshot(str(user["id"]), chatId, username, message_limit=60)
+    ensure_schema()
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            user = _user_from_cursor(cursor, request, required=True)
+        return _snapshot(str(user["id"]), chatId, username, message_limit=60, connection=connection)
 
 
 @app.get("/api/chats")
 def chats(request: Request):
-    user = require_user(request)
-    return list_user_chats_fast(str(user["id"]))
+    ensure_schema()
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            user = _user_from_cursor(cursor, request, required=True)
+        return list_user_chats_fast(str(user["id"]), connection=connection)
 
 
 @app.get("/api/messages")
@@ -470,18 +521,22 @@ def messages(
     limit: int = Query(default=80, ge=1, le=150),
     after: str = "",
 ):
-    user = require_user(request)
-    return get_messages_fast(chatId, str(user["id"]), limit=limit, after=after)
+    ensure_schema()
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            user = _user_from_cursor(cursor, request, required=True)
+        return get_messages_fast(chatId, str(user["id"]), limit=limit, after=after, connection=connection)
 
 
 @app.post("/api/chat/mark-read")
 async def mark_read(request: Request):
-    user = require_user(request)
     payload = await read_json_payload(request)
     chat_id = clean_chat_id(payload.get("chatId"))
-    if not chat_id.startswith("yachat-"):
-        with connect_db() as connection:
-            with connection.cursor() as cursor:
+    ensure_schema()
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            user = _user_from_cursor(cursor, request, required=True)
+            if not chat_id.startswith("yachat-"):
                 cursor.execute(
                     """
                     update yachat_chat_members

@@ -652,6 +652,158 @@ html[data-yachat-reduce-motion="true"] *::after {
   transition-duration: .001ms !important;
 }
 
+.kotoslugi-card {
+  margin: 18px 0 22px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--card-edge), transparent 28%);
+  border-radius: 22px;
+  background: var(--surface);
+}
+
+.kotoslugi-card > button {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.kotoslugi-wordmark {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  color: var(--text);
+  font-size: clamp(28px, 7vw, 38px);
+  font-weight: 800;
+  letter-spacing: -.045em;
+  line-height: 1;
+}
+
+.kotoslugi-card .kotoslugi-wordmark {
+  padding: 28px 20px 24px;
+}
+
+.kotoslugi-wordmark b,
+.kotoslugi-wordmark strong {
+  font: inherit;
+}
+
+.kotoslugi-wordmark b { color: #1586d3; }
+.kotoslugi-wordmark strong { color: #f02d5f; }
+
+.kotoslugi-row {
+  display: grid;
+  min-height: 92px;
+  padding: 16px 22px;
+  grid-template-columns: 52px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 18px;
+  border-top: 1px solid color-mix(in srgb, var(--card-edge), transparent 32%);
+  font-size: clamp(23px, 5vw, 31px);
+  font-weight: 500;
+}
+
+.kotoslugi-row img {
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+  object-fit: cover;
+}
+
+.kotoslugi-row .settings-row-chevron {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.digital-id-identity-card {
+  display: flex;
+  margin: 10px 0 22px;
+  padding: 30px 24px 24px;
+  align-items: center;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--card-edge), transparent 28%);
+  border-radius: 24px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.digital-id-identity-card > img {
+  width: 92px;
+  height: 92px;
+  margin: 26px 0 18px;
+  border-radius: 25px;
+  object-fit: cover;
+}
+
+.digital-id-identity-card > small {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.digital-id-code {
+  margin: 8px 0 2px;
+  color: var(--text);
+  font-size: clamp(32px, 8vw, 48px);
+  font-weight: 700;
+  letter-spacing: .035em;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.digital-id-status {
+  min-height: 42px;
+  margin: 16px 0 20px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.digital-id-status.is-error { color: var(--danger); }
+
+.digital-id-identity-card .settings-primary {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.digital-id-explainer {
+  display: grid;
+  padding: 22px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 14px;
+}
+
+.digital-id-explainer > span {
+  color: var(--accent);
+}
+
+.digital-id-explainer > span svg {
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.digital-id-explainer strong {
+  display: block;
+  font-size: 17px;
+}
+
+.digital-id-explainer p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.settings-inline-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 @media (max-width: 640px) {
   .side-panel.is-settings-redesign {
     inset: 0 0 calc(68px + env(safe-area-inset-bottom)) 0;
@@ -670,6 +822,22 @@ html[data-yachat-reduce-motion="true"] *::after {
 
   .settings-card {
     border-radius: 16px;
+  }
+
+  .kotoslugi-card {
+    border-radius: 18px;
+  }
+
+  .kotoslugi-row {
+    min-height: 84px;
+    padding-inline: 18px;
+    grid-template-columns: 48px minmax(0, 1fr) 22px;
+  }
+
+  .kotoslugi-row img {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
   }
 
   .settings-row {

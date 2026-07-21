@@ -24,6 +24,9 @@
   let activeFolderId = localStorage.getItem(ACTIVE_FOLDER_KEY) || "";
   let storageEstimate = null;
   let notificationPatchInstalled = false;
+  let digitalIdSnapshot = null;
+  let digitalIdLoading = false;
+  let digitalIdError = "";
 
   const originalRenderPanel = renderPanel;
   const originalOpenPanel = openPanel;
@@ -153,6 +156,21 @@
     return `<section class="settings-card${className ? ` ${className}` : ""}">${content}</section>`;
   }
 
+  function digitalIdEntry() {
+    return `
+      <section class="kotoslugi-card" aria-label="Котослуги">
+        <button type="button" data-settings-action="digital-id">
+          <span class="kotoslugi-wordmark" aria-label="котослуги"><b>кото</b><strong>слуги</strong></span>
+          <span class="kotoslugi-row">
+            <img src="/assets/yachat-brand-64.png?v=50" alt="" />
+            <span>Цифровой ID</span>
+            ${iconSvg("chevron-right", "settings-row-chevron")}
+          </span>
+        </button>
+      </section>
+    `;
+  }
+
   function renderSettingsHome() {
     const account = state.account || {};
     panelTitle.textContent = t("settings");
@@ -162,6 +180,8 @@
     document.body.classList.add("settings-redesign-open");
 
     panelBody.innerHTML = `
+      ${digitalIdEntry()}
+
       <div class="settings-profile-hero">
         <button class="settings-profile-corner is-left" type="button" data-settings-action="invite-friends" aria-label="Поделиться профилем">
           ${iconSvg("share-2")}
@@ -456,6 +476,67 @@
     `;
   }
 
+  function renderDigitalId() {
+    const account = state.account || {};
+    const displayId = digitalIdSnapshot?.digitalId || account.digitalId || "••• — •••";
+    const status = digitalIdLoading
+      ? "Получаем ваш цифровой ID…"
+      : digitalIdError || "Этот ID можно вводить в сервисах, подключённых к ЯЧат API.";
+    panelBody.innerHTML = `
+      ${detailHeader("Цифровой ID")}
+      <section class="digital-id-identity-card">
+        <span class="kotoslugi-wordmark" aria-label="котослуги"><b>кото</b><strong>слуги</strong></span>
+        <img src="/assets/yachat-brand-180.png?v=50" alt="" />
+        <small>Ваш уникальный код</small>
+        <strong class="digital-id-code" data-digital-id-value>${escapeHtml(displayId)}</strong>
+        <p class="digital-id-status${digitalIdError ? " is-error" : ""}">${escapeHtml(status)}</p>
+        <button class="settings-primary" type="button" data-settings-action="copy-digital-id" ${digitalIdLoading || digitalIdError || !digitalIdSnapshot ? "disabled" : ""}>
+          ${iconSvg("copy")}<span>Скопировать ID</span>
+        </button>
+        ${digitalIdError ? `<button class="settings-primary is-secondary" type="button" data-settings-action="retry-digital-id">${iconSvg("refresh-cw")}<span>Повторить</span></button>` : ""}
+      </section>
+      ${section(`
+        <div class="digital-id-explainer">
+          <span>${iconSvg("shield-check")}</span>
+          <div>
+            <strong>ID не является паролем</strong>
+            <p>После ввода ID сервис обязан запросить одноразовый код. Код придёт только вам — в бот «Коды подтверждения» внутри ЯЧата.</p>
+          </div>
+        </div>
+      `)}
+      ${section(`
+        <div class="digital-id-explainer">
+          <span>${iconSvg("key-round")}</span>
+          <div>
+            <strong>API для разработчиков</strong>
+            <p>Документация и безопасный серверный протокол доступны на странице ЯЧата для разработчиков.</p>
+            <a class="settings-inline-link" href="/developers" target="_blank" rel="noopener noreferrer">Открыть документацию</a>
+          </div>
+        </div>
+      `)}
+    `;
+  }
+
+  async function loadDigitalId({ force = false } = {}) {
+    if (digitalIdLoading || (digitalIdSnapshot && !force)) return;
+    digitalIdLoading = true;
+    digitalIdError = "";
+    renderPanel();
+    try {
+      digitalIdSnapshot = await yachatApi.digitalId.get();
+      if (!digitalIdSnapshot?.digitalId) throw new Error("Сервер не вернул цифровой ID.");
+      if (state.account) {
+        state.account.digitalId = digitalIdSnapshot.digitalId;
+        state.account.rawDigitalId = digitalIdSnapshot.rawDigitalId;
+      }
+    } catch (error) {
+      digitalIdError = cleanDisplayText(error?.message, "Не удалось загрузить цифровой ID.");
+    } finally {
+      digitalIdLoading = false;
+      if (state.activePanel === "settings" && state.settingsPage === "digital-id") renderPanel();
+    }
+  }
+
   function renderSettingsDetail(page) {
     sidePanel.classList.add("is-settings-redesign");
     panelBody.classList.add("is-settings-redesign-body");
@@ -471,6 +552,7 @@
       appearance: renderAppearance,
       language: renderLanguageSettings,
       security: renderSecurity,
+      "digital-id": renderDigitalId,
       about: renderAbout
     };
     (renderers[page] || renderSettingsHome)();
@@ -626,6 +708,25 @@
     if (action === "back") {
       state.settingsPage = "";
       renderPanel();
+      return;
+    }
+
+    if (action === "digital-id") {
+      state.settingsPage = "digital-id";
+      renderPanel();
+      await loadDigitalId();
+      return;
+    }
+
+    if (action === "copy-digital-id") {
+      if (!digitalIdSnapshot?.digitalId) return;
+      await copyTextToClipboard(digitalIdSnapshot.digitalId);
+      showActionFeedback("Цифровой ID скопирован", { icon: "copy" });
+      return;
+    }
+
+    if (action === "retry-digital-id") {
+      await loadDigitalId({ force: true });
       return;
     }
 

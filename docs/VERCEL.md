@@ -21,6 +21,9 @@ Set these in Vercel Project Settings:
 
 - `SUPABASE_DB_URL`: Supabase Supavisor transaction-pooler connection string (port `6543`). This is the only database variable accepted by the API, so an old provider integration cannot be selected accidentally.
 - `YACHAT_AUTH_SECRET`: secret used to hash sessions, confirmation codes, and registration tokens.
+- `YACHAT_DB_CONNECT_ATTEMPTS`: optional, defaults to `2`. Retries only transient Supavisor connection failures.
+- `YACHAT_DB_CONNECT_TIMEOUT_SECONDS`: optional, defaults to `3` seconds per connection attempt.
+- `YACHAT_RUNTIME_SCHEMA_BOOTSTRAP`: optional emergency/local switch. Keep `false` on Vercel because production DDL belongs in Supabase migrations.
 - `YACHAT_PUBLIC_USER_LIMIT`: optional, defaults to `100`.
 - `YACHAT_PUBLIC_CONTACTS`: optional, defaults to `false`.
 - `YACHAT_RETURN_DEV_CODE`: optional, defaults to `false`. Enable only for isolated test builds.
@@ -29,14 +32,14 @@ Set these in Vercel Project Settings:
 - `YACHAT_VAPID_PUBLIC_KEY`: public VAPID key for browser push notifications.
 - `YACHAT_VAPID_PRIVATE_KEY`: private VAPID key for browser push notifications.
 - `YACHAT_VAPID_SUBJECT`: optional VAPID subject, for example `mailto:admin@example.com`.
-- `YACHAT_CORS_ORIGINS`: optional comma-separated list for external clients. Defaults to `*`.
+- `YACHAT_CORS_ORIGINS`: optional comma-separated list of additional trusted origins. Wildcard CORS is rejected unless explicitly enabled for an isolated development environment.
 - `YACHAT_FORCE_HTTPS`: optional, defaults to `true`. Redirects proxied HTTP API requests to HTTPS.
 
 Do not commit real environment values.
 
 ## Database contract
 
-The Python API creates and migrates the required tables on first request when Supabase is configured.
+The production schema is installed with versioned Supabase migrations before the matching application deployment. Vercel request handlers do not run DDL during cold starts. This keeps the first user request fast and prevents schema locks from looking like a failed session.
 The main public account table is `public_users`.
 
 All YaChat tables have Row Level Security enabled and grants to Supabase's `anon` and `authenticated` roles revoked. The browser never receives the database connection string and talks only to the YaChat API.
@@ -63,11 +66,16 @@ Current public account columns:
 - `contact_key`
 - `method`
 - `updated_at`
+- `digital_id`
 
 Only safe profile fields are returned to the browser. The raw contact is returned only when `YACHAT_PUBLIC_CONTACTS=true`.
 
 Chat and push tables are created with the `yachat_` prefix.
 Settings, QR login state, Telegram links, and private system-code messages are also stored server-side in `yachat_user_settings`, `yachat_qr_sessions`, `yachat_telegram_links`, and `yachat_system_messages`.
+
+Digital ID clients, OTP challenges, and consumed identity proofs are stored in `yachat_developer_clients`, `yachat_identity_challenges`, and `yachat_identity_transactions`. Those tables have RLS enabled and no grants for `anon` or `authenticated`.
+
+Keep `YACHAT_AUTH_SECRET` stable when rotating the Supabase database password. Session and OTP hashes use this separate secret, so a database credential rotation must not invalidate every active YaChat session.
 
 ## Confirmation codes
 
@@ -89,6 +97,10 @@ Invoke-RestMethod -Method Post -Uri "https://api.telegram.org/bot$token/setWebho
 ```
 
 See `docs/vercel-users-db.sql` for the server schema if you want to prepare the database manually. The application connects from Vercel through Supavisor transaction mode and disables psycopg prepared statements, as required by that pooler mode.
+
+## Digital ID API
+
+Developer documentation is published at `/developers`, with the machine-readable schema at `/api/developer/v1/openapi.json`. A Digital ID is only a lookup key; identity is established only after the user enters the OTP delivered to the built-in `Коды подтверждения` bot and the developer server consumes the resulting PKCE-bound token.
 
 ## Local fallback
 

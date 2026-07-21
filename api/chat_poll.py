@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import nullcontext
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 
@@ -11,6 +12,8 @@ from api.index import (
     configured_cors_origins,
     connect_db,
     ensure_schema,
+    hash_secret,
+    request_token,
     require_user,
     row_value,
     system_chat_settings,
@@ -92,10 +95,10 @@ def system_rows(cursor, user_id: str) -> list[dict[str, Any]]:
     ]
 
 
-def poll_chats(user_id: str) -> list[dict[str, Any]]:
+def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
     ensure_schema()
-    with connect_db() as connection:
-        with connection.cursor(row_factory=dict_row) as cursor:
+    with (connect_db() if connection is None else nullcontext(connection)) as active_connection:
+        with active_connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(
                 """
                 select
@@ -263,5 +266,23 @@ def poll_chats(user_id: str) -> list[dict[str, Any]]:
 
 @app.get("/api/chats/poll")
 def chats_poll(request: Request):
-    user = require_user(request)
-    return poll_chats(str(user["id"]))
+    token = request_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Sign in first.")
+    ensure_schema()
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                select u.id
+                from yachat_sessions s
+                join public_users u on u.id = s.user_id
+                where s.token_hash = %s and s.expires_at > now()
+                limit 1
+                """,
+                (hash_secret(token),),
+            )
+            user = cursor.fetchone()
+            if not user:
+                raise HTTPException(status_code=401, detail="Sign in first.")
+        return poll_chats(str(user["id"]), connection=connection)

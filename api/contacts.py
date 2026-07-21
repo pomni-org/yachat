@@ -24,6 +24,7 @@ MAX_CONTACT_RECORDS = 5_000
 MAX_PHONE_NUMBERS = 10_000
 MIN_PHONE_DIGITS = 6
 MAX_PHONE_DIGITS = 18
+_schema_ready = False
 
 app = FastAPI(title="YaChat Contacts API", version="1.0.0")
 
@@ -86,6 +87,12 @@ def current_user(cursor, request: Request) -> dict[str, Any]:
 
 
 def ensure_contacts_schema(cursor) -> None:
+    global _schema_ready
+    if _schema_ready:
+        return
+    if os.getenv("VERCEL") and os.getenv("YACHAT_RUNTIME_SCHEMA_BOOTSTRAP", "").lower() not in {"1", "true", "yes", "on"}:
+        _schema_ready = True
+        return
     cursor.execute(
         """
         create table if not exists yachat_imported_contacts (
@@ -106,6 +113,7 @@ def ensure_contacts_schema(cursor) -> None:
         "create index if not exists yachat_imported_contacts_phone_idx on yachat_imported_contacts(phone_key)"
     )
     secure_server_tables(cursor, ("yachat_imported_contacts",))
+    _schema_ready = True
 
 
 def clean_text(value: Any, limit: int) -> str:

@@ -16,8 +16,44 @@ create table if not exists public.public_users (
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   public_key_type text default 'x25519',
-  is_public boolean default true
+  is_public boolean default true,
+  digital_id text
 );
+
+alter table public.public_users add column if not exists digital_id text;
+
+create or replace function public.yachat_generate_digital_id()
+returns text
+language plpgsql
+volatile
+set search_path = pg_catalog, public
+as $$
+declare
+  alphabet constant text := 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  letter_count integer;
+  candidate text;
+  position integer;
+begin
+  loop
+    letter_count := 2 + floor(random() * 2)::integer;
+    candidate := '';
+    for position in 1..letter_count loop
+      candidate := candidate || substr(alphabet, 1 + floor(random() * length(alphabet))::integer, 1);
+    end loop;
+    for position in (letter_count + 1)..6 loop
+      candidate := candidate || floor(random() * 10)::integer::text;
+    end loop;
+    exit when not exists (select 1 from public.public_users where digital_id = candidate);
+  end loop;
+  return candidate;
+end;
+$$;
+
+revoke all on function public.yachat_generate_digital_id() from public, anon, authenticated;
+alter table public.public_users alter column digital_id set default public.yachat_generate_digital_id();
+update public.public_users set digital_id = public.yachat_generate_digital_id()
+where digital_id is null or digital_id = '';
+alter table public.public_users alter column digital_id set not null;
 
 create unique index if not exists public_users_contact_key_idx
   on public.public_users(contact_key)
@@ -26,6 +62,9 @@ create unique index if not exists public_users_contact_key_idx
 create unique index if not exists public_users_username_idx
   on public.public_users(lower(username))
   where username is not null and username <> '';
+
+create unique index if not exists public_users_digital_id_idx
+  on public.public_users(digital_id);
 
 create table if not exists public.yachat_auth_challenges (
   id text primary key,
@@ -236,6 +275,85 @@ create index if not exists yachat_qr_sessions_status_idx
 create index if not exists yachat_qr_sessions_account_idx
   on public.yachat_qr_sessions(account_id);
 
+create table if not exists public.yachat_developer_clients (
+  id text primary key,
+  name text not null,
+  secret_hash text,
+  public_pkce boolean not null default false,
+  allowed_origins jsonb not null default '[]'::jsonb,
+  scopes jsonb not null default '["identity:verify"]'::jsonb,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.yachat_identity_challenges (
+  id text primary key,
+  client_id text not null references public.yachat_developer_clients(id) on delete cascade,
+  user_id text not null references public.public_users(id) on delete cascade,
+  digital_id text not null,
+  code_hash text not null,
+  code_challenge text not null,
+  purpose text not null default 'Подтверждение личности',
+  external_reference text not null default '',
+  request_metadata jsonb not null default '{}'::jsonb,
+  request_origin text not null default '',
+  attempts integer not null default 0 check (attempts between 0 and 5),
+  status text not null default 'pending' check (status in ('pending', 'verified', 'consumed', 'expired', 'locked', 'replaced')),
+  identity_token_hash text unique,
+  created_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  verified_at timestamptz,
+  token_expires_at timestamptz,
+  consumed_at timestamptz
+);
+
+create index if not exists yachat_identity_challenges_user_idx
+  on public.yachat_identity_challenges(user_id, created_at desc);
+create index if not exists yachat_identity_challenges_client_idx
+  on public.yachat_identity_challenges(client_id, external_reference, created_at desc);
+create index if not exists yachat_identity_challenges_expiry_idx
+  on public.yachat_identity_challenges(status, expires_at, token_expires_at);
+
+create table if not exists public.yachat_identity_transactions (
+  id text primary key,
+  challenge_id text not null unique references public.yachat_identity_challenges(id) on delete cascade,
+  client_id text not null references public.yachat_developer_clients(id) on delete cascade,
+  user_id text not null references public.public_users(id) on delete cascade,
+  subject text not null,
+  digital_id text not null,
+  purpose text not null default '',
+  external_reference text not null default '',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists yachat_identity_transactions_user_idx
+  on public.yachat_identity_transactions(user_id, created_at desc);
+create index if not exists yachat_identity_transactions_client_idx
+  on public.yachat_identity_transactions(client_id, created_at desc);
+create unique index if not exists yachat_identity_transactions_reference_idx
+  on public.yachat_identity_transactions(client_id, external_reference)
+  where external_reference <> '';
+
+insert into public.yachat_developer_clients(id, name, public_pkce, allowed_origins, scopes, active, updated_at)
+values (
+  'digital-bar',
+  'Домашний бар',
+  true,
+  '["https://digital-bar-murex.vercel.app", "https://digital-bar-roblox-kittens-projects-ae36c01e.vercel.app", "http://localhost:3000", "http://127.0.0.1:3000"]'::jsonb,
+  '["identity:verify"]'::jsonb,
+  true,
+  now()
+)
+on conflict (id) do update
+set name = excluded.name,
+    public_pkce = excluded.public_pkce,
+    allowed_origins = excluded.allowed_origins,
+    scopes = excluded.scopes,
+    active = true,
+    updated_at = now();
+
 create table if not exists public.yachat_imported_contacts (
   owner_id text not null references public.public_users(id) on delete cascade,
   phone_key text not null,
@@ -290,6 +408,9 @@ begin
     'yachat_data_migrations',
     'yachat_user_settings',
     'yachat_qr_sessions',
+    'yachat_developer_clients',
+    'yachat_identity_challenges',
+    'yachat_identity_transactions',
     'yachat_imported_contacts',
     'yachat_user_presence',
     'yachat_typing'
