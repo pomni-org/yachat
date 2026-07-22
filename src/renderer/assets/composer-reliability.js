@@ -9,12 +9,12 @@
     || (/Macintosh/i.test(navigator.userAgent || "") && navigator.maxTouchPoints > 1);
 
   const allowedTags = new Set(["STRONG", "EM", "U", "S", "CODE", "A", "BR"]);
-  const aliases = new Map([
-    ["B", "STRONG"],
-    ["I", "EM"],
-    ["DEL", "S"]
-  ]);
+  const aliases = new Map([["B", "STRONG"], ["I", "EM"], ["DEL", "S"]]);
   const inFlight = new Set();
+  const sendChains = new Map();
+  const resolvedPendingChats = new Map();
+  const resolvingPendingChats = new Map();
+  const outboxChats = new Map();
 
   function safeUrl(value) {
     const source = String(value || "").trim();
@@ -42,21 +42,16 @@
 
       const originalTag = node.tagName.toUpperCase();
       const tag = aliases.get(originalTag) || originalTag;
-
       if (tag === "BR") {
         parent.append(document.createElement("br"));
         return;
       }
-
       if (originalTag === "DIV" || originalTag === "P") {
-        if (parent.childNodes.length && parent.lastChild?.nodeName !== "BR") {
-          parent.append(document.createElement("br"));
-        }
+        if (parent.childNodes.length && parent.lastChild?.nodeName !== "BR") parent.append(document.createElement("br"));
         [...node.childNodes].forEach((child) => appendNode(child, parent));
         if (parent.lastChild?.nodeName !== "BR") parent.append(document.createElement("br"));
         return;
       }
-
       if (!allowedTags.has(tag)) {
         [...node.childNodes].forEach((child) => appendNode(child, parent));
         return;
@@ -83,10 +78,9 @@
   }
 
   function installLayoutEngine() {
-    if (!isIos || document.querySelector("style[data-yachat-composer-engine-v2]")) return;
-
+    if (!isIos || document.querySelector("style[data-yachat-composer-engine-v3]")) return;
     const style = document.createElement("style");
-    style.dataset.yachatComposerEngineV2 = "";
+    style.dataset.yachatComposerEngineV3 = "";
     style.textContent = `
       .composer.is-native-ios-composer {
         display: grid !important;
@@ -103,14 +97,10 @@
         column-gap: 5px !important;
         row-gap: 7px !important;
       }
-
       .composer.is-native-ios-composer > .composer-context,
       .composer.is-native-ios-composer > .attachment-policy-note,
       .composer.is-native-ios-composer > .attachment-tray,
-      .composer.is-native-ios-composer > .message-mention-strip {
-        grid-column: 1 / -1 !important;
-      }
-
+      .composer.is-native-ios-composer > .message-mention-strip { grid-column: 1 / -1 !important; }
       .composer.is-native-ios-composer > [data-action="attach-file"] { grid-column: 1 !important; }
       .composer.is-native-ios-composer > [data-action="attach-document"] { grid-column: 2 !important; }
       .composer.is-native-ios-composer > [data-action="open-stickers"] { grid-column: 4 !important; }
@@ -128,7 +118,6 @@
         max-height: 132px !important;
         overflow: hidden !important;
       }
-
       .composer.is-native-ios-composer .ios-rich-message-field > .ios-rich-message-preview,
       .composer.is-native-ios-composer .ios-rich-message-field > .ios-native-message-input {
         box-sizing: border-box !important;
@@ -149,7 +138,6 @@
         white-space: pre-wrap !important;
         overflow-wrap: anywhere !important;
       }
-
       .composer.is-native-ios-composer .ios-rich-message-field > .ios-rich-message-preview {
         position: absolute !important;
         z-index: 0 !important;
@@ -162,7 +150,6 @@
         pointer-events: none !important;
         user-select: none !important;
       }
-
       .composer.is-native-ios-composer .ios-rich-message-field > .ios-native-message-input {
         position: relative !important;
         z-index: 1 !important;
@@ -180,12 +167,8 @@
         pointer-events: auto !important;
         opacity: 1 !important;
       }
-
       .composer.is-native-ios-composer .composer-tool,
-      .composer.is-native-ios-composer .send-button {
-        align-self: end !important;
-        margin-bottom: 1px !important;
-      }
+      .composer.is-native-ios-composer .send-button { align-self: end !important; margin-bottom: 1px !important; }
 
       @media (max-width: 640px) {
         .composer.is-native-ios-composer {
@@ -202,99 +185,131 @@
     document.head.append(style);
   }
 
+  function resizeNativeComposer(form = document.querySelector('[data-form="message"]')) {
+    const textarea = form?.querySelector("[data-ios-message-input]");
+    const field = textarea?.closest(".ios-rich-message-field");
+    const preview = field?.querySelector(".ios-rich-message-preview");
+    if (!textarea || !field) return;
+
+    textarea.style.height = "auto";
+    const next = Math.min(132, Math.max(42, textarea.scrollHeight || 42));
+    textarea.style.height = `${next}px`;
+    field.style.height = `${next}px`;
+    if (preview) preview.style.height = `${next}px`;
+  }
+
   function transientMessage(clientMessageId) {
     if (!clientMessageId || typeof getMessageById !== "function") return null;
-    try {
-      return getMessageById(clientMessageId);
-    } catch {
-      return null;
-    }
+    try { return getMessageById(clientMessageId); } catch { return null; }
   }
 
   function installFormattedPayloadRepair() {
     if (typeof yachatApi === "undefined" || !yachatApi?.messenger?.send) return false;
     if (yachatApi.messenger.send.__yachatKeepsFormattedHtml) return true;
-
     const currentSend = yachatApi.messenger.send.bind(yachatApi.messenger);
-    const sendWithFormattedHtml = function sendWithFormattedHtml(payload = {}) {
+    const wrapped = function sendWithFormattedHtml(payload = {}) {
       const transient = transientMessage(payload.clientMessageId);
       const formattedHtml = sanitizeRichHtml(payload.formattedHtml || transient?.formattedHtml || "");
       return currentSend(formattedHtml ? { ...payload, formattedHtml } : { ...payload });
     };
-
-    Object.defineProperty(sendWithFormattedHtml, "__yachatKeepsFormattedHtml", {
-      configurable: false,
-      enumerable: false,
-      value: true
-    });
-    yachatApi.messenger.send = sendWithFormattedHtml;
+    Object.defineProperty(wrapped, "__yachatKeepsFormattedHtml", { value: true });
+    yachatApi.messenger.send = wrapped;
     return true;
   }
 
   function dispatchTransportInput(transport) {
-    const event = typeof InputEvent === "function"
+    transport.dispatchEvent(typeof InputEvent === "function"
       ? new InputEvent("input", { bubbles: true, inputType: "insertText", data: null })
-      : new Event("input", { bubbles: true });
-    transport.dispatchEvent(event);
+      : new Event("input", { bubbles: true }));
   }
 
   function renderOptimistic(chat, message) {
+    outboxChats.set(message.id, chat);
     message.deliveryStatus = "sending";
     setTransientMessage(chat.id, message);
     if (state.activeChatId === chat.id) renderMessages();
     renderChatList();
   }
 
-  function markOptimisticFailed(chat, message, error) {
+  function markCreateChatFailed(chat, message, error) {
+    outboxChats.set(message.id, chat);
     message.deliveryStatus = "failed";
     setTransientMessage(chat.id, message);
     if (state.activeChatId === chat.id) renderMessages();
     renderChatList();
-    if (typeof showActionFeedback === "function") {
-      const text = typeof translatedServerMessage === "function"
-        ? translatedServerMessage(error?.message, "feedbackSendFailed")
-        : "Не удалось отправить сообщение";
-      showActionFeedback(text, { tone: "error", icon: "circle-alert", duration: 3200 });
-    }
+    showActionFeedback(translatedServerMessage(error?.message, "feedbackSendFailed"), {
+      tone: "error",
+      icon: "circle-alert",
+      duration: 3200
+    });
   }
 
-  async function sendInBackground(sourceChat, outgoing) {
-    if (!sourceChat || !outgoing || inFlight.has(outgoing.id)) return;
-    inFlight.add(outgoing.id);
+  async function resolveTargetChat(chat) {
+    if (!chat?.pendingSearchUserId) return chat;
+    const key = String(chat.pendingSearchUserId);
+    if (resolvedPendingChats.has(key)) return resolvedPendingChats.get(key);
+    if (!resolvingPendingChats.has(key)) {
+      resolvingPendingChats.set(key, Promise.resolve(ensureRealChatForMessage(chat))
+        .then((target) => {
+          if (!target) throw new Error("Chat creation failed");
+          resolvedPendingChats.set(key, target);
+          return target;
+        })
+        .finally(() => resolvingPendingChats.delete(key)));
+    }
+    return resolvingPendingChats.get(key);
+  }
 
-    let targetChat = sourceChat;
+  function moveTransient(sourceChat, targetChat, message) {
+    if (sourceChat.id === targetChat.id) return;
+    removeTransientMessage(sourceChat.id, message.id);
+    message.chatId = targetChat.id;
+    outboxChats.set(message.id, targetChat);
+    setTransientMessage(targetChat.id, message);
+    renderChatList();
+    renderActiveChat();
+    renderMessages();
+  }
+
+  async function sendQueuedMessage(sourceChat, message) {
+    if (inFlight.has(message.id)) return;
+    inFlight.add(message.id);
     try {
-      if (sourceChat.pendingSearchUserId) {
-        targetChat = await ensureRealChatForMessage(sourceChat);
-        if (!targetChat) throw new Error("Chat creation failed");
-
-        removeTransientMessage(sourceChat.id, outgoing.id);
-        outgoing.chatId = targetChat.id;
-        setTransientMessage(targetChat.id, outgoing);
-        renderChatList();
-        renderActiveChat();
-        renderMessages();
-      }
-
-      await deliverTransientMessage(targetChat, outgoing);
+      const targetChat = await resolveTargetChat(sourceChat);
+      moveTransient(sourceChat, targetChat, message);
+      const delivered = await deliverTransientMessage(targetChat, message);
+      if (delivered) outboxChats.delete(message.id);
     } catch (error) {
-      markOptimisticFailed(targetChat || sourceChat, outgoing, error);
+      markCreateChatFailed(sourceChat, message, error);
     } finally {
-      inFlight.delete(outgoing.id);
+      inFlight.delete(message.id);
     }
   }
 
-  function clearComposerAfterQueue(form, transport, textarea, send) {
+  function enqueueMessage(chat, message) {
+    const key = chat.pendingSearchUserId ? `pending:${chat.pendingSearchUserId}` : `chat:${chat.id}`;
+    const previous = sendChains.get(key) || Promise.resolve();
+    const queued = previous.catch(() => {}).then(() => sendQueuedMessage(chat, message));
+    sendChains.set(key, queued);
+    queued.finally(() => {
+      if (sendChains.get(key) === queued) sendChains.delete(key);
+    });
+  }
+
+  function clearComposer(form, transport, textarea, send) {
     transport.value = "";
-    if (textarea && textarea.value) textarea.value = "";
+    if (textarea) {
+      textarea.value = "";
+      textarea.scrollTop = 0;
+    }
     state.pendingAttachments = [];
     state.replyToMessage = null;
     renderAttachmentTray();
     renderComposerContext();
     send.disabled = true;
-
     const editor = form.querySelector("[data-rich-message-editor]");
     if (editor && !isIos) editor.replaceChildren();
+    requestAnimationFrame(() => resizeNativeComposer(form));
   }
 
   function installOptimisticSubmit() {
@@ -309,13 +324,15 @@
 
     if (textarea && !textarea.dataset.yachatTransportSync) {
       textarea.dataset.yachatTransportSync = "true";
-      const syncTransport = () => {
-        if (transport.value === textarea.value) return;
-        transport.value = textarea.value;
-        dispatchTransportInput(transport);
+      const sync = () => {
+        if (transport.value !== textarea.value) {
+          transport.value = textarea.value;
+          dispatchTransportInput(transport);
+        }
+        resizeNativeComposer(form);
       };
-      textarea.addEventListener("input", () => requestAnimationFrame(syncTransport));
-      textarea.addEventListener("change", syncTransport);
+      textarea.addEventListener("input", () => requestAnimationFrame(sync));
+      textarea.addEventListener("change", sync);
       textarea.addEventListener("keydown", (event) => {
         if (event.key === "Enter") event.stopPropagation();
       }, true);
@@ -330,7 +347,6 @@
 
     form.addEventListener("submit", (event) => {
       if (state.editingMessageId) return;
-
       const chat = getActiveChat();
       const text = String(transport.value || "").trim();
       const attachments = Array.isArray(state.pendingAttachments) ? [...state.pendingAttachments] : [];
@@ -346,25 +362,28 @@
         replyTo: state.replyToMessage ? { ...state.replyToMessage } : null
       });
 
-      clearComposerAfterQueue(form, transport, textarea, send);
       renderOptimistic(chat, outgoing);
+      clearComposer(form, transport, textarea, send);
 
-      queueMicrotask(() => {
-        void sendInBackground(chat, outgoing);
+      requestAnimationFrame(() => {
+        window.setTimeout(() => enqueueMessage(chat, outgoing), 0);
       });
     }, true);
 
+    requestAnimationFrame(() => resizeNativeComposer(form));
     return true;
   }
 
-  function retryFailedOnReconnect() {
+  function installReconnectRetry() {
     window.addEventListener("online", () => {
-      if (typeof state === "undefined" || !(state.transientMessagesByChat instanceof Map)) return;
+      if (!(state.transientMessagesByChat instanceof Map)) return;
       for (const messages of state.transientMessagesByChat.values()) {
         for (const message of messages.values()) {
-          if (message?.deliveryStatus !== "failed") continue;
-          const chat = state.chats.find((item) => item.id === message.chatId) || getActiveChat();
-          if (chat) queueMicrotask(() => void sendInBackground(chat, message));
+          if (message?.deliveryStatus !== "failed" || inFlight.has(message.id)) continue;
+          const chat = outboxChats.get(message.id)
+            || state.chats.find((item) => item.id === message.chatId)
+            || (state.pendingSearchChat?.id === message.chatId ? state.pendingSearchChat : null);
+          if (chat) enqueueMessage(chat, message);
         }
       }
     });
@@ -377,7 +396,9 @@
   }
 
   installAll();
-  retryFailedOnReconnect();
+  installReconnectRetry();
+  window.addEventListener("resize", () => requestAnimationFrame(() => resizeNativeComposer()));
+  window.visualViewport?.addEventListener("resize", () => requestAnimationFrame(() => resizeNativeComposer()));
 
   const observer = new MutationObserver(() => installAll());
   observer.observe(document.documentElement, { childList: true, subtree: true });
