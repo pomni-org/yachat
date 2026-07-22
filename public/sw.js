@@ -1,4 +1,4 @@
-const YACHAT_SW_VERSION = "51";
+const YACHAT_SW_VERSION = "47";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
