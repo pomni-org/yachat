@@ -120,6 +120,7 @@ await page.evaluate(() => {
   globalThis.readFileAsDataUrl = async () => "data:application/octet-stream;base64,";
   globalThis.loadImageElement = async () => ({ naturalWidth: 1, naturalHeight: 1 });
   globalThis.attachmentTypeLabel = () => "file";
+  globalThis.addAttachments = async () => [];
   globalThis.yachatApi = {
     messenger: {
       send: async (payload) => payload,
@@ -155,6 +156,7 @@ const snapshot = () => page.evaluate(() => {
   return {
     value: textarea.value,
     transport: transport.value,
+    transportType: transport.type,
     start: textarea.selectionStart,
     end: textarea.selectionEnd,
     active: document.activeElement === textarea,
@@ -188,8 +190,9 @@ function pass(name) {
   assert.equal(current.legacyHasEditorAttribute, false);
   assert.equal(current.emojiDisplay, "none");
   assert.equal(current.emojiDisabled, true);
+  assert.equal(current.transportType, "hidden");
 }
-pass("iOS uses a native textarea and detaches the contenteditable editor");
+pass("iOS uses a native textarea and hidden multiline transport");
 
 await reset();
 let prefix = "";
@@ -233,7 +236,7 @@ await page.waitForTimeout(20);
   assert.equal(current.value, "раз\n\n\nдва");
   assert.equal(current.transport, "раз\n\n\nдва");
 }
-pass("repeated Enter is handled natively");
+pass("repeated Enter survives in the textarea and transport");
 
 await reset();
 await page.keyboard.insertText("привет @mur");
