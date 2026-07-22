@@ -13,6 +13,17 @@ on:
       - src/renderer/assets/ios-composer-caret-guard.js
       - tests/composer-emoji-ios-regression.mjs
       - .github/workflows/composer-emoji-ios-regression.yml
+  pull_request:
+    paths:
+      - src/renderer/assets/rich-composer-stable.js
+      - src/renderer/assets/message-mentions.js
+      - src/renderer/assets/media-emoji-upgrade.js
+      - src/renderer/assets/composer-delivery-stable.js
+      - src/renderer/assets/composer-actions-stable.js
+      - src/renderer/assets/mobile-chat-stable.js
+      - src/renderer/assets/ios-composer-caret-guard.js
+      - tests/composer-emoji-ios-regression.mjs
+      - .github/workflows/composer-emoji-ios-regression.yml
   workflow_dispatch:
 
 permissions:
