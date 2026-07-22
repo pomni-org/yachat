@@ -21,7 +21,7 @@ CYRILLIC_DIGITAL_ID = re.compile(r"^[АБВГДЕЖЗИКЛМНОПРСТУФХ�
 
 app = FastAPI(
     title="YaChat private Digital ID boundary",
-    version="1.4.0",
+    version="1.5.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -177,9 +177,23 @@ def digital_id_health():
     return {
         "ok": True,
         "service": "yachat-digital-id",
-        "version": "1.4.0",
+        "version": "1.5.0",
         "proof": "otp-pkce-one-time-token",
         "digitalIdExposure": "owner-session-only",
         "immutable": True,
         "alphabets": ["latin", "cyrillic"],
     }
+
+
+# Reuse this already-deployed serverless boundary for the developer identity
+# flow. Monkey-patch the legacy module before importing the secure routes so
+# every endpoint uses the same Latin/Cyrillic contract without creating a
+# thirteenth Vercel function on the Hobby plan.
+from api import index as index_api  # noqa: E402
+
+index_api.normalize_digital_id = normalize_digital_id
+index_api.format_digital_id = format_digital_id
+
+from api.digital_id_secure import app as identity_app  # noqa: E402
+
+app.mount("/", identity_app)
