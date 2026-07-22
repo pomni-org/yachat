@@ -44,4 +44,30 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run composer regression suite
-        run: node tests/composer-browser-regression.mjs
+        id: regression
+        continue-on-error: true
+        run: |
+          set +e
+          node tests/composer-browser-regression.mjs > composer-browser-output.txt 2>&1
+          code=$?
+          printf '%s\n' "$code" > composer-browser-exit-code.txt
+          cat composer-browser-output.txt
+          exit "$code"
+
+      - name: Upload complete regression output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-browser-regression-output
+          path: |
+            composer-browser-output.txt
+            composer-browser-exit-code.txt
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Fail when regression failed
+        if: always()
+        run: |
+          code="$(cat composer-browser-exit-code.txt 2>/dev/null || echo 1)"
+          cat composer-browser-output.txt 2>/dev/null || true
+          test "$code" = "0"
