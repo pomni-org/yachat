@@ -59,6 +59,12 @@ await page.evaluate(() => {
     .replaceAll("'", "&#39;");
   globalThis.getActiveChat = () => state.chats[0];
   globalThis.canSendToChat = () => true;
+  globalThis.setTransientMessage = (chatId, message) => {
+    if (!state.transientMessagesByChat.has(chatId)) {
+      state.transientMessagesByChat.set(chatId, new Map());
+    }
+    state.transientMessagesByChat.get(chatId).set(message.id, message);
+  };
   globalThis.getMessageById = (id) => {
     for (const messages of state.transientMessagesByChat.values()) {
       if (messages.has(id)) return messages.get(id);
@@ -139,10 +145,14 @@ await page.click('[data-ios-format="link"]');
 html = await page.evaluate(() => document.querySelector('[data-form="message"]').__yachatGetNativeFormattedHtml());
 assert.match(html, /<a href="https:\/\/example\.com\/path"[^>]*>мир<\/a>/);
 
-const transient = await page.evaluate(() => createTransientOutgoingMessage(getActiveChat(), {
-  text: document.querySelector('[data-native-ios-message-input]').value,
-  attachments: []
-}));
+const transient = await page.evaluate(() => {
+  const message = createTransientOutgoingMessage(getActiveChat(), {
+    text: document.querySelector('[data-native-ios-message-input]').value,
+    attachments: []
+  });
+  setTransientMessage(message.chatId, message);
+  return message;
+});
 assert.match(transient.formattedHtml, /<strong>привет<\/strong>/);
 assert.match(transient.formattedHtml, /<a href="https:\/\/example\.com\/path"/);
 
@@ -150,7 +160,7 @@ await page.evaluate(async () => {
   await yachatApi.messenger.send({
     chatId: "chat-1",
     clientMessageId: "client-message-1",
-    text: document.querySelector('[data-native-ios-message-input]').value
+    text: getMessageById("client-message-1").text
   });
 });
 const payload = await page.evaluate(() => sentPayloads.at(-1));
