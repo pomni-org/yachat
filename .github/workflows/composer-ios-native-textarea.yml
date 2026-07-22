@@ -1,0 +1,52 @@
+name: Native iOS textarea composer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/renderer/assets/rich-composer-stable.js
+      - src/renderer/assets/ios-native-textarea.js
+      - src/renderer/assets/ios-native-mentions.js
+      - src/renderer/assets/composer-delivery-stable.js
+      - src/renderer/assets/composer-actions-stable.js
+      - tests/composer-ios-native-textarea.mjs
+      - .github/workflows/composer-ios-native-textarea.yml
+  pull_request:
+    paths:
+      - src/renderer/assets/rich-composer-stable.js
+      - src/renderer/assets/ios-native-textarea.js
+      - src/renderer/assets/ios-native-mentions.js
+      - src/renderer/assets/composer-delivery-stable.js
+      - src/renderer/assets/composer-actions-stable.js
+      - tests/composer-ios-native-textarea.mjs
+      - .github/workflows/composer-ios-native-textarea.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-ios-emulation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright core
+        run: npm install --no-save playwright-core@1.55.0
+
+      - name: Locate Chrome
+        run: |
+          test -x /usr/bin/google-chrome
+          /usr/bin/google-chrome --version
+
+      - name: Run native textarea composer suite
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: node tests/composer-ios-native-textarea.mjs
