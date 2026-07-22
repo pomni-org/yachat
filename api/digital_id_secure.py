@@ -1,13 +1,11 @@
-"""YaChat Digital ID and developer identity verification API.
+"""Privacy-hardened YaChat Digital ID verification API.
 
-The human-readable Digital ID is only a lookup key. A third-party service gets
-proof of identity only after the YaChat user enters a one-time code delivered to
-the built-in "Коды подтверждения" bot. The resulting identity token is short
-lived and PKCE-bound. Replaying the same server request is idempotent only for
-the original verifier and external reference.
+The human-readable Digital ID is accepted only as a one-time lookup key. It is
+never returned to third-party clients, written to auxiliary verification tables,
+or included in verification messages. External services receive only a stable,
+client-scoped subject after OTP and PKCE verification.
 """
 
-import base64
 import hashlib
 import hmac
 import html
@@ -24,9 +22,24 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 
+from api.digital_id import (
+    CHALLENGE_TTL_MINUTES,
+    CLIENT_ID_PATTERN,
+    IDENTITY_TOKEN_TTL_MINUTES,
+    MAX_CODE_ATTEMPTS,
+    PKCE_CHALLENGE_PATTERN,
+    PKCE_VERIFIER_PATTERN,
+    allowed_origins,
+    base64url,
+    clean_metadata,
+    load_client,
+    normalize_client_id,
+    pkce_challenge,
+    request_origin,
+    stable_subject,
+)
 from api.index import (
     add_system_delivery_message,
-    auth_secret,
     clean_text,
     configured_cors_origins,
     connect_db,
@@ -43,7 +56,7 @@ from api.index import (
 from server.push_delivery import send_push_to_user
 
 
-app = FastAPI(title="YaChat Digital ID API", version="1.0.0")
+app = FastAPI(title="YaChat Digital ID API", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
@@ -51,108 +64,36 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-YaChat-API-Key"],
 )
 
-CHALLENGE_TTL_MINUTES = 10
-IDENTITY_TOKEN_TTL_MINUTES = 5
-MAX_CODE_ATTEMPTS = 5
-PKCE_CHALLENGE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43,86}$")
-PKCE_VERIFIER_PATTERN = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
-CLIENT_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
-
 
 @app.middleware("http")
 async def harden_response(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("Pragma", "no-cache")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("X-Frame-Options", "DENY")
     return response
 
 
-def base64url(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+def verified_identity(user: dict[str, Any], client_id: str) -> dict[str, Any]:
+    """Return a client-scoped identity proof without exposing the lookup key."""
+    return {
+        "subject": stable_subject(client_id, str(user.get("user_id") or user.get("id") or "")),
+        "displayName": clean_text(
+            user.get("display_name") or user.get("preview_name") or user.get("username") or "Пользователь ЯЧата",
+            80,
+        ),
+    }
 
 
-def request_origin(request: Request) -> str:
-    return clean_text(request.headers.get("origin"), 300).rstrip("/")
-
-
-def normalize_client_id(value: Any) -> str:
-    client_id = clean_text(value, 64).lower()
-    return client_id if CLIENT_ID_PATTERN.fullmatch(client_id) else ""
-
-
-def clean_metadata(value: Any, *, limit: int = 12_000) -> dict[str, Any]:
-    if value in (None, ""):
-        return {}
-    if not isinstance(value, dict):
-        raise HTTPException(status_code=400, detail="metadata must be a JSON object.")
-    try:
-        encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    except (TypeError, ValueError) as error:
-        raise HTTPException(status_code=400, detail="metadata must contain valid JSON values.") from error
-    if len(encoded.encode("utf-8")) > limit:
-        raise HTTPException(status_code=413, detail="metadata is too large.")
-    return json.loads(encoded)
-
-
-def allowed_origins(client: dict[str, Any]) -> set[str]:
-    raw = client.get("allowed_origins") or []
-    if not isinstance(raw, list):
-        return set()
-    return {str(origin).strip().rstrip("/") for origin in raw if str(origin).strip()}
-
-
-def load_client(cursor, request: Request, client_id: str, *, browser_flow: bool) -> dict[str, Any]:
-    cursor.execute(
-        "select * from yachat_developer_clients where id = %s and active = true limit 1",
-        (client_id,),
-    )
-    row = cursor.fetchone()
-    if not row:
-        raise HTTPException(status_code=401, detail="Unknown or inactive YaChat client.")
-    client = dict(row)
-
-    configured_hash = str(client.get("secret_hash") or "")
-    api_key = clean_text(request.headers.get("x-yachat-api-key"), 500)
-    if configured_hash:
-        supplied_hash = hash_secret(f"developer-client:{client_id}:{api_key}") if api_key else ""
-        if not supplied_hash or not hmac.compare_digest(configured_hash, supplied_hash):
-            raise HTTPException(status_code=401, detail="Invalid YaChat API key.")
-        return client
-
-    if not bool(client.get("public_pkce")):
-        raise HTTPException(status_code=503, detail="YaChat client authentication is not configured.")
-
-    if browser_flow:
-        origin = request_origin(request)
-        if not origin or origin not in allowed_origins(client):
-            raise HTTPException(status_code=403, detail="This origin is not allowed for the YaChat client.")
-    return client
-
-
-def pkce_challenge(verifier: str) -> str:
-    return base64url(hashlib.sha256(verifier.encode("ascii")).digest())
-
-
-def stable_subject(client_id: str, user_id: str) -> str:
-    digest = hmac.new(
-        auth_secret().encode("utf-8"),
-        f"digital-id-subject-v1:{client_id}:{user_id}".encode("utf-8"),
-        hashlib.sha256,
-    ).digest()
-    return f"yachat_{base64url(digest)[:32]}"
-
-
-def digital_id_message(client_name: str, purpose: str, digital_id: str, code: str) -> tuple[str, str]:
-    display_id = format_digital_id(digital_id)
+def verification_message(client_name: str, purpose: str, code: str) -> tuple[str, str]:
     text = "\n".join(
         [
             "Код подтверждения цифрового ID",
             "",
             f"Сервис: {client_name}",
             f"Действие: {purpose}",
-            f"Цифровой ID: {display_id}",
             f"Код: {code}",
             "",
             f"Код действует {CHALLENGE_TTL_MINUTES} минут.",
@@ -163,7 +104,6 @@ def digital_id_message(client_name: str, purpose: str, digital_id: str, code: st
         "<strong>Код подтверждения цифрового ID</strong><br><br>"
         f"Сервис: <strong>{html.escape(client_name)}</strong><br>"
         f"Действие: {html.escape(purpose)}<br>"
-        f"Цифровой ID: <strong>{html.escape(display_id)}</strong><br>"
         f"Код: <code>{html.escape(code)}</code><br><br>"
         f"Код действует {CHALLENGE_TTL_MINUTES} минут.<br>"
         "<strong>Введите его только в указанном сервисе. Никому не пересылайте код.</strong>"
@@ -171,17 +111,135 @@ def digital_id_message(client_name: str, purpose: str, digital_id: str, code: st
     return text, formatted
 
 
-def public_identity(user: dict[str, Any], client_id: str) -> dict[str, Any]:
-    raw_id = normalize_digital_id(user.get("digital_id"))
-    return {
-        "subject": stable_subject(client_id, str(user.get("id") or "")),
-        "displayName": clean_text(
-            user.get("display_name") or user.get("preview_name") or user.get("username") or "Пользователь ЯЧата",
-            80,
+def has_column(cursor, table_name: str, column_name: str) -> bool:
+    cursor.execute(
+        """
+        select exists (
+            select 1
+            from information_schema.columns
+            where table_schema = 'public' and table_name = %s and column_name = %s
+        ) as present
+        """,
+        (table_name, column_name),
+    )
+    row = cursor.fetchone()
+    return bool(row["present"] if isinstance(row, dict) else row[0])
+
+
+def insert_challenge(
+    cursor,
+    *,
+    challenge_id: str,
+    client_id: str,
+    user_id: str,
+    code_hash: str,
+    code_challenge: str,
+    purpose: str,
+    external_reference: str,
+    metadata: dict[str, Any],
+    origin: str,
+    expires_at,
+) -> None:
+    if has_column(cursor, "yachat_identity_challenges", "digital_id"):
+        cursor.execute(
+            """
+            insert into yachat_identity_challenges(
+                id, client_id, user_id, digital_id, code_hash, code_challenge,
+                purpose, external_reference, request_metadata, request_origin, expires_at
+            )
+            values (%s, %s, %s, '[redacted]', %s, %s, %s, %s, %s::jsonb, %s, %s)
+            """,
+            (
+                challenge_id,
+                client_id,
+                user_id,
+                code_hash,
+                code_challenge,
+                purpose,
+                external_reference,
+                json.dumps(metadata, ensure_ascii=False),
+                origin,
+                expires_at,
+            ),
+        )
+        return
+
+    cursor.execute(
+        """
+        insert into yachat_identity_challenges(
+            id, client_id, user_id, code_hash, code_challenge,
+            purpose, external_reference, request_metadata, request_origin, expires_at
+        )
+        values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+        """,
+        (
+            challenge_id,
+            client_id,
+            user_id,
+            code_hash,
+            code_challenge,
+            purpose,
+            external_reference,
+            json.dumps(metadata, ensure_ascii=False),
+            origin,
+            expires_at,
         ),
-        "digitalId": format_digital_id(raw_id),
-        "rawDigitalId": raw_id,
-    }
+    )
+
+
+def insert_transaction(
+    cursor,
+    *,
+    transaction_id: str,
+    challenge_id: str,
+    client_id: str,
+    user_id: str,
+    subject: str,
+    purpose: str,
+    external_reference: str,
+    metadata: dict[str, Any],
+) -> None:
+    if has_column(cursor, "yachat_identity_transactions", "digital_id"):
+        cursor.execute(
+            """
+            insert into yachat_identity_transactions(
+                id, challenge_id, client_id, user_id, subject, digital_id,
+                purpose, external_reference, metadata
+            )
+            values (%s, %s, %s, %s, %s, '[redacted]', %s, %s, %s::jsonb)
+            """,
+            (
+                transaction_id,
+                challenge_id,
+                client_id,
+                user_id,
+                subject,
+                purpose,
+                external_reference,
+                json.dumps(metadata, ensure_ascii=False),
+            ),
+        )
+        return
+
+    cursor.execute(
+        """
+        insert into yachat_identity_transactions(
+            id, challenge_id, client_id, user_id, subject,
+            purpose, external_reference, metadata
+        )
+        values (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+        """,
+        (
+            transaction_id,
+            challenge_id,
+            client_id,
+            user_id,
+            subject,
+            purpose,
+            external_reference,
+            json.dumps(metadata, ensure_ascii=False),
+        ),
+    )
 
 
 @app.get("/api/digital-id")
@@ -203,14 +261,15 @@ def developer_health():
     return {
         "ok": True,
         "service": "yachat-digital-id",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "proof": "otp-pkce-one-time-token",
+        "digitalIdExposure": "self-only",
     }
 
 
 @app.post("/api/developer/v1/identity/initiate")
 async def initiate_identity(request: Request):
-    enforce_rate_limit(request, "digital-id-initiate", 12, 300)
+    enforce_rate_limit(request, "digital-id-initiate", 10, 300)
     ensure_schema()
     payload = await read_json_payload(request, 50_000)
     client_id = normalize_client_id(payload.get("clientId"))
@@ -237,10 +296,7 @@ async def initiate_identity(request: Request):
         with connection.cursor(row_factory=dict_row) as cursor:
             client = load_client(cursor, request, client_id, browser_flow=True)
             client_name = clean_text(client.get("name"), 80) or client_id
-            cursor.execute(
-                "select * from public_users where digital_id = %s limit 1",
-                (digital_id,),
-            )
+            cursor.execute("select id from public_users where digital_id = %s limit 1", (digital_id,))
             user = cursor.fetchone()
             if not user:
                 raise HTTPException(status_code=404, detail="YaChat Digital ID was not found.")
@@ -250,49 +306,37 @@ async def initiate_identity(request: Request):
                 """
                 select count(*)
                 from yachat_identity_challenges
-                where client_id = %s
-                  and user_id = %s
+                where client_id = %s and user_id = %s
                   and created_at > now() - interval '15 minutes'
                 """,
                 (client_id, user_id),
             )
             recent_count = int(cursor.fetchone()["count"])
-            if recent_count >= 5:
+            if recent_count >= 4:
                 raise HTTPException(status_code=429, detail="Too many codes were requested. Try again later.")
 
             cursor.execute(
                 """
                 update yachat_identity_challenges
                 set status = 'replaced'
-                where client_id = %s
-                  and external_reference = %s
-                  and status = 'pending'
+                where client_id = %s and external_reference = %s and status = 'pending'
                 """,
                 (client_id, external_reference),
             )
-            cursor.execute(
-                """
-                insert into yachat_identity_challenges(
-                    id, client_id, user_id, digital_id, code_hash, code_challenge,
-                    purpose, external_reference, request_metadata, request_origin, expires_at
-                )
-                values (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
-                """,
-                (
-                    challenge_id,
-                    client_id,
-                    user_id,
-                    digital_id,
-                    hash_secret(f"identity-code:{challenge_id}:{code}"),
-                    code_challenge,
-                    purpose,
-                    external_reference,
-                    json.dumps(metadata, ensure_ascii=False),
-                    origin,
-                    expires_at,
-                ),
+            insert_challenge(
+                cursor,
+                challenge_id=challenge_id,
+                client_id=client_id,
+                user_id=user_id,
+                code_hash=hash_secret(f"identity-code:{challenge_id}:{code}"),
+                code_challenge=code_challenge,
+                purpose=purpose,
+                external_reference=external_reference,
+                metadata=metadata,
+                origin=origin,
+                expires_at=expires_at,
             )
-            message_text, message_html = digital_id_message(client_name, purpose, digital_id, code)
+            message_text, message_html = verification_message(client_name, purpose, code)
             add_system_delivery_message(
                 cursor,
                 user_id,
@@ -325,7 +369,7 @@ async def initiate_identity(request: Request):
 
 @app.post("/api/developer/v1/identity/confirm")
 async def confirm_identity(request: Request):
-    enforce_rate_limit(request, "digital-id-confirm", 24, 300)
+    enforce_rate_limit(request, "digital-id-confirm", 20, 300)
     ensure_schema()
     payload = await read_json_payload(request, 30_000)
     client_id = normalize_client_id(payload.get("clientId"))
@@ -348,7 +392,7 @@ async def confirm_identity(request: Request):
                 load_client(cursor, request, client_id, browser_flow=True)
                 cursor.execute(
                     """
-                    select c.*, u.display_name, u.preview_name, u.username, u.digital_id
+                    select c.*, u.display_name, u.preview_name, u.username
                     from yachat_identity_challenges c
                     join public_users u on u.id = c.user_id
                     where c.id = %s and c.client_id = %s
@@ -386,11 +430,8 @@ async def confirm_identity(request: Request):
                         cursor.execute(
                             """
                             update yachat_identity_challenges
-                            set attempts = %s,
-                                status = 'verified',
-                                verified_at = now(),
-                                identity_token_hash = %s,
-                                token_expires_at = %s
+                            set attempts = %s, status = 'verified', verified_at = now(),
+                                identity_token_hash = %s, token_expires_at = %s
                             where id = %s
                             """,
                             (
@@ -400,7 +441,7 @@ async def confirm_identity(request: Request):
                                 challenge_id,
                             ),
                         )
-                        identity = public_identity(dict(row), client_id)
+                        identity = verified_identity(dict(row), client_id)
 
     if failure:
         raise HTTPException(status_code=failure[0], detail=failure[1])
@@ -414,7 +455,7 @@ async def confirm_identity(request: Request):
 
 @app.post("/api/developer/v1/identity/consume")
 async def consume_identity(request: Request):
-    enforce_rate_limit(request, "digital-id-consume", 60, 300)
+    enforce_rate_limit(request, "digital-id-consume", 50, 300)
     ensure_schema()
     payload = await read_json_payload(request, 50_000)
     client_id = normalize_client_id(payload.get("clientId"))
@@ -438,7 +479,7 @@ async def consume_identity(request: Request):
                     load_client(cursor, request, client_id, browser_flow=False)
                     cursor.execute(
                         """
-                        select c.*, u.display_name, u.preview_name, u.username, u.digital_id
+                        select c.*, u.display_name, u.preview_name, u.username
                         from yachat_identity_challenges c
                         join public_users u on u.id = c.user_id
                         where c.identity_token_hash = %s and c.client_id = %s
@@ -456,7 +497,7 @@ async def consume_identity(request: Request):
                     if not hmac.compare_digest(str(row["code_challenge"]), pkce_challenge(verifier)):
                         raise HTTPException(status_code=401, detail="PKCE verification failed.")
 
-                    identity = public_identity(dict(row), client_id)
+                    identity = verified_identity(dict(row), client_id)
                     if row["status"] == "consumed" and row["consumed_at"] is not None:
                         cursor.execute(
                             """
@@ -470,7 +511,7 @@ async def consume_identity(request: Request):
                         transaction = cursor.fetchone()
                         if not transaction:
                             raise HTTPException(status_code=409, detail="This identity token has already been consumed.")
-                        result = {
+                        return {
                             "verified": True,
                             "replayed": True,
                             "transactionId": str(transaction["id"]),
@@ -478,7 +519,6 @@ async def consume_identity(request: Request):
                             "purpose": str(transaction["purpose"]),
                             "identity": identity,
                         }
-                        return result
                     if row["status"] != "verified" or row["consumed_at"] is not None:
                         raise HTTPException(status_code=409, detail="This identity token is no longer active.")
 
@@ -486,32 +526,19 @@ async def consume_identity(request: Request):
                         "request": row["request_metadata"] if isinstance(row["request_metadata"], dict) else {},
                         "transaction": transaction_metadata,
                     }
-                    cursor.execute(
-                        """
-                        insert into yachat_identity_transactions(
-                            id, challenge_id, client_id, user_id, subject, digital_id,
-                            purpose, external_reference, metadata
-                        )
-                        values (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
-                        """,
-                        (
-                            transaction_id,
-                            row["id"],
-                            client_id,
-                            row["user_id"],
-                            identity["subject"],
-                            identity["rawDigitalId"],
-                            row["purpose"],
-                            external_reference,
-                            json.dumps(metadata, ensure_ascii=False),
-                        ),
+                    insert_transaction(
+                        cursor,
+                        transaction_id=transaction_id,
+                        challenge_id=str(row["id"]),
+                        client_id=client_id,
+                        user_id=str(row["user_id"]),
+                        subject=str(identity["subject"]),
+                        purpose=str(row["purpose"]),
+                        external_reference=external_reference,
+                        metadata=metadata,
                     )
                     cursor.execute(
-                        """
-                        update yachat_identity_challenges
-                        set status = 'consumed', consumed_at = now()
-                        where id = %s
-                        """,
+                        "update yachat_identity_challenges set status = 'consumed', consumed_at = now() where id = %s",
                         (row["id"],),
                     )
                     result = {

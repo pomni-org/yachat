@@ -1,4 +1,4 @@
-const YACHAT_SW_VERSION = "52";
+const YACHAT_SW_VERSION = "53";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -26,7 +26,7 @@ self.addEventListener("push", (event) => {
     body: payload.body || "Новое сообщение",
     icon: `/assets/yachat-brand-180.png?v=${YACHAT_SW_VERSION}`,
     badge: `/assets/yachat-brand-notification.png?v=${YACHAT_SW_VERSION}`,
-    tag: payload.tag || `yachat:${targetUrl}`,
+    tag: payload.tag || `yachat:${targetUrl}:${Date.now()}`,
     renotify: true,
     silent: false,
     timestamp: Date.now(),

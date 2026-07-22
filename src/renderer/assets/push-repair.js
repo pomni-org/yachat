@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const REPAIR_VERSION = "42";
+  const REPAIR_VERSION = "53";
   const REPAIR_MARKER = `yachat-push-repair-${REPAIR_VERSION}`;
   const AUTH_TOKEN_KEY = "yachat-http-auth-token";
   let repairPromise = null;

@@ -4,6 +4,88 @@
   if (window.__yachatInteractionHotfixInstalled) return;
   window.__yachatInteractionHotfixInstalled = true;
 
+  const RELEASE_VERSION = "53";
+  const FULL_QUALITY_CHAT_LOGO = `/assets/yachat-brand-1024.png?v=${RELEASE_VERSION}`;
+
+  function installMessageTransportFix() {
+    if (typeof yachatApi === "undefined" || !yachatApi?.messenger) return;
+
+    yachatApi.messenger.send = async function sendMessageThroughPushRoute(payload = {}) {
+      const authToken = localStorage.getItem("yachat-http-auth-token") || "";
+      const response = await fetch("/api/message", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
+        },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result) {
+        throw new Error(result?.detail || result?.error || `Message request failed: HTTP ${response.status}`);
+      }
+      return result;
+    };
+  }
+
+  function repairChannelLogoImages(root = document) {
+    root.querySelectorAll?.(".is-channel img").forEach((image) => {
+      if (!image.src.includes("yachat-brand-1024.png")) {
+        image.src = FULL_QUALITY_CHAT_LOGO;
+      }
+      image.removeAttribute("srcset");
+      image.decoding = "async";
+      image.style.objectFit = "contain";
+      image.style.imageRendering = "auto";
+      image.style.transform = "none";
+    });
+  }
+
+  function installBrandQualityFix() {
+    if (!document.querySelector("style[data-yachat-brand-quality]")) {
+      const style = document.createElement("style");
+      style.dataset.yachatBrandQuality = "";
+      style.textContent = `
+        .chat-avatar.is-channel img,
+        .dialog-avatar.is-channel img,
+        .dialog-intro-avatar.is-channel img,
+        .chat-profile-avatar.is-channel img,
+        .avatar-modal-image.is-channel img {
+          width: 100% !important;
+          height: 100% !important;
+          max-width: none !important;
+          max-height: none !important;
+          object-fit: contain !important;
+          object-position: center !important;
+          image-rendering: auto !important;
+          transform: none !important;
+          filter: none !important;
+        }
+      `;
+      document.head.append(style);
+    }
+
+    if (typeof chatAvatarSource === "function" && !window.__yachatFullQualityLogoSourceInstalled) {
+      window.__yachatFullQualityLogoSourceInstalled = true;
+      const originalChatAvatarSource = chatAvatarSource;
+      chatAvatarSource = function fullQualityChatAvatarSource(chat) {
+        if (chat?.id === "yachat-channel") return FULL_QUALITY_CHAT_LOGO;
+        return originalChatAvatarSource(chat);
+      };
+    }
+
+    repairChannelLogoImages();
+    if (typeof renderChatList === "function") renderChatList();
+    if (typeof renderActiveChat === "function") renderActiveChat();
+    if (typeof renderPanel === "function" && typeof state !== "undefined" && state.activePanel) renderPanel();
+    repairChannelLogoImages();
+  }
+
+  installMessageTransportFix();
+  installBrandQualityFix();
+
   function repairMoreLayer() {
     const panel = document.querySelector("[data-side-panel]");
     const backdrop = document.querySelector("[data-chat-more-backdrop]");
@@ -15,15 +97,20 @@
     panel.append(backdrop);
   }
 
-  function addedMoreLayer(record) {
+  function addedRelevantLayer(record) {
     return [...record.addedNodes].some((node) => (
       node instanceof Element
-      && (node.matches("[data-chat-more-backdrop]") || node.querySelector("[data-chat-more-backdrop]"))
+      && (
+        node.matches("[data-chat-more-backdrop], .is-channel")
+        || node.querySelector("[data-chat-more-backdrop], .is-channel")
+      )
     ));
   }
 
   const layerObserver = new MutationObserver((records) => {
-    if (records.some(addedMoreLayer)) repairMoreLayer();
+    if (!records.some(addedRelevantLayer)) return;
+    repairMoreLayer();
+    repairChannelLogoImages();
   });
   layerObserver.observe(document.body, { childList: true, subtree: true });
 

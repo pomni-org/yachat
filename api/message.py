@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from typing import Any
@@ -25,7 +26,7 @@ from api.index import (
 )
 from server.push_delivery import send_push_to_user
 
-app = FastAPI(title="YaChat message API", version="0.3.0")
+app = FastAPI(title="YaChat message API", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
@@ -59,6 +60,25 @@ def aggregate_push(results: list[dict[str, Any]]) -> dict[str, int]:
         key: sum(int(result.get(key, 0) or 0) for result in results)
         for key in ("subscriptions", "sent", "failed", "removed")
     }
+
+
+async def deliver_pushes(deliveries: list[tuple[str, str, str, str, str]]) -> list[dict[str, Any]]:
+    """Run per-recipient delivery concurrently so database response work cannot starve Web Push."""
+    if not deliveries:
+        return []
+    return await asyncio.gather(
+        *[
+            asyncio.to_thread(
+                send_push_to_user,
+                user_id,
+                title,
+                body,
+                url,
+                tag=tag,
+            )
+            for user_id, title, body, url, tag in deliveries
+        ]
+    )
 
 
 @app.post("/api/message")
@@ -106,17 +126,17 @@ async def send_message(request: Request):
                         ),
                     )
 
-        push_results = [
-            send_push_to_user(
+        push_results = await deliver_pushes([
+            (
                 target_user_id,
                 "ЯЧат • Анонсы",
                 body[:240],
                 "/yachat_channel",
-                tag="channel:yachat-channel",
+                f"channel-message:{message_id}:{target_user_id}",
             )
             for target_user_id in user_ids
             if target_user_id != user_id
-        ]
+        ])
         return {
             "chats": list_user_chats(user_id),
             "messages": get_chat_messages("yachat-channel", user_id),
@@ -193,7 +213,10 @@ async def send_message(request: Request):
                 """,
                 (chat_id, user["id"]),
             )
-            recipients = [] if is_saved_chat or not inserted else [str(row["user_id"]) for row in cursor.fetchall()]
+            # A retry after the client timed out must still retry Web Push. The
+            # message-specific notification tag coalesces retries of this message
+            # without suppressing later messages from the same chat.
+            recipients = [] if is_saved_chat else [str(row["user_id"]) for row in cursor.fetchall()]
 
     sender_name = str(row_value(user, "display_name", "preview_name", "username")) or "ЯЧат"
     sender_username = str(row_value(user, "username"))
@@ -202,20 +225,21 @@ async def send_message(request: Request):
     push_target = f"/{sender_username}" if chat_kind == "private" and sender_username else f"/?chat={chat_id}"
     push_title = sender_name if chat_kind == "private" else chat_title or sender_name
     push_body = body if chat_kind == "private" else f"{sender_name}: {body}"
-    push_results = [
-        send_push_to_user(
+    push_results = await deliver_pushes([
+        (
             recipient_id,
             push_title,
             push_body[:240],
             push_target,
-            tag=f"chat:{chat_id}",
+            f"message:{message_id}:{recipient_id}",
         )
         for recipient_id in recipients
-    ]
+    ])
 
     return {
         "chats": list_user_chats(user_id),
         "messages": get_chat_messages(chat_id, user_id),
         "message": message_payload(message, user_id),
+        "inserted": inserted,
         "push": aggregate_push(push_results),
     }
