@@ -17,7 +17,7 @@
     if (!source) return "";
     const prepared = /^[a-z][a-z0-9+.-]*:/i.test(source) ? source : `https://${source}`;
     try {
-      const url = new URL(prepared, window.location.origin);
+      const url = new URL(prepared);
       return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : "";
     } catch {
       return "";
@@ -204,8 +204,13 @@
       event.preventDefault();
       event.stopImmediatePropagation();
 
+      let formattedHtml = "";
+      try {
+        formattedHtml = sanitizeRichHtml(form.__yachatGetNativeFormattedHtml?.() || "");
+      } catch {}
       const outgoing = createTransientOutgoingMessage(chat, {
         text,
+        formattedHtml,
         attachments,
         replyToMessageId: state.replyToMessage?.messageId || null,
         replyTo: state.replyToMessage ? { ...state.replyToMessage } : null
