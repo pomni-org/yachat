@@ -24,7 +24,7 @@ const files = [
   "developers.html"
 ];
 
-const BRAND_VERSION = "57";
+const BRAND_VERSION = "58";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -86,7 +86,8 @@ const SCRIPT_ASSETS = [
   "theme-message-reference.js",
   "channel-avatar-persistence.js",
   "push-repair.js",
-  "interaction-hotfix.js"
+  "interaction-hotfix.js",
+  "composer-reliability.js"
 ];
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
@@ -124,7 +125,8 @@ async function validateRuntimeScripts() {
     "theme-message-reference.js",
     "channel-avatar-persistence.js",
     "push-repair.js",
-    "interaction-hotfix.js"
+    "interaction-hotfix.js",
+    "composer-reliability.js"
   ];
   await Promise.all(requiredScripts.map((name) => execFileAsync(process.execPath, [
     "--check",
