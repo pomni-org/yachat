@@ -1,5 +1,6 @@
 name: Native iOS textarea composer
 
+# Verify native textarea with a hidden multiline-safe transport input.
 on:
   pull_request:
     paths:
