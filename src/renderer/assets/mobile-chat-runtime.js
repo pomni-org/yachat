@@ -98,11 +98,10 @@
     decorateRows();
   }
 
-  function installRichEditorRepair() {
+  function installEditorGeometry() {
     const form = document.querySelector('[data-form="message"]');
     const editor = form?.querySelector('[data-rich-message-editor]');
-    const transport = form?.querySelector('[data-message-input]');
-    if (!form || !(editor instanceof HTMLElement) || !(transport instanceof HTMLInputElement)) return;
+    if (!form || !(editor instanceof HTMLElement)) return;
     if (editor.dataset.yachatStableMultiline === "true") return;
 
     editor.dataset.yachatStableMultiline = "true";
@@ -119,21 +118,11 @@
     }
 
     let metricsFrame = 0;
-    let transportFrame = 0;
 
     function editorText() {
       return String(editor.innerText || editor.textContent || "")
         .replace(/\u00a0/g, " ")
         .replace(/\r/g, "");
-    }
-
-    function syncTransportWithoutMovingCaret() {
-      const text = editorText();
-      if (transport.value === text) return;
-      transport.value = text;
-      transport.dispatchEvent(typeof InputEvent === "function"
-        ? new InputEvent("input", { bubbles: true, inputType: "insertText", data: null })
-        : new Event("input", { bubbles: true }));
     }
 
     function updateMetrics() {
@@ -160,42 +149,17 @@
       metricsFrame = requestAnimationFrame(updateMetrics);
     }
 
-    function scheduleTransportSync() {
-      cancelAnimationFrame(transportFrame);
-      transportFrame = requestAnimationFrame(() => {
-        transportFrame = 0;
-        syncTransportWithoutMovingCaret();
-        updateMetrics();
-      });
-    }
-
-    editor.addEventListener("beforeinput", (event) => {
-      if (["insertParagraph", "insertLineBreak"].includes(event.inputType)) {
-        // Safari must own the edit. Preventing it is what caused the one-newline cursor jump.
-        scheduleMetrics();
-      }
-      if (/^format/i.test(event.inputType || "")) scheduleTransportSync();
-    }, true);
-
-    ["input", "compositionend", "cut", "paste"].forEach((name) => {
-      editor.addEventListener(name, scheduleTransportSync, true);
+    ["input", "compositionend", "cut", "paste", "keyup"].forEach((name) => {
+      editor.addEventListener(name, scheduleMetrics, { passive: name !== "paste" });
     });
     editor.addEventListener("scroll", scheduleMetrics, { passive: true });
-
-    const observer = new MutationObserver(() => {
-      scheduleMetrics();
-      if (document.activeElement === editor) scheduleTransportSync();
-    });
-    observer.observe(editor, { childList: true, subtree: true, characterData: true });
-
     form.addEventListener("submit", () => {
-      scheduleTransportSync();
       requestAnimationFrame(() => requestAnimationFrame(scheduleMetrics));
     }, true);
-
     window.visualViewport?.addEventListener("resize", scheduleMetrics, { passive: true });
     window.addEventListener("resize", scheduleMetrics, { passive: true });
-    scheduleTransportSync();
+
+    requestAnimationFrame(scheduleMetrics);
   }
 
   function syncMobileNavigationState() {
@@ -224,6 +188,6 @@
   }
 
   installSettingsToggleRepair();
-  installRichEditorRepair();
+  installEditorGeometry();
   installMobileNavigationSync();
 })();
