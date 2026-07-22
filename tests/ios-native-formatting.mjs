@@ -146,20 +146,25 @@ assert.equal(linkApplied, true);
 html = await page.evaluate(() => document.querySelector('[data-form="message"]').__yachatGetNativeFormattedHtml());
 assert.match(html, /<a href="https:\/\/example\.com\/path"[^>]*>мир<\/a>/);
 
-const transient = await page.evaluate(() => createTransientOutgoingMessage(getActiveChat(), {
-  text: document.querySelector('[data-native-ios-message-input]').value,
-  attachments: []
-}));
+const transient = await page.evaluate(() => {
+  const form = document.querySelector('[data-form="message"]');
+  return createTransientOutgoingMessage(getActiveChat(), {
+    text: document.querySelector('[data-native-ios-message-input]').value,
+    formattedHtml: form.__yachatGetNativeFormattedHtml(),
+    attachments: []
+  });
+});
 assert.match(transient.formattedHtml, /<strong>привет<\/strong>/);
 assert.match(transient.formattedHtml, /<a href="https:\/\/example\.com\/path"/);
 
-await page.evaluate(async () => {
+await page.evaluate(async (message) => {
   await yachatApi.messenger.send({
     chatId: "chat-1",
     clientMessageId: "client-message-1",
-    text: document.querySelector('[data-native-ios-message-input]').value
+    text: message.text,
+    formattedHtml: message.formattedHtml
   });
-});
+}, transient);
 const payload = await page.evaluate(() => sentPayloads.at(-1));
 assert.match(payload.formattedHtml, /<strong>привет<\/strong>/);
 assert.match(payload.formattedHtml, /<a href="https:\/\/example\.com\/path"/);
