@@ -15,7 +15,7 @@
   if (!form || !transport || !richEditor) return;
 
   window.__yachatIosNativeTextareaInstalled = true;
-  form.dataset.yachatIosComposer = "native-textarea-v1";
+  form.dataset.yachatIosComposer = "native-textarea-v2";
   form.classList.add("is-native-ios-textarea-composer");
 
   const textarea = document.createElement("textarea");
@@ -161,7 +161,22 @@
   textarea.addEventListener("input", () => syncNative());
   textarea.addEventListener("change", () => syncNative());
   textarea.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") event.stopPropagation();
+    if (event.key !== "Enter") return;
+    event.stopPropagation();
+    if (event.isComposing) return;
+
+    const valueBefore = textarea.value;
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+    requestAnimationFrame(() => {
+      if (event.defaultPrevented || !textarea.isConnected || textarea.value !== valueBefore) return;
+      textarea.setRangeText("\n", selectionStart, selectionEnd, "end");
+      textarea.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertLineBreak",
+        data: null
+      }));
+    });
   });
   textarea.addEventListener("focus", resizeTextarea);
 
