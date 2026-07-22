@@ -1390,30 +1390,29 @@ function clamp(value, min, max) {
 
 function cropToDataUrl(source, crop = {}) {
   const image = crop.image;
-  if (!image) {
-    return "";
-  }
+  if (!image) return "";
 
-  const naturalSide = Math.max(256, Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height));
-  const side = Math.min(1024, naturalSide);
+  const sourceWidth = Math.max(1, image.naturalWidth || image.width || 1);
+  const sourceHeight = Math.max(1, image.naturalHeight || image.height || 1);
+  const naturalSide = Math.max(256, Math.min(sourceWidth, sourceHeight));
+  const side = Math.min(1600, naturalSide);
   const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
+  canvas.width = side;
+  canvas.height = side;
+  const context = canvas.getContext("2d", { alpha: true });
+  if (!context) return "";
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
   const zoom = clamp(Number(crop.zoom) || 1, 1, 3);
-  const scale = Math.max(side / image.width, side / image.height) * zoom;
-  const width = image.width * scale;
-  const height = image.height * scale;
+  const scale = Math.max(side / sourceWidth, side / sourceHeight) * zoom;
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
   const maxX = Math.max(0, (width - side) / 2);
   const maxY = Math.max(0, (height - side) / 2);
   const offsetX = clamp(Number(crop.x) || 0, -1, 1) * maxX;
   const offsetY = clamp(Number(crop.y) || 0, -1, 1) * maxY;
-
-  canvas.width = side;
-  canvas.height = side;
   context.drawImage(image, (side - width) / 2 + offsetX, (side - height) / 2 + offsetY, width, height);
-  const outputType = String(source || "").startsWith("data:image/png") ? "image/png" : "image/jpeg";
-  return canvas.toDataURL(outputType, outputType === "image/jpeg" ? 0.97 : undefined);
+  return canvas.toDataURL("image/webp", 0.96);
 }
 
 function closeAvatarCrop(reject = true) {
@@ -1903,12 +1902,6 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
               <button type="button" data-panel-action="share-profile-link" data-profile-link="${escapeHtml(profileUrl)}" aria-label="${escapeHtml(t("chatProfileLinkTitle"))}">
                 ${iconSvg("share-2")}
               </button>
-              <button type="button" data-panel-action="show-profile-qr" aria-label="${escapeHtml(t("chatProfileQrTitle"))}">
-                ${iconSvg("qr-code")}
-              </button>
-            </div>
-            <div class="chat-profile-qr" data-chat-profile-qr hidden>
-              ${renderQrSvg(profileUrl)}
             </div>
           </div>
         </section>
@@ -5887,6 +5880,7 @@ function createRuntimeYachatApi() {
 function createHttpYachatApi(fallbackApi = null) {
   const deviceAuthKey = "yachat-http-device-authorized";
   const authTokenKey = "yachat-http-auth-token";
+  const sessionSnapshotKey = "yachat-http-session-snapshot-v1";
   const isLoopbackHost = isLoopbackHostname(window.location.hostname);
   if (window.location.protocol !== "https:" && !(window.location.protocol === "http:" && isLoopbackHost)) {
     return null;
@@ -5912,6 +5906,63 @@ function createHttpYachatApi(fallbackApi = null) {
   function clearSession() {
     localStorage.removeItem(authTokenKey);
     localStorage.removeItem(deviceAuthKey);
+    localStorage.removeItem(sessionSnapshotKey);
+  }
+
+  function compactBootstrapSnapshot(payload) {
+    if (!payload?.account) return null;
+    const account = { ...payload.account };
+    if (String(account.avatarDataUrl || "").length > 220000) account.avatarDataUrl = "";
+    const chats = (Array.isArray(payload.chats) ? payload.chats : []).slice(0, 120).map((chat) => {
+      const next = { ...chat };
+      if (String(next.avatarDataUrl || "").length > 80000) next.avatarDataUrl = "";
+      delete next.participantProfiles;
+      return next;
+    });
+    return {
+      authenticated: true,
+      account,
+      settings: payload.settings || {},
+      chats,
+      messages: [],
+      activeChatId: payload.activeChatId || chats[0]?.id || "yachat-codes",
+      routeUser: null,
+      cachedSession: true,
+      storedAt: Date.now()
+    };
+  }
+
+  function rememberBootstrap(payload) {
+    if (!payload?.account) {
+      localStorage.removeItem(sessionSnapshotKey);
+      return payload;
+    }
+    const snapshot = compactBootstrapSnapshot(payload);
+    try {
+      localStorage.setItem(sessionSnapshotKey, JSON.stringify(snapshot));
+    } catch {
+      try {
+        snapshot.chats = [];
+        localStorage.setItem(sessionSnapshotKey, JSON.stringify(snapshot));
+      } catch {
+        // A storage quota issue must not invalidate the real server session.
+      }
+    }
+    return payload;
+  }
+
+  function recoverBootstrap(error) {
+    const transient = !Number(error?.status) || [500, 502, 503, 504].includes(Number(error?.status));
+    if (!transient || !authToken()) return null;
+    try {
+      const snapshot = JSON.parse(localStorage.getItem(sessionSnapshotKey) || "null");
+      if (!snapshot?.account || Date.now() - Number(snapshot.storedAt || 0) > 30 * 24 * 60 * 60 * 1000) {
+        return null;
+      }
+      return { ...snapshot, recoveredAfterDatabaseError: true };
+    } catch {
+      return null;
+    }
   }
 
   async function request(pathname, options = {}) {
@@ -5930,7 +5981,10 @@ function createHttpYachatApi(fallbackApi = null) {
 
     if (!response.ok) {
       const text = isJson ? "" : await response.text().catch(() => "");
-      throw new Error(payload?.detail || payload?.error || cleanDisplayText(text, "Request failed."));
+      const error = new Error(payload?.detail || payload?.error || cleanDisplayText(text, "Request failed."));
+      error.status = response.status;
+      error.code = payload?.code || "";
+      throw error;
     }
 
     if (!isJson) {
@@ -5986,9 +6040,14 @@ function createHttpYachatApi(fallbackApi = null) {
 
   return {
     bootstrap: {
-      get: (params = {}) => withFallback(
-        () => request(`/api/bootstrap${queryString(params)}`),
-        async () => {
+      get: async (params = {}) => {
+        try {
+          return rememberBootstrap(await request(`/api/bootstrap${queryString(params)}`));
+        } catch (error) {
+          const recovered = recoverBootstrap(error);
+          if (recovered) return recovered;
+          if (!allowLocalFallback) throw error;
+          return (async () => {
           const account = await fallbackApi?.account?.get?.() || null;
           const settings = await fallbackApi?.settings?.get?.() || {};
           const snapshot = account ? await fallbackSnapshot(params) : { chats: [], messages: [], activeChatId: null, routeUser: null };
@@ -5998,8 +6057,9 @@ function createHttpYachatApi(fallbackApi = null) {
             settings,
             ...snapshot
           };
+          })();
         }
-      )
+      }
     },
     account: {
       get: async () => {
@@ -6067,6 +6127,12 @@ function createHttpYachatApi(fallbackApi = null) {
       update: (payload) => withFallback(
         () => post("/api/settings", payload),
         () => fallbackApi?.settings?.update?.(payload)
+      )
+    },
+    digitalId: {
+      get: () => withFallback(
+        () => request("/api/digital-id"),
+        () => fallbackApi?.digitalId?.get?.()
       )
     },
     users: {
@@ -6209,6 +6275,22 @@ function createLocalYachatApi() {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
+  function createLocalDigitalId() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+    const letterCount = Math.random() < 0.5 ? 2 : 3;
+    let value = "";
+    for (let index = 0; index < letterCount; index += 1) {
+      value += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    while (value.length < 6) value += Math.floor(Math.random() * 10);
+    return value;
+  }
+
+  function formatLocalDigitalId(value) {
+    const normalized = String(value || "").replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 6);
+    return normalized.length === 6 ? `${normalized.slice(0, 3)} — ${normalized.slice(3)}` : "";
+  }
+
   function readAccount() {
     try {
       return JSON.parse(localStorage.getItem(accountKey) || "null");
@@ -6304,9 +6386,7 @@ function createLocalYachatApi() {
         "yachat-codes": [
           createLocalMessage("yachat-codes", "Здесь будут появляться одноразовые коды подтверждения для входа, банков, магазинов и сервисов.", "bot")
         ],
-        "yachat-channel": [
-          createLocalMessage("yachat-channel", "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления.", "channel")
-        ]
+        "yachat-channel": []
       }
     };
   }
@@ -6346,17 +6426,16 @@ function createLocalYachatApi() {
 
     Object.entries(messages).forEach(([chatId, list]) => {
       if (Array.isArray(list)) {
-        messages[chatId] = list
-          .filter((message) => !REMOVED_TEST_MESSAGE_TEXTS.has(String(message?.text || "").trim()))
-          .map((message) => {
-            if (chatId === "yachat-channel" && String(message?.text || "").includes("Канал ЯЧата")) {
-              return {
-                ...message,
-                text: String(message.text || "").replaceAll("Канал ЯЧата", "ЯЧат").replaceAll("канал встроен", "системный канал встроен")
-              };
-            }
-            return message;
-          });
+        messages[chatId] = list.filter((message) => {
+          const messageText = String(message?.text || "").trim();
+          if (REMOVED_TEST_MESSAGE_TEXTS.has(messageText)) return false;
+          if (chatId !== "yachat-channel") return true;
+          return !(
+            messageText === "ЯЧат запущен. Здесь будут новости приложения, изменения и служебные объявления." ||
+            messageText.includes("Канал ЯЧата готов") ||
+            messageText.includes("канал встроен")
+          );
+        });
       }
     });
 
@@ -6615,7 +6694,14 @@ function createLocalYachatApi() {
         const messenger = readMessenger();
         messenger.messages["yachat-codes"] = [
           ...(messenger.messages["yachat-codes"] || []),
-          createLocalMessage("yachat-codes", `Код подтверждения ЯЧата для ${challenge.contact}: ${code}. Он действует 10 минут. Никому его не сообщайте.`, "bot")
+          createLocalMessage(
+            "yachat-codes",
+            `🔐 Код подтверждения ЯЧата\n\nНомер: ${challenge.contact}\nКод: ${code}\n\n⌛ Действует 10 минут.\n⚠️ Никому его не сообщайте.`,
+            "bot",
+            {
+              formattedHtml: `<strong>🔐 Код подтверждения ЯЧата</strong><br><br>Номер: <strong>${escapeHtml(challenge.contact)}</strong><br>Код: <strong>${escapeHtml(code)}</strong><br><br>⌛ Действует 10 минут.<br><strong>⚠️ Никому его не сообщайте.</strong>`
+            }
+          )
         ];
         writeMessenger(messenger);
 
@@ -6798,6 +6884,21 @@ function createLocalYachatApi() {
           localStorage.setItem("yachat-language", next.language);
         }
         return next;
+      }
+    },
+    digitalId: {
+      get: async () => {
+        const stored = readAccount();
+        const account = stored?.account || null;
+        if (!account?.id) throw new Error(t("errConfirmCodeFirst"));
+        const rawDigitalId = String(account.rawDigitalId || account.digitalId || "")
+          .replace(/[^A-Z0-9]/gi, "")
+          .toUpperCase()
+          .slice(0, 6) || createLocalDigitalId();
+        const digitalId = formatLocalDigitalId(rawDigitalId);
+        const next = { ...account, rawDigitalId, digitalId };
+        localStorage.setItem(accountKey, JSON.stringify({ ...stored, account: next }));
+        return { rawDigitalId, digitalId, createdAt: account.createdAt };
       }
     },
     users: {
@@ -7130,6 +7231,7 @@ function createLocalYachatApi() {
           ...(data.messages[chat.id] || []),
           createLocalMessage(chat.id, text, chat.id === "yachat-channel" ? "channel" : "user", {
             senderId: account?.id || "",
+            formattedHtml: String(payload?.formattedHtml || ""),
             attachments,
             ...(payload?.clientMessageId ? { id: String(payload.clientMessageId) } : {}),
             ...(replyTo ? { replyTo } : {})
@@ -7171,6 +7273,7 @@ function createLocalYachatApi() {
         }
 
         message.text = text;
+        message.formattedHtml = String(payload?.formattedHtml || "");
         message.editedAt = new Date().toISOString();
         writeMessenger(data);
         return {
@@ -7293,6 +7396,7 @@ function createLocalYachatApi() {
           ...(data.messages[toChat.id] || []),
           createLocalMessage(toChat.id, source.text || "", "user", {
             senderId: account?.id || "",
+            formattedHtml: String(source.formattedHtml || ""),
             attachments: Array.isArray(source.attachments) ? source.attachments : [],
             forwardedFrom: fromChat.title || ""
           })

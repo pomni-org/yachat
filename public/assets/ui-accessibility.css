@@ -1,0 +1,104 @@
+/* ЯЧат: точечные исправления доступности и переполненного текста. */
+
+/* Поле превью является самостоятельным окном. Многоточие живёт отдельным
+   элементом у правого края этого окна, а не у конца невидимой строки. */
+.chat-row-bottom {
+  position: relative;
+  display: block !important;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-row-bottom > .chat-preview-text {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  padding-inline-end: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  text-overflow: clip !important;
+  white-space: nowrap;
+}
+
+.chat-row-bottom.has-spaced-ellipsis > .chat-preview-text {
+  padding-inline-end: 1.65em;
+}
+
+.chat-row-bottom > .chat-preview-ellipsis {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 0;
+  display: block;
+  width: 0.9em;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  color: inherit;
+  line-height: inherit;
+  text-align: end;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.chat-row-bottom > .chat-preview-ellipsis[hidden] {
+  display: none !important;
+}
+
+/* Индикатор выбора чата должен быть кругом, а не квадратом,
+   который просто очень старается выглядеть дружелюбно. */
+.chat-select-check {
+  aspect-ratio: 1;
+  border-radius: 50% !important;
+  clip-path: circle(50% at 50% 50%);
+}
+
+.chat-select-check svg {
+  width: 13px !important;
+  height: 13px !important;
+  max-width: 13px !important;
+  max-height: 13px !important;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* На остальных платформах остаётся существующий доступный fallback. */
+.settings-native-switch {
+  font: inherit;
+}
+
+/* Safari/WebKit 17.4+ понимает boolean-атрибут `switch` и рисует
+   настоящий системный переключатель. Никакой appearance:none здесь нет. */
+html.yachat-apple-native-switches .settings-toggle-row {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+}
+
+html.yachat-apple-native-switches .settings-toggle-row input.settings-native-switch[switch] {
+  position: static !important;
+  display: inline-block !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  justify-self: end;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  appearance: auto !important;
+  -webkit-appearance: auto !important;
+  color-scheme: light dark;
+}
+
+html.yachat-apple-native-switches .settings-toggle-row input.settings-native-switch[switch] + .settings-switch {
+  display: none !important;
+}
+
+html.yachat-apple-native-switches .settings-toggle-row input.settings-native-switch[switch]:focus-visible {
+  outline: auto;
+  outline-offset: 3px;
+}

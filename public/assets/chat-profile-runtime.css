@@ -1,0 +1,144 @@
+.is-favorites,
+.is-favorites img {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.is-favorites {
+  overflow: hidden !important;
+  background: transparent !important;
+}
+
+.is-favorites::before,
+.is-favorites::after {
+  display: none !important;
+  content: none !important;
+}
+
+.is-favorites img {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  border-radius: 50% !important;
+}
+
+.group-username-field small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.chat-more-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1540;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgb(0 0 0 / 42%);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  touch-action: manipulation;
+}
+
+.chat-more-backdrop[hidden] {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+.chat-profile-more-stack {
+  position: fixed;
+  z-index: 1550;
+  left: max(12px, env(safe-area-inset-left));
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  display: grid;
+  max-width: 620px;
+  max-height: min(76dvh, 720px);
+  margin: 0 auto;
+  padding: 8px 12px 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--card-edge);
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 38%);
+  transform: translateY(calc(100% + 34px));
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 180ms ease, opacity 150ms ease;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.chat-profile-more-stack[hidden] {
+  display: none !important;
+}
+
+.chat-profile-more-stack.is-open {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat-more-sheet-header {
+  position: sticky;
+  z-index: 2;
+  top: -8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 54px;
+  padding: 8px 4px 7px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--card-edge);
+}
+
+.chat-more-sheet-header strong {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.chat-more-sheet-header button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  touch-action: manipulation;
+}
+
+.chat-more-sheet-header svg {
+  width: 24px;
+  height: 24px;
+}
+
+body.chat-more-open {
+  overflow: hidden !important;
+}
+
+[data-avatar-crop-modal][hidden],
+[data-avatar-modal][hidden],
+[data-info-modal][hidden],
+[data-delete-profile-modal][hidden],
+[data-create-chat-modal][hidden],
+[data-forward-picker][hidden],
+[data-message-menu-layer][hidden],
+.group-flow-layer[hidden],
+.chat-more-backdrop[hidden] {
+  display: none !important;
+  pointer-events: none !important;
+}

@@ -1,28 +1,86 @@
-/* ЯЧат: composer, attachment preview and Iconoir-inspired icon rhythm */
+/* ЯЧат: единый ритм пиктограмм, нижняя навигация и предпросмотр вложений */
+
+:root {
+  --yachat-icon-stroke: 1.8;
+  --rail-icon-box: 24px;
+  --rail-icon-size: 22px;
+  --rail-label-size: 13px;
+  --rail-label-line: 16px;
+}
+
+.css-icon {
+  display: inline-grid;
+  width: 1.25em;
+  height: 1.25em;
+  place-items: center;
+  flex: 0 0 auto;
+  line-height: 0;
+  vertical-align: -0.2em;
+}
 
 .iconoir-icon,
 .lucide-icon,
 .css-icon svg {
   display: block;
-  width: 1em;
-  height: 1em;
+  width: 100%;
+  height: 100%;
   flex: 0 0 auto;
-  stroke-width: 1.65;
+  stroke-width: var(--yachat-icon-stroke);
   vector-effect: non-scaling-stroke;
 }
 
-.rail-button .iconoir-icon,
-.rail-button .lucide-icon,
-.rail-button .css-icon svg {
-  width: 30px;
-  height: 30px;
+/* Все пункты навигации имеют один квадрат, одну оптическую ось и один кегль. */
+.messenger-rail .rail-button {
+  display: grid;
+  grid-template-rows: var(--rail-icon-box) var(--rail-label-line);
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  justify-items: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 7px 4px;
+  line-height: 1;
+}
+
+.messenger-rail .rail-button .css-icon {
+  width: var(--rail-icon-box);
+  height: var(--rail-icon-box);
+  place-self: center;
+}
+
+.messenger-rail .rail-button .css-icon svg,
+.messenger-rail .rail-button > .lucide-icon,
+.messenger-rail .rail-button > .iconoir-icon {
+  width: var(--rail-icon-size);
+  height: var(--rail-icon-size);
+  margin: auto;
+  stroke-width: var(--yachat-icon-stroke);
+}
+
+.messenger-rail .rail-button strong {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: currentColor;
+  font-size: var(--rail-label-size);
+  font-weight: 500;
+  line-height: var(--rail-label-line);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messenger-rail .rail-button.rail-bottom {
+  margin-top: auto;
 }
 
 .composer {
   display: grid;
-  grid-template-columns: 44px 44px minmax(0, 1fr) 44px 52px;
+  grid-template-columns: 42px 42px minmax(0, 1fr) 42px 50px;
   align-items: center;
-  column-gap: 6px;
+  column-gap: 5px;
   row-gap: 8px;
   padding: 10px 12px max(10px, env(safe-area-inset-bottom));
 }
@@ -59,12 +117,19 @@
   align-self: center;
 }
 
-.composer-tool .iconoir-icon,
-.composer-tool .lucide-icon,
-.send-button .iconoir-icon,
-.send-button .lucide-icon {
-  width: 27px;
-  height: 27px;
+.composer-tool .css-icon,
+.send-button .css-icon {
+  width: 26px;
+  height: 26px;
+}
+
+.composer-tool .css-icon svg,
+.send-button .css-icon svg,
+.composer-tool > .lucide-icon,
+.send-button > .lucide-icon {
+  width: 24px;
+  height: 24px;
+  margin: auto;
 }
 
 .composer-document-tool {
@@ -106,7 +171,7 @@
   overflow-x: auto;
   overscroll-behavior-inline: contain;
   scrollbar-width: none;
-  padding: 2px 0 4px;
+  padding: 4px 0 5px;
 }
 
 .attachment-tray::-webkit-scrollbar {
@@ -116,10 +181,10 @@
 .attachment-preview {
   position: relative;
   display: grid;
-  grid-template-columns: 42px 96px minmax(100px, 1fr);
+  grid-template-columns: 40px 92px minmax(96px, 1fr);
   align-items: center;
-  gap: 10px;
-  flex: 0 0 min(430px, calc(100vw - 34px));
+  gap: 9px;
+  flex: 0 0 min(420px, calc(100vw - 30px));
   min-width: 0;
 }
 
@@ -134,10 +199,10 @@
 .attachment-preview-delete {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   padding: 0;
-  border-radius: 14px;
+  border-radius: 13px;
   background: transparent;
 }
 
@@ -147,18 +212,18 @@
 }
 
 .attachment-preview-delete svg {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
 }
 
 .attachment-preview-media {
   position: relative;
   display: grid;
   place-items: center;
-  width: 96px;
-  height: 96px;
+  width: 92px;
+  height: 92px;
   overflow: hidden;
-  border-radius: 21px;
+  border-radius: 20px;
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--card-edge);
 }
@@ -172,8 +237,8 @@
 }
 
 .attachment-preview-media svg {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
 }
 
 .attachment-preview.is-document .attachment-preview-media {
@@ -183,12 +248,12 @@
 .attachment-preview-remove {
   position: absolute;
   z-index: 2;
-  top: -6px;
-  left: 118px;
+  top: -5px;
+  left: 112px;
   display: grid;
   place-items: center;
-  width: 31px;
-  height: 31px;
+  width: 29px;
+  height: 29px;
   padding: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--page), #000 20%);
@@ -196,8 +261,8 @@
 }
 
 .attachment-preview-remove svg {
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
 }
 
 .attachment-preview-copy {
@@ -227,19 +292,57 @@
 }
 
 .message-attachment.is-file > span svg {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
+}
+
+/* Высококачественные аватары не получают браузерное пиксельное «улучшение». */
+.avatar-preview img,
+.done-mark img,
+.chat-avatar img,
+.dialog-avatar img,
+.dialog-intro-avatar img,
+.panel-row-avatar img,
+.chat-profile-avatar img,
+.avatar-modal-image img,
+.create-chat-avatar-preview img {
+  image-rendering: auto;
+  object-fit: cover;
 }
 
 @media (max-width: 640px) {
+  :root {
+    --rail-icon-box: 23px;
+    --rail-icon-size: 21px;
+    --rail-label-size: 12px;
+    --rail-label-line: 15px;
+  }
+
   .messenger-rail {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .messenger-rail .rail-button,
+  .messenger-rail .rail-button.rail-bottom {
+    width: 100%;
+    min-width: 0;
+    min-height: 60px;
+    margin: 0;
+    padding: 7px 2px max(7px, env(safe-area-inset-bottom));
+    gap: 4px;
   }
 
   .composer {
-    grid-template-columns: 40px 40px minmax(0, 1fr) 40px 50px;
-    column-gap: 4px;
+    grid-template-columns: 38px 38px minmax(0, 1fr) 38px 48px;
+    column-gap: 3px;
     padding-inline: 8px;
+  }
+
+  .composer-tool .css-icon,
+  .send-button .css-icon {
+    width: 24px;
+    height: 24px;
   }
 
   .attachment-policy-note {
@@ -247,35 +350,46 @@
   }
 
   .attachment-preview {
-    grid-template-columns: 38px 86px minmax(80px, 1fr);
-    flex-basis: calc(100vw - 20px);
+    grid-template-columns: 36px 84px minmax(70px, 1fr);
+    flex-basis: calc(100vw - 18px);
     gap: 8px;
   }
 
   .attachment-preview-delete {
-    width: 38px;
-    height: 38px;
+    width: 36px;
+    height: 36px;
   }
 
   .attachment-preview-media {
-    width: 86px;
-    height: 86px;
-    border-radius: 19px;
+    width: 84px;
+    height: 84px;
+    border-radius: 18px;
   }
 
   .attachment-preview-remove {
-    left: 103px;
+    left: 100px;
+  }
+
+  .attachment-preview-copy strong {
+    font-size: 13px;
+  }
+
+  .attachment-preview-copy small {
+    font-size: 11px;
   }
 }
 
 @media (max-width: 390px) {
   .composer {
-    grid-template-columns: 38px 38px minmax(0, 1fr) 38px 48px;
+    grid-template-columns: 36px 36px minmax(0, 1fr) 36px 46px;
   }
 
-  .composer-tool .iconoir-icon,
-  .composer-tool .lucide-icon {
-    width: 24px;
-    height: 24px;
+  .attachment-preview-copy {
+    display: none;
+  }
+
+  .attachment-preview {
+    grid-template-columns: 36px 84px;
+    flex-basis: 136px;
   }
 }

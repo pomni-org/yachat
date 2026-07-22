@@ -1,71 +1,137 @@
-:root {
-  --avatar-preview-edge: rgba(255, 255, 255, 0.16);
-}
-
-:root[data-theme="light"] {
-  --avatar-preview-edge: rgba(6, 6, 8, 0.12);
-}
-
-.avatar-preview,
-.profile-edit-avatar-preview,
-.done-mark,
-.settings-profile-card .panel-avatar {
+/* One avatar rule for the whole app: a clean circular crop, no rings or decorative edges. */
+:where(
+  .user-avatar,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .avatar-preview,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .chat-profile-owner-avatar,
+  .message-avatar,
+  .mention-avatar,
+  .avatar-modal-image,
+  .done-mark,
+  .group-details-avatar
+) {
   position: relative;
   aspect-ratio: 1;
-  overflow: hidden;
-  border: 0;
-  border-radius: 50% !important;
-  clip-path: circle(50% at 50% 50%);
-  box-shadow: none;
-}
-
-.avatar-preview,
-.profile-edit-avatar-preview {
+  overflow: hidden !important;
   padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  clip-path: circle(50% at 50% 50%);
+  background-clip: padding-box !important;
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
   appearance: none;
   -webkit-appearance: none;
 }
 
-.avatar-preview img,
-.profile-edit-avatar-preview img {
+:where(
+  .user-avatar,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .avatar-preview,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .chat-profile-owner-avatar,
+  .message-avatar,
+  .mention-avatar,
+  .avatar-modal-image,
+  .done-mark,
+  .group-details-avatar
+)::before,
+:where(
+  .user-avatar,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .avatar-preview,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .chat-profile-owner-avatar,
+  .message-avatar,
+  .mention-avatar,
+  .avatar-modal-image,
+  .done-mark,
+  .group-details-avatar
+)::after {
+  display: none !important;
+  content: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+:where(
+  .user-avatar,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .avatar-preview,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .chat-profile-owner-avatar,
+  .message-avatar,
+  .mention-avatar,
+  .avatar-modal-image,
+  .done-mark,
+  .group-details-avatar
+) > img,
+img.user-avatar,
+img.chat-avatar,
+img.message-avatar,
+img.mention-avatar {
   position: absolute;
   inset: 0;
   display: block;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  border: 0;
-  border-radius: 50%;
-  object-fit: cover;
-  object-position: 50% 50%;
-}
-
-.done-mark img,
-.settings-profile-card .panel-avatar img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  object-fit: cover;
-  object-position: 50% 50%;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  outline: 0 !important;
+  object-fit: cover !important;
+  object-position: 50% 50% !important;
+  box-shadow: none !important;
+  clip-path: circle(50% at 50% 50%);
 }
 
 .profile-edit-avatar {
   grid-template-columns: 72px minmax(0, 1fr);
 }
 
-.profile-edit-avatar-preview {
+.profile-edit-avatar-preview,
+.screen[data-screen="profile"] .avatar-preview {
   width: 72px;
   height: 72px;
 }
 
 .screen[data-screen="profile"] .avatar-picker {
   grid-template-columns: 72px minmax(0, 1fr);
-}
-
-.screen[data-screen="profile"] .avatar-preview {
-  width: 72px;
-  height: 72px;
 }
 
 @media (max-width: 360px) {

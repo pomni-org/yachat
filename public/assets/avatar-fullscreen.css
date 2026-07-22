@@ -1,0 +1,168 @@
+/* Полноэкранный просмотр изображений без круглой обрезки и полос iOS. */
+
+.avatar-fullscreen-viewer {
+  position: fixed;
+  z-index: 500;
+  top: var(--yachat-viewer-top, 0px);
+  left: var(--yachat-viewer-left, 0px);
+  right: auto;
+  bottom: auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: var(--yachat-viewer-width, 100vw);
+  height: var(--yachat-viewer-height, 100dvh);
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #000;
+  color: #fff;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 150ms ease, visibility 150ms ease;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  contain: strict;
+}
+
+.avatar-fullscreen-viewer[hidden] {
+  display: none !important;
+}
+
+.avatar-fullscreen-viewer.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.avatar-fullscreen-head {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  min-height: calc(68px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 16px 0;
+  grid-template-columns: 52px minmax(0, 1fr) 52px;
+  align-items: center;
+  box-sizing: border-box;
+  border: 0;
+  background: #000;
+}
+
+.avatar-fullscreen-close {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.avatar-fullscreen-close svg {
+  display: block;
+  width: 36px !important;
+  height: 36px !important;
+  max-width: 36px !important;
+  max-height: 36px !important;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.avatar-fullscreen-count {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+}
+
+.avatar-fullscreen-head-spacer {
+  width: 48px;
+  height: 48px;
+}
+
+.avatar-fullscreen-stage {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  place-items: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #000;
+}
+
+.avatar-fullscreen-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0 !important;
+  clip-path: none !important;
+  box-shadow: none !important;
+  object-fit: contain;
+  object-position: 50% 50%;
+  opacity: 0;
+  transform: scale(0.995);
+  transition: opacity 120ms ease, transform 120ms ease;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.avatar-fullscreen-viewer.is-image-ready .avatar-fullscreen-image {
+  opacity: 1;
+  transform: none;
+}
+
+html.avatar-fullscreen-open,
+body.avatar-fullscreen-open {
+  width: 100%;
+  height: 100%;
+  overflow: hidden !important;
+  background: #000 !important;
+  overscroll-behavior: none;
+}
+
+body.avatar-fullscreen-open {
+  touch-action: none;
+}
+
+/* Старый карточный просмотр не должен проступать под полноэкранным слоем. */
+body.avatar-fullscreen-open [data-avatar-modal] {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+@media (max-width: 640px) {
+  .avatar-fullscreen-head {
+    min-height: calc(64px + env(safe-area-inset-top));
+    padding-inline: 10px;
+    grid-template-columns: 52px minmax(0, 1fr) 52px;
+  }
+
+  .avatar-fullscreen-count {
+    font-size: 21px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatar-fullscreen-viewer,
+  .avatar-fullscreen-image {
+    transition: none !important;
+  }
+}

@@ -1,0 +1,96 @@
+/* Финальная геометрия профиля, настроек и выбора аватара. */
+
+.settings-profile-hero > h2 {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  margin-inline: auto;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  text-align: center;
+}
+
+.settings-profile-hero > p {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin-inline: auto;
+  align-self: center;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.settings-profile-hero > h2 .verified-mark-button,
+.settings-profile-hero > h2 .verified-mark {
+  flex: 0 0 auto;
+}
+
+.settings-row-icon,
+.settings-security-status > span,
+.settings-device > span,
+.settings-storage-meter > span {
+  overflow: visible;
+  flex: 0 0 auto;
+}
+
+.settings-row-icon > svg,
+.settings-security-status > span > svg,
+.settings-device > span > svg,
+.settings-storage-meter > span > svg,
+.settings-primary > svg {
+  display: block !important;
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  fill: none !important;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transform: none !important;
+  transform-origin: center !important;
+}
+
+.settings-row[data-settings-action="network"] .settings-row-icon > svg,
+.settings-row[data-settings-action="appearance"] .settings-row-icon > svg,
+.settings-row[data-settings-action="security"] .settings-row-icon > svg {
+  width: 26px !important;
+  height: 26px !important;
+  max-width: 26px !important;
+  max-height: 26px !important;
+  stroke-width: 1.8 !important;
+}
+
+.settings-security-status > span > svg,
+.settings-primary[data-open-device-code-security] > svg {
+  width: 25px !important;
+  height: 25px !important;
+  max-width: 25px !important;
+  max-height: 25px !important;
+  stroke-width: 1.8 !important;
+}
+
+.create-chat-avatar-preview,
+.profile-edit-avatar-preview {
+  border-radius: 999px !important;
+  box-shadow: 0 0 0 1px var(--card-edge);
+}
+
+.create-chat-avatar-preview > img,
+.profile-edit-avatar-preview > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+@media (max-width: 640px) {
+  .settings-profile-hero > h2 {
+    flex-wrap: wrap;
+  }
+
+  .settings-profile-hero > p {
+    font-size: 20px;
+  }
+}
