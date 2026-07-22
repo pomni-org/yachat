@@ -12,8 +12,9 @@
 
   const form = document.querySelector('[data-form="message"]');
   const editor = form?.querySelector('[data-rich-message-editor]');
+  const transport = form?.querySelector('[data-message-input]');
   const emojiButton = form?.querySelector('[data-action="open-stickers"]');
-  if (!form || !editor) return;
+  if (!form || !editor || !transport) return;
 
   let composing = false;
   let lastCaretOffset = 0;
@@ -137,6 +138,14 @@
     repairFrame = requestAnimationFrame(repairCaret);
   }
 
+  function dispatchEditorInput(inputType, data = null) {
+    editor.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType,
+      data
+    }));
+  }
+
   function insertLineBreakFallback(offset) {
     if (!selectionIsHealthy()) {
       expectedCaretOffset = offset;
@@ -156,11 +165,7 @@
     selection.addRange(range);
     lastCaretOffset = Math.min(textLength(), offset + 1);
     expectedCaretOffset = lastCaretOffset;
-    editor.dispatchEvent(new InputEvent("input", {
-      bubbles: true,
-      inputType: "insertLineBreak",
-      data: null
-    }));
+    dispatchEditorInput("insertLineBreak");
   }
 
   editor.addEventListener("beforeinput", () => {
@@ -176,15 +181,18 @@
 
   editor.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.isComposing || composing) return;
-    const htmlBefore = editor.innerHTML;
-    const lengthBefore = textLength();
+    const transportBefore = transport.value;
     const offsetBefore = selectionOffset() ?? lastCaretOffset;
     requestAnimationFrame(() => {
       if (event.defaultPrevented || composing || !editor.isConnected) return;
-      const browserChangedEditor = editor.innerHTML !== htmlBefore
-        || textLength() !== lengthBefore
-        || (selectionOffset() ?? offsetBefore) !== offsetBefore;
-      if (!browserChangedEditor) insertLineBreakFallback(offsetBefore);
+      if (transport.value !== transportBefore) return;
+
+      // Chrome/WebKit may restructure contenteditable for Enter without firing
+      // the input event that keeps the hidden transport field in sync.
+      dispatchEditorInput("insertParagraph");
+      if (transport.value !== transportBefore) return;
+
+      insertLineBreakFallback(offsetBefore);
     });
   }, true);
 
