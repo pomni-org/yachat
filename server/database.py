@@ -33,6 +33,17 @@ def require_database() -> str:
     return url
 
 
+def _diagnostics_enabled() -> bool:
+    return os.getenv("YACHAT_DB_DIAGNOSTICS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _log_database_event(event: str, **fields: object) -> None:
+    if not _diagnostics_enabled():
+        return
+    safe_fields = " ".join(f"{key}={value}" for key, value in fields.items())
+    print(f"{event}{' ' if safe_fields else ''}{safe_fields}", flush=True)
+
+
 def _connection_error_category(error: psycopg.Error) -> str:
     """Return a log-safe Supabase connection failure category."""
 
@@ -84,16 +95,14 @@ def connect_db():
             last_error = error
             category = _connection_error_category(error)
             if category in retryable and attempt < attempts:
-                print(
-                    f"supabase_connect_retry category={category} attempt={attempt}",
-                    flush=True,
-                )
+                _log_database_event("supabase_connect_retry", category=category, attempt=attempt)
                 time.sleep(0.18 * attempt)
                 continue
-            print(
-                f"supabase_connect_failed category={category} "
-                f"attempts={attempt} error_type={type(error).__name__}",
-                flush=True,
+            _log_database_event(
+                "supabase_connect_failed",
+                category=category,
+                attempts=attempt,
+                error_type=type(error).__name__,
             )
             raise
 
