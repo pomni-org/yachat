@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+import json
 from contextlib import nullcontext
 from typing import Any
 
@@ -14,12 +14,11 @@ from api.index import (
     ensure_schema,
     hash_secret,
     request_token,
-    require_user,
     row_value,
     system_chat_settings,
 )
 
-app = FastAPI(title="YaChat chat polling API", version="1.0.0")
+app = FastAPI(title="YaChat chat polling API", version="1.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
@@ -95,171 +94,184 @@ def system_rows(cursor, user_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def _json_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [dict(item) for item in value if isinstance(item, dict)]
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+        return [dict(item) for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+    return []
+
+
 def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
+    """Return compact chat rows using one database round-trip for user chats.
+
+    System chat metadata remains a tiny independent query. Regular chat members,
+    preview, unread count, and block state are aggregated by PostgreSQL together.
+    """
+
     ensure_schema()
     with (connect_db() if connection is None else nullcontext(connection)) as active_connection:
         with active_connection.cursor(row_factory=dict_row) as cursor:
+            systems = system_rows(cursor, user_id)
             cursor.execute(
                 """
                 select
-                    c.id, c.kind, c.title, c.owner_id, c.locked,
-                    c.pinned, c.can_send, c.created_at, c.updated_at
+                    c.id,
+                    c.kind,
+                    c.title,
+                    c.owner_id,
+                    c.locked,
+                    c.pinned,
+                    c.can_send,
+                    c.created_at,
+                    c.updated_at,
+                    coalesce(member_rollup.members, '[]'::jsonb) as members,
+                    latest.text as latest_text,
+                    latest.created_at as latest_created_at,
+                    latest.attachment_kind,
+                    coalesce(unread.unread_count, 0) as unread_count,
+                    exists (
+                        select 1
+                        from yachat_user_blocks b
+                        join yachat_chat_members peer
+                          on peer.chat_id = c.id
+                         and peer.user_id = b.blocked_id
+                        where b.blocker_id = %s
+                          and peer.user_id <> %s
+                    ) as blocked_by_me,
+                    exists (
+                        select 1
+                        from yachat_user_blocks b
+                        join yachat_chat_members peer
+                          on peer.chat_id = c.id
+                         and peer.user_id = b.blocker_id
+                        where b.blocked_id = %s
+                          and peer.user_id <> %s
+                    ) as blocked_me
                 from yachat_chats c
-                join yachat_chat_members own on own.chat_id = c.id
-                where own.user_id = %s and c.kind <> 'saved'
+                join yachat_chat_members own
+                  on own.chat_id = c.id
+                 and own.user_id = %s
+                left join lateral (
+                    select jsonb_agg(
+                        jsonb_build_object(
+                            'id', u.id,
+                            'username', u.username,
+                            'preview_name', u.preview_name,
+                            'display_name', u.display_name
+                        )
+                        order by cm.joined_at asc
+                    ) as members
+                    from yachat_chat_members cm
+                    join public_users u on u.id = cm.user_id
+                    where cm.chat_id = c.id
+                ) member_rollup on true
+                left join lateral (
+                    select
+                        m.text,
+                        m.created_at,
+                        coalesce(m.attachments -> 0 ->> 'kind', '') as attachment_kind
+                    from yachat_messages m
+                    where m.chat_id = c.id
+                      and m.deleted_at is null
+                      and not exists (
+                          select 1
+                          from yachat_message_hidden h
+                          where h.message_id = m.id
+                            and h.user_id = %s
+                      )
+                    order by m.created_at desc
+                    limit 1
+                ) latest on true
+                left join lateral (
+                    select count(*)::integer as unread_count
+                    from yachat_messages m
+                    where m.chat_id = c.id
+                      and m.deleted_at is null
+                      and coalesce(m.sender_id, '') <> %s
+                      and m.created_at > coalesce(
+                          own.last_read_at,
+                          '1970-01-01T00:00:00Z'::timestamptz
+                      )
+                      and not exists (
+                          select 1
+                          from yachat_message_hidden h
+                          where h.message_id = m.id
+                            and h.user_id = %s
+                      )
+                ) unread on true
+                where c.kind <> 'saved'
                 order by c.pinned desc, c.updated_at desc, c.created_at desc
                 """,
-                (user_id,),
+                (
+                    user_id,
+                    user_id,
+                    user_id,
+                    user_id,
+                    user_id,
+                    user_id,
+                    user_id,
+                    user_id,
+                ),
             )
-            chats = [dict(row) for row in cursor.fetchall()]
-            systems = system_rows(cursor, user_id)
-            if not chats:
-                return systems
+            chat_rows = [dict(row) for row in cursor.fetchall()]
 
-            chat_ids = [str(chat["id"]) for chat in chats]
-            members: dict[str, list[dict[str, Any]]] = defaultdict(list)
-            cursor.execute(
-                """
-                select
-                    cm.chat_id,
-                    u.id,
-                    u.username,
-                    u.preview_name,
-                    u.display_name
-                from yachat_chat_members cm
-                join public_users u on u.id = cm.user_id
-                where cm.chat_id = any(%s)
-                order by cm.chat_id, cm.joined_at asc
-                """,
-                (chat_ids,),
-            )
-            for row in cursor.fetchall():
-                members[str(row["chat_id"])].append(dict(row))
+    rows: list[dict[str, Any]] = []
+    for chat in chat_rows:
+        chat_id = str(chat["id"])
+        kind = str(chat["kind"])
+        members = _json_list(chat.get("members"))
+        participant_ids = [str(row_value(member, "id")) for member in members]
+        title = str(row_value(chat, "title"))
+        subtitle = ""
+        profiles: dict[str, dict[str, Any]] = {}
 
-            latest: dict[str, dict[str, Any]] = {}
-            cursor.execute(
-                """
-                select distinct on (m.chat_id)
-                    m.chat_id,
-                    m.text,
-                    m.created_at,
-                    coalesce(m.attachments -> 0 ->> 'kind', '') as attachment_kind
-                from yachat_messages m
-                where m.chat_id = any(%s)
-                  and m.deleted_at is null
-                  and not exists (
-                      select 1 from yachat_message_hidden h
-                      where h.message_id = m.id and h.user_id = %s
-                  )
-                order by m.chat_id, m.created_at desc
-                """,
-                (chat_ids, user_id),
+        if kind == "private":
+            peer = next(
+                (member for member in members if str(row_value(member, "id")) != user_id),
+                members[0] if members else {},
             )
-            for row in cursor.fetchall():
-                latest[str(row["chat_id"])] = dict(row)
+            peer_id = str(row_value(peer, "id"))
+            username = str(row_value(peer, "username"))
+            title = str(row_value(peer, "display_name", "preview_name", "username")) or title
+            subtitle = f"@{username}" if username else "Личный чат"
+            if peer_id:
+                profiles[peer_id] = {
+                    "id": peer_id,
+                    "username": username,
+                    "displayName": title,
+                    "previewName": title,
+                }
+        elif kind == "group":
+            subtitle = f"{max(len(members), 1)} участников"
 
-            unread: dict[str, int] = {}
-            cursor.execute(
-                """
-                select m.chat_id, count(*) as count
-                from yachat_messages m
-                join yachat_chat_members cm
-                  on cm.chat_id = m.chat_id and cm.user_id = %s
-                where m.chat_id = any(%s)
-                  and m.deleted_at is null
-                  and not exists (
-                      select 1 from yachat_message_hidden h
-                      where h.message_id = m.id and h.user_id = %s
-                  )
-                  and coalesce(m.sender_id, '') <> %s
-                  and m.created_at > coalesce(
-                      cm.last_read_at,
-                      '1970-01-01T00:00:00Z'::timestamptz
-                  )
-                group by m.chat_id
-                """,
-                (user_id, chat_ids, user_id, user_id),
-            )
-            for row in cursor.fetchall():
-                unread[str(row["chat_id"])] = int(row["count"])
-
-            cursor.execute(
-                """
-                select blocker_id, blocked_id
-                from yachat_user_blocks
-                where blocker_id = %s or blocked_id = %s
-                """,
-                (user_id, user_id),
-            )
-            blocks = [dict(row) for row in cursor.fetchall()]
-            blocked_by_me = {
-                str(row["blocked_id"])
-                for row in blocks
-                if str(row["blocker_id"]) == user_id
+        rows.append(
+            {
+                "id": chat_id,
+                "kind": kind,
+                "title": title or "ЯЧат",
+                "subtitle": subtitle,
+                "participantIds": participant_ids,
+                "participantProfiles": profiles,
+                "ownerId": str(row_value(chat, "owner_id")),
+                "locked": bool(row_value(chat, "locked")),
+                "pinned": bool(row_value(chat, "pinned")),
+                "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True)
+                and not bool(row_value(chat, "blocked_by_me"))
+                and not bool(row_value(chat, "blocked_me")),
+                "blockedByMe": bool(row_value(chat, "blocked_by_me")),
+                "blockedMe": bool(row_value(chat, "blocked_me")),
+                "createdAt": row_value(chat, "created_at"),
+                "lastAt": row_value(chat, "latest_created_at", "updated_at", "created_at"),
+                "lastMessage": str(row_value(chat, "latest_text"))
+                or attachment_label(str(row_value(chat, "attachment_kind"))),
+                "unread": int(row_value(chat, "unread_count") or 0),
             }
-            blocking_me = {
-                str(row["blocker_id"])
-                for row in blocks
-                if str(row["blocked_id"]) == user_id
-            }
-
-            rows: list[dict[str, Any]] = []
-            for chat in chats:
-                chat_id = str(chat["id"])
-                kind = str(chat["kind"])
-                chat_members = members.get(chat_id, [])
-                participant_ids = [str(row["id"]) for row in chat_members]
-                title = str(row_value(chat, "title"))
-                subtitle = ""
-                profiles: dict[str, dict[str, Any]] = {}
-                blocked_by_user = False
-                blocked_user_me = False
-
-                if kind == "private":
-                    peer = next(
-                        (row for row in chat_members if str(row["id"]) != user_id),
-                        chat_members[0] if chat_members else {},
-                    )
-                    peer_id = str(row_value(peer, "id"))
-                    username = str(row_value(peer, "username"))
-                    title = str(row_value(peer, "display_name", "preview_name", "username")) or title
-                    subtitle = f"@{username}" if username else "Личный чат"
-                    blocked_by_user = peer_id in blocked_by_me
-                    blocked_user_me = peer_id in blocking_me
-                    if peer_id:
-                        profiles[peer_id] = {
-                            "id": peer_id,
-                            "username": username,
-                            "displayName": title,
-                            "previewName": title,
-                        }
-                elif kind == "group":
-                    subtitle = f"{max(len(chat_members), 1)} участников"
-
-                last = latest.get(chat_id) or {}
-                rows.append(
-                    {
-                        "id": chat_id,
-                        "kind": kind,
-                        "title": title or "ЯЧат",
-                        "subtitle": subtitle,
-                        "participantIds": participant_ids,
-                        "participantProfiles": profiles,
-                        "ownerId": str(row_value(chat, "owner_id")),
-                        "locked": bool(row_value(chat, "locked")),
-                        "pinned": bool(row_value(chat, "pinned")),
-                        "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True)
-                        and not blocked_by_user
-                        and not blocked_user_me,
-                        "blockedByMe": blocked_by_user,
-                        "blockedMe": blocked_user_me,
-                        "createdAt": row_value(chat, "created_at"),
-                        "lastAt": row_value(last, "created_at") or row_value(chat, "updated_at") or row_value(chat, "created_at"),
-                        "lastMessage": str(row_value(last, "text"))
-                        or attachment_label(str(row_value(last, "attachment_kind"))),
-                        "unread": unread.get(chat_id, 0),
-                    }
-                )
+        )
 
     return [*systems, *rows]
 
