@@ -60,6 +60,10 @@
       "destination": "/api/digital_id_blocked.py"
     },
     {
+      "source": "/api/users/search",
+      "destination": "/api/digital_id_blocked.py"
+    },
+    {
       "source": "/api/developer/v1/health",
       "destination": "/api/digital_id_blocked.py"
     },
