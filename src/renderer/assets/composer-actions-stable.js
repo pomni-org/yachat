@@ -11,6 +11,10 @@
   const stickers = form?.querySelector('[data-action="open-stickers"]');
   if (!form || !transport || !send || !attachment) return;
 
+  // The visible editor is contenteditable or a native textarea. A text input
+  // is transport only and would sanitize every line break out of its value.
+  transport.type = 'hidden';
+
   const previewCache = new Map();
   let submittingExplicitly = false;
 
