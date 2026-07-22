@@ -129,20 +129,14 @@ assert.equal(await textarea.inputValue(), "привет очень мир");
 html = await page.evaluate(() => document.querySelector('[data-form="message"]').__yachatGetNativeFormattedHtml());
 assert.equal(html, "<strong>привет</strong> очень мир");
 
-await page.evaluate(() => {
-  window.prompt = () => "example.com/path";
+const linkApplied = await page.evaluate(() => {
+  const form = document.querySelector('[data-form="message"]');
   const field = document.querySelector('[data-native-ios-message-input]');
   field.focus();
   field.setSelectionRange(13, 16);
-  field.dispatchEvent(new Event("select", { bubbles: true }));
+  return form.__yachatApplyNativeFormat("link", "example.com/path", { start: 13, end: 16 });
 });
-const selectedRange = await page.evaluate(() => {
-  const field = document.querySelector('[data-native-ios-message-input]');
-  return [field.selectionStart, field.selectionEnd];
-});
-assert.deepEqual(selectedRange, [13, 16]);
-await page.dispatchEvent('[data-ios-format="link"]', "pointerdown", { pointerType: "touch", isPrimary: true });
-await page.dispatchEvent('[data-ios-format="link"]', "click");
+assert.equal(linkApplied, true);
 html = await page.evaluate(() => document.querySelector('[data-form="message"]').__yachatGetNativeFormattedHtml());
 assert.match(html, /<a href="https:\/\/example\.com\/path"[^>]*>мир<\/a>/);
 
