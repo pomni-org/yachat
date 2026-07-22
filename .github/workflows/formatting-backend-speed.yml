@@ -42,13 +42,29 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
         run: node tests/composer-ios-native-textarea.mjs
       - name: Verify native textarea formatting
+        id: formatting
+        continue-on-error: true
         env:
           CHROME_BIN: /usr/bin/google-chrome
-        run: node tests/ios-native-formatting.mjs
+        run: |
+          set +e
+          node tests/ios-native-formatting.mjs > formatting-test-output.txt 2>&1
+          code=$?
+          echo "$code" > formatting-test-exit-code.txt
+          cat formatting-test-output.txt
+          exit "$code"
       - name: Verify optimistic compact delivery
+        id: delivery
+        continue-on-error: true
         env:
           CHROME_BIN: /usr/bin/google-chrome
-        run: node tests/frontend-first-delivery.mjs
+        run: |
+          set +e
+          node tests/frontend-first-delivery.mjs > delivery-test-output.txt 2>&1
+          code=$?
+          echo "$code" > delivery-test-exit-code.txt
+          cat delivery-test-output.txt
+          exit "$code"
       - name: Verify runtime syntax
         run: |
           node --check src/renderer/assets/ios-native-textarea.js
@@ -56,6 +72,25 @@ jobs:
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
           node --check scripts/build-vercel.cjs
+      - name: Upload browser regression output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formatting-delivery-test-output
+          path: |
+            formatting-test-output.txt
+            formatting-test-exit-code.txt
+            delivery-test-output.txt
+            delivery-test-exit-code.txt
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Fail when a browser regression failed
+        if: always()
+        run: |
+          formatting_code="$(cat formatting-test-exit-code.txt 2>/dev/null || echo 1)"
+          delivery_code="$(cat delivery-test-exit-code.txt 2>/dev/null || echo 1)"
+          test "$formatting_code" = "0"
+          test "$delivery_code" = "0"
 
   backend-writes:
     runs-on: ubuntu-latest
