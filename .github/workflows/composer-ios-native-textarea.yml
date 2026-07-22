@@ -1,6 +1,6 @@
 name: Native iOS textarea composer
 
-# Regression rerun against the v75 beforeinput/keyup Enter handling.
+# Regression rerun against the v76 immediate Enter handling.
 on:
   pull_request:
     paths:
