@@ -15,7 +15,7 @@
   if (!form || !transport || !richEditor) return;
 
   window.__yachatIosNativeTextareaInstalled = true;
-  form.dataset.yachatIosComposer = "native-textarea-v3";
+  form.dataset.yachatIosComposer = "native-textarea-v4";
   form.classList.add("is-native-ios-textarea-composer");
 
   const textarea = document.createElement("textarea");
@@ -110,6 +110,8 @@
     document.head.append(style);
   }
 
+  let pendingEnter = null;
+
   function resizeTextarea() {
     textarea.style.height = "auto";
     const minimum = Math.max(44, Number.parseFloat(getComputedStyle(textarea).minHeight) || 44);
@@ -158,25 +160,45 @@
     textarea.setAttribute("aria-label", textarea.placeholder);
   }
 
+  function insertNativeLineBreak(start = textarea.selectionStart, end = textarea.selectionEnd) {
+    textarea.setRangeText("\n", start, end, "end");
+    textarea.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertLineBreak",
+      data: null
+    }));
+  }
+
   textarea.addEventListener("input", () => syncNative());
   textarea.addEventListener("change", () => syncNative());
+  textarea.addEventListener("beforeinput", (event) => {
+    if (event.isComposing || !["insertLineBreak", "insertParagraph"].includes(event.inputType)) return;
+    event.preventDefault();
+    if (pendingEnter) pendingEnter.handled = true;
+    insertNativeLineBreak();
+  });
   textarea.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     event.stopPropagation();
     if (event.isComposing) return;
-
-    const valueBefore = textarea.value;
-    const selectionStart = textarea.selectionStart;
-    const selectionEnd = textarea.selectionEnd;
+    pendingEnter = {
+      value: textarea.value,
+      start: textarea.selectionStart,
+      end: textarea.selectionEnd,
+      handled: false,
+      prevented: false
+    };
     queueMicrotask(() => {
-      if (event.defaultPrevented || !textarea.isConnected || textarea.value !== valueBefore) return;
-      textarea.setRangeText("\n", selectionStart, selectionEnd, "end");
-      textarea.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        inputType: "insertLineBreak",
-        data: null
-      }));
+      if (pendingEnter) pendingEnter.prevented = event.defaultPrevented;
     });
+  });
+  textarea.addEventListener("keyup", (event) => {
+    if (event.key !== "Enter" || !pendingEnter) return;
+    const pending = pendingEnter;
+    pendingEnter = null;
+    if (!pending.handled && !pending.prevented && textarea.value === pending.value) {
+      insertNativeLineBreak(pending.start, pending.end);
+    }
   });
   textarea.addEventListener("focus", resizeTextarea);
 
