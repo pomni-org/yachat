@@ -12,15 +12,16 @@
   const form = document.querySelector('[data-form="message"]');
   const transport = form?.querySelector('[data-message-input]');
   const richEditor = form?.querySelector('[data-rich-message-editor]');
+  const sendButtonElement = form?.querySelector('.send-button');
   if (!form || !transport || !richEditor) return;
 
   window.__yachatIosNativeTextareaInstalled = true;
-  form.dataset.yachatIosComposer = "native-textarea-v6";
+  form.dataset.yachatIosComposer = "native-textarea-v7";
   form.classList.add("is-native-ios-textarea-composer");
 
-  // A text input applies the value-sanitization algorithm and removes every
-  // line break. Keep the same DOM node (the app holds a reference to it), but
-  // use a hidden input so multiline textarea values survive transport sync.
+  // Text inputs strip line breaks from their value. Keep the exact same node,
+  // because the application retains its reference, but use a hidden transport
+  // type whose value can contain the textarea's complete multiline text.
   transport.type = "hidden";
 
   const textarea = document.createElement("textarea");
@@ -137,6 +138,24 @@
     }
   }
 
+  function updateSendState() {
+    if (!sendButtonElement) return;
+    const hasText = Boolean(String(textarea.value || "").trim());
+    let attachmentCount = 0;
+    let editing = false;
+    let allowed = true;
+    try {
+      attachmentCount = Array.isArray(state?.pendingAttachments) ? state.pendingAttachments.length : 0;
+      editing = Boolean(state?.editingMessageId);
+      allowed = typeof canSendToChat === "function" ? Boolean(canSendToChat(getActiveChat())) : true;
+    } catch {
+      allowed = true;
+    }
+    sendButtonElement.disabled = editing
+      ? !hasText
+      : !allowed || (!hasText && attachmentCount === 0);
+  }
+
   function syncNative({ dispatch = true } = {}) {
     const value = String(textarea.value || "").replace(/\r/g, "");
     mirrorToLegacyEditor(value);
@@ -144,6 +163,7 @@
     if (changed) transport.value = value;
     if (changed && dispatch) transport.dispatchEvent(new Event("input", { bubbles: true }));
     resizeTextarea();
+    updateSendState();
     return value;
   }
 
@@ -163,6 +183,7 @@
     textarea.readOnly = readonly;
     textarea.placeholder = transport.placeholder || "Сообщение";
     textarea.setAttribute("aria-label", textarea.placeholder);
+    updateSendState();
   }
 
   function insertNativeLineBreak(start = textarea.selectionStart, end = textarea.selectionEnd) {
