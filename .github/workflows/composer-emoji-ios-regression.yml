@@ -1,6 +1,5 @@
 name: Composer emoji iOS regression
 
-# This comment intentionally changes the PR branch so the browser regression runs.
 on:
   push:
     branches: [main]
@@ -52,6 +51,32 @@ jobs:
           /usr/bin/google-chrome --version
 
       - name: Run emoji and caret regression suite
+        id: regression
+        continue-on-error: true
         env:
           CHROME_BIN: /usr/bin/google-chrome
-        run: node tests/composer-emoji-ios-regression.mjs
+        run: |
+          set +e
+          node tests/composer-emoji-ios-regression.mjs > composer-test-output.txt 2>&1
+          code=$?
+          echo "$code" > composer-test-exit-code.txt
+          cat composer-test-output.txt
+          exit "$code"
+
+      - name: Upload complete regression output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-emoji-test-output
+          path: |
+            composer-test-output.txt
+            composer-test-exit-code.txt
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Fail when regression failed
+        if: always()
+        run: |
+          code="$(cat composer-test-exit-code.txt 2>/dev/null || echo 1)"
+          cat composer-test-output.txt 2>/dev/null || true
+          test "$code" = "0"
