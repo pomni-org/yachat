@@ -12,34 +12,134 @@
   if (!isIos) return;
 
   function installSettingsToggleRepair() {
+    let pointerGesture = null;
+    let suppressClickUntil = 0;
+    let suppressClickRow = null;
+
+    if (!document.querySelector("style[data-yachat-ios-switch-v2]")) {
+      const style = document.createElement("style");
+      style.dataset.yachatIosSwitchV2 = "";
+      style.textContent = `
+        .settings-toggle-row {
+          cursor: pointer;
+          touch-action: pan-y;
+          -webkit-tap-highlight-color: transparent;
+          user-select: none;
+        }
+
+        .settings-toggle-row .settings-switch {
+          flex: 0 0 46px;
+          pointer-events: none;
+          background: color-mix(in srgb, var(--muted), transparent 45%) !important;
+          transform: translateZ(0);
+          transition:
+            background-color 180ms cubic-bezier(.2, .8, .2, 1),
+            box-shadow 180ms ease !important;
+        }
+
+        .settings-toggle-row .settings-switch::after {
+          transform: translate3d(0, 0, 0) scale(1);
+          will-change: transform;
+          transition: transform 180ms cubic-bezier(.2, .85, .25, 1.15) !important;
+        }
+
+        .settings-toggle-row.is-on .settings-switch {
+          background: var(--accent) !important;
+          box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent), transparent 68%);
+        }
+
+        .settings-toggle-row.is-on .settings-switch::after {
+          transform: translate3d(18px, 0, 0) scale(1);
+        }
+
+        .settings-toggle-row.is-pressing .settings-switch::after {
+          transform: translate3d(0, 0, 0) scale(.88);
+        }
+
+        .settings-toggle-row.is-on.is-pressing .settings-switch::after {
+          transform: translate3d(18px, 0, 0) scale(.88);
+        }
+      `;
+      document.head.append(style);
+    }
+
+    function syncRow(row, checked) {
+      const input = row?.querySelector?.("input[data-settings-toggle]");
+      if (!input) return;
+      const next = Boolean(checked);
+      input.checked = next;
+      row.classList.toggle("is-on", next);
+      row.setAttribute("aria-checked", next ? "true" : "false");
+    }
+
     function decorateRows(root = document) {
       root.querySelectorAll?.(".settings-toggle-row").forEach((row) => {
         const input = row.querySelector("input[data-settings-toggle]");
         if (!input) return;
         row.tabIndex = 0;
         row.setAttribute("role", "switch");
-        row.setAttribute("aria-checked", input.checked ? "true" : "false");
         input.tabIndex = -1;
+        syncRow(row, input.checked);
       });
     }
 
     function toggleRow(row) {
       const input = row?.querySelector?.("input[data-settings-toggle]");
       if (!input || input.disabled) return;
-      input.checked = !input.checked;
-      row.setAttribute("aria-checked", input.checked ? "true" : "false");
-      input.dispatchEvent(new Event("change", { bubbles: true }));
+      syncRow(row, !input.checked);
+
+      // Let WebKit paint the switch before local/server persistence work runs.
+      requestAnimationFrame(() => {
+        if (!input.isConnected) return;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
     }
 
-    // Capture on window happens before document/label handlers. This prevents
-    // WebKit from performing a second implicit label click after we changed the
-    // checkbox, which was the reason ON worked while OFF immediately reverted.
+    window.addEventListener("pointerdown", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const row = target?.closest?.(".settings-toggle-row");
+      if (!row || event.button !== 0) return;
+      pointerGesture = {
+        row,
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY
+      };
+      row.classList.add("is-pressing");
+    }, true);
+
+    window.addEventListener("pointerup", (event) => {
+      const gesture = pointerGesture;
+      pointerGesture = null;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+      gesture.row.classList.remove("is-pressing");
+      const moved = Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y);
+      suppressClickUntil = performance.now() + 700;
+      suppressClickRow = gesture.row;
+
+      if (moved > 12 || !gesture.row.isConnected) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      toggleRow(gesture.row);
+    }, true);
+
+    window.addEventListener("pointercancel", () => {
+      pointerGesture?.row?.classList?.remove("is-pressing");
+      pointerGesture = null;
+    }, true);
+
     window.addEventListener("click", (event) => {
       const target = event.target instanceof Element ? event.target : null;
       const row = target?.closest?.(".settings-toggle-row");
       if (!row) return;
+
       event.preventDefault();
       event.stopImmediatePropagation();
+
+      if (row === suppressClickRow && performance.now() < suppressClickUntil) {
+        return;
+      }
       toggleRow(row);
     }, true);
 
@@ -61,50 +161,105 @@
 
   function installNativeComposer() {
     const form = document.querySelector('[data-form="message"]');
-    const input = document.querySelector("[data-message-input]");
+    const transport = document.querySelector("[data-message-input]");
     const richEditor = document.querySelector("[data-rich-message-editor]");
-    if (!form || !(input instanceof HTMLInputElement)) return;
+    const send = form?.querySelector(".send-button");
+    if (!form || !(transport instanceof HTMLInputElement) || !send) return;
 
-    const preservedText = String(richEditor?.innerText || richEditor?.textContent || "")
+    const preservedText = String(richEditor?.innerText || richEditor?.textContent || transport.value || "")
       .replace(/\u00a0/g, " ")
       .replace(/\r/g, "");
-    if (!input.value && preservedText) input.value = preservedText;
 
     richEditor?.remove();
     document.querySelector(".rich-selection-toolbar")?.remove();
-    input.classList.remove("rich-composer-transport");
-    input.removeAttribute("aria-hidden");
-    input.tabIndex = 0;
-    input.autocapitalize = "sentences";
-    input.spellcheck = true;
-    input.setAttribute("enterkeyhint", "send");
-    input.style.removeProperty("display");
-    input.style.removeProperty("position");
-    input.style.removeProperty("opacity");
-    input.style.removeProperty("pointer-events");
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "ios-native-message-input";
+    textarea.dataset.iosMessageInput = "";
+    textarea.rows = 1;
+    textarea.value = preservedText;
+    textarea.placeholder = transport.placeholder || "Сообщение";
+    textarea.autocapitalize = "sentences";
+    textarea.spellcheck = true;
+    textarea.setAttribute("enterkeyhint", "enter");
+    textarea.setAttribute("aria-label", textarea.placeholder);
+    transport.insertAdjacentElement("afterend", textarea);
+
+    const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+    if (valueDescriptor?.get && valueDescriptor?.set) {
+      Object.defineProperty(transport, "value", {
+        configurable: true,
+        enumerable: valueDescriptor.enumerable,
+        get() {
+          return valueDescriptor.get.call(transport);
+        },
+        set(value) {
+          const text = String(value ?? "");
+          valueDescriptor.set.call(transport, text);
+          if (textarea.value !== text) {
+            textarea.value = text;
+            resizeTextarea();
+          }
+        }
+      });
+      transport.value = preservedText;
+    } else {
+      transport.value = preservedText;
+    }
+
+    const nativeFocus = textarea.focus.bind(textarea);
+    transport.focus = (options) => {
+      if (textarea.value !== transport.value) textarea.value = transport.value;
+      resizeTextarea();
+      nativeFocus(options);
+    };
+    transport.setSelectionRange = (start, end, direction) => {
+      textarea.setSelectionRange(start, end, direction);
+    };
+
+    transport.classList.add("rich-composer-transport");
+    transport.tabIndex = -1;
+    transport.setAttribute("aria-hidden", "true");
+    transport.style.setProperty("display", "none", "important");
+
     form.classList.add("is-native-ios-composer");
 
-    if (!document.querySelector("style[data-yachat-ios-native-composer]")) {
+    if (!document.querySelector("style[data-yachat-ios-native-composer-v2]")) {
       const style = document.createElement("style");
-      style.dataset.yachatIosNativeComposer = "";
+      style.dataset.yachatIosNativeComposerV2 = "";
       style.textContent = `
+        .composer.is-native-ios-composer {
+          align-items: flex-end;
+        }
+
         .composer.is-native-ios-composer [data-message-input] {
+          display: none !important;
+        }
+
+        .composer.is-native-ios-composer .ios-native-message-input {
           display: block !important;
           min-width: 0 !important;
           width: 100% !important;
-          height: auto !important;
+          min-height: 42px !important;
+          max-height: 132px !important;
+          margin: 0 !important;
           padding: 10px 4px !important;
+          overflow-y: auto !important;
+          resize: none !important;
           border: 0 !important;
           outline: 0 !important;
           background: transparent !important;
           color: var(--text) !important;
           font: inherit !important;
           line-height: 1.35 !important;
+          white-space: pre-wrap !important;
+          overflow-wrap: anywhere !important;
           -webkit-user-select: text !important;
           user-select: text !important;
           pointer-events: auto !important;
           opacity: 1 !important;
         }
+
         .composer.is-native-ios-composer .rich-selection-toolbar {
           display: none !important;
         }
@@ -112,11 +267,66 @@
       document.head.append(style);
     }
 
-    // Keep the send button and typing presence in sync if a character was
-    // already present when the runtime switched from contenteditable.
-    if (input.value) input.dispatchEvent(new Event("input", { bubbles: true }));
+    function resizeTextarea() {
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(132, Math.max(42, textarea.scrollHeight))}px`;
+    }
 
-    installNativeMentions(form, input);
+    function syncTransport(event = null) {
+      transport.value = textarea.value;
+      const inputEvent = typeof InputEvent === "function"
+        ? new InputEvent("input", {
+            bubbles: true,
+            inputType: event?.inputType || "insertText",
+            data: event?.data ?? null,
+            isComposing: Boolean(event?.isComposing)
+          })
+        : new Event("input", { bubbles: true });
+      transport.dispatchEvent(inputEvent);
+      resizeTextarea();
+    }
+
+    textarea.addEventListener("input", syncTransport);
+    textarea.addEventListener("compositionend", syncTransport);
+
+    // A textarea keeps Enter as a newline. Even if WebKit decides to submit the
+    // surrounding form, only the real send button is allowed to authorize it.
+    form.addEventListener("submit", (event) => {
+      if (event.submitter !== send) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    }, true);
+
+    form.addEventListener("submit", (event) => {
+      if (event.submitter !== send) return;
+      transport.value = textarea.value;
+      queueMicrotask(() => {
+        if (!transport.value) {
+          textarea.value = "";
+          resizeTextarea();
+        }
+      });
+    });
+
+    const attributeObserver = new MutationObserver(() => {
+      textarea.placeholder = transport.placeholder || "Сообщение";
+      textarea.setAttribute("aria-label", textarea.placeholder);
+      textarea.disabled = transport.disabled;
+    });
+    attributeObserver.observe(transport, {
+      attributes: true,
+      attributeFilter: ["placeholder", "disabled"]
+    });
+
+    textarea.disabled = transport.disabled;
+    resizeTextarea();
+
+    if (transport.value) {
+      transport.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    installNativeMentions(form, textarea);
   }
 
   function installNativeMentions(form, input) {
