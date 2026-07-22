@@ -15,7 +15,7 @@
   if (!form || !textarea) return;
 
   window.__yachatIosNativeFormattingInstalled = true;
-  form.dataset.yachatIosFormatting = "range-model-v2";
+  form.dataset.yachatIosFormatting = "range-model-v3";
 
   const formatOrder = ["link", "code", "bold", "italic", "underline", "strike"];
   const tagByType = {
@@ -66,8 +66,16 @@
     return { start: Math.min(start, end), end: Math.max(start, end) };
   }
 
-  function rememberSelection() {
-    savedSelection = currentSelection();
+  function rememberSelection({ force = false } = {}) {
+    const next = currentSelection();
+    const savedIsRange = savedSelection.end > savedSelection.start;
+    const nextIsCollapsed = next.end === next.start;
+    const toolbarVisible = typeof toolbar !== "undefined" && !toolbar.hidden;
+
+    if (!force && toolbarVisible && savedIsRange && nextIsCollapsed) {
+      return savedSelection;
+    }
+    savedSelection = next;
     return savedSelection;
   }
 
@@ -437,7 +445,9 @@
   }
 
   function updateToolbarState() {
-    const target = document.activeElement === textarea ? currentSelection() : savedSelection;
+    const target = document.activeElement === textarea && currentSelection().end > currentSelection().start
+      ? currentSelection()
+      : savedSelection;
     toolbar.querySelectorAll("[data-ios-format]").forEach((button) => {
       button.classList.toggle(
         "is-active",
@@ -486,7 +496,7 @@
     const current = textarea.value;
     rebaseRanges(previousValue, current);
     previousValue = current;
-    rememberSelection();
+    rememberSelection({ force: true });
     submittedHtml = serializeFormattedHtml();
   });
   textarea.addEventListener("select", () => {
@@ -494,11 +504,11 @@
     updateToolbarState();
   });
   textarea.addEventListener("keyup", () => {
-    rememberSelection();
+    rememberSelection({ force: true });
     updateToolbarState();
   });
   textarea.addEventListener("pointerup", () => {
-    rememberSelection();
+    rememberSelection({ force: true });
     updateToolbarState();
   });
   textarea.addEventListener("blur", () => {
@@ -551,7 +561,7 @@
       setFormatting(message?.formattedHtml || "", message?.text || textarea.value);
       textarea.focus({ preventScroll: true });
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-      rememberSelection();
+      rememberSelection({ force: true });
       return result;
     };
     Object.defineProperty(wrappedStartEditMessage, "__yachatIosFormatting", { value: true });
@@ -585,6 +595,13 @@
 
   form.__yachatGetNativeFormattedHtml = serializeFormattedHtml;
   form.__yachatSetNativeFormatting = setFormatting;
-  rememberSelection();
+  form.__yachatGetNativeFormattingState = () => ({
+    ranges: ranges.map((item) => ({ ...item })),
+    savedSelection: { ...savedSelection },
+    currentSelection: currentSelection(),
+    toolbarHidden: toolbar.hidden,
+    activeElement: document.activeElement?.className || document.activeElement?.tagName || ""
+  });
+  rememberSelection({ force: true });
   updateToolbarState();
 })();
