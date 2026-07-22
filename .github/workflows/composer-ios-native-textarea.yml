@@ -1,17 +1,6 @@
 name: Native iOS textarea composer
 
-# Verification branch for the v72 native textarea replacement.
 on:
-  push:
-    branches: [main]
-    paths:
-      - src/renderer/assets/rich-composer-stable.js
-      - src/renderer/assets/ios-native-textarea.js
-      - src/renderer/assets/ios-native-mentions.js
-      - src/renderer/assets/composer-delivery-stable.js
-      - src/renderer/assets/composer-actions-stable.js
-      - tests/composer-ios-native-textarea.mjs
-      - .github/workflows/composer-ios-native-textarea.yml
   pull_request:
     paths:
       - src/renderer/assets/rich-composer-stable.js
@@ -48,6 +37,32 @@ jobs:
           /usr/bin/google-chrome --version
 
       - name: Run native textarea composer suite
+        id: regression
+        continue-on-error: true
         env:
           CHROME_BIN: /usr/bin/google-chrome
-        run: node tests/composer-ios-native-textarea.mjs
+        run: |
+          set +e
+          node tests/composer-ios-native-textarea.mjs > native-textarea-output.txt 2>&1
+          code=$?
+          echo "$code" > native-textarea-exit-code.txt
+          cat native-textarea-output.txt
+          exit "$code"
+
+      - name: Upload complete regression output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ios-textarea-output
+          path: |
+            native-textarea-output.txt
+            native-textarea-exit-code.txt
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Fail when regression failed
+        if: always()
+        run: |
+          code="$(cat native-textarea-exit-code.txt 2>/dev/null || echo 1)"
+          cat native-textarea-output.txt 2>/dev/null || true
+          test "$code" = "0"
