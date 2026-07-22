@@ -24,7 +24,7 @@ const files = [
   "developers.html"
 ];
 
-const BRAND_VERSION = "71";
+const BRAND_VERSION = "72";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -81,6 +81,8 @@ const SCRIPT_ASSETS = [
   "ui-accessibility.js",
   "message-search.js",
   "rich-composer-stable.js",
+  "ios-native-textarea.js",
+  "ios-native-mentions.js",
   "message-mentions.js",
   "media-emoji-upgrade.js",
   "system-upgrade-v29.js",
@@ -91,8 +93,7 @@ const SCRIPT_ASSETS = [
   "message-state-repair.js",
   "composer-delivery-stable.js",
   "composer-actions-stable.js",
-  "mobile-chat-stable.js",
-  "ios-composer-caret-guard.js"
+  "mobile-chat-stable.js"
 ];
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
@@ -126,6 +127,8 @@ async function validateRuntimeScripts() {
     "group-creation-flow.js",
     "message-search.js",
     "rich-composer-stable.js",
+    "ios-native-textarea.js",
+    "ios-native-mentions.js",
     "message-mentions.js",
     "theme-message-reference.js",
     "channel-avatar-persistence.js",
@@ -134,8 +137,7 @@ async function validateRuntimeScripts() {
     "message-state-repair.js",
     "composer-delivery-stable.js",
     "composer-actions-stable.js",
-    "mobile-chat-stable.js",
-    "ios-composer-caret-guard.js"
+    "mobile-chat-stable.js"
   ];
   await Promise.all(requiredScripts.map((name) => execFileAsync(process.execPath, [
     "--check",
