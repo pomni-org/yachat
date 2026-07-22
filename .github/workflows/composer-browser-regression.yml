@@ -20,6 +20,7 @@ on:
       - src/renderer/assets/mobile-chat-stable.js
       - tests/composer-browser-regression.mjs
       - .github/workflows/composer-browser-regression.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
