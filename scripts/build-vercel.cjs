@@ -24,7 +24,7 @@ const files = [
   "developers.html"
 ];
 
-const BRAND_VERSION = "63";
+const BRAND_VERSION = "64";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
