@@ -3,14 +3,17 @@ name: Formatting and backend speed
 on:
   pull_request:
     paths:
+      - src/renderer/assets/ios-native-textarea.js
       - src/renderer/assets/ios-native-formatting.js
       - src/renderer/assets/frontend-first-runtime.js
       - src/renderer/assets/composer-delivery-stable.js
       - api/message.py
+      - api/chat_poll.py
       - server/database.py
       - tests/ios-native-formatting.mjs
       - tests/composer-ios-native-textarea.mjs
       - tests/test_message_performance.py
+      - tests/test_chat_poll_queries.py
       - scripts/build-vercel.cjs
       - .github/workflows/formatting-backend-speed.yml
   workflow_dispatch:
@@ -43,6 +46,7 @@ jobs:
         run: node tests/ios-native-formatting.mjs
       - name: Verify runtime syntax
         run: |
+          node --check src/renderer/assets/ios-native-textarea.js
           node --check src/renderer/assets/ios-native-formatting.js
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
@@ -59,6 +63,10 @@ jobs:
       - name: Install backend dependencies
         run: python -m pip install -r requirements.txt
       - name: Verify Python syntax
-        run: python -m py_compile api/message.py server/database.py tests/test_message_performance.py
+        run: |
+          python -m py_compile api/message.py api/chat_poll.py server/database.py
+          python -m py_compile tests/test_message_performance.py tests/test_chat_poll_queries.py
       - name: Test compact writes and physical deletion
         run: python -m unittest tests.test_message_performance -v
+      - name: Test combined chat polling query
+        run: python -m unittest tests.test_chat_poll_queries -v
