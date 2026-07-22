@@ -166,7 +166,13 @@
 
   function clearComposer(form, transport, send) {
     transport.value = "";
-    form.querySelector("[data-rich-message-editor]")?.replaceChildren();
+    const nativeTextarea = form.querySelector("[data-native-ios-message-input]");
+    if (nativeTextarea) {
+      nativeTextarea.value = "";
+      nativeTextarea.dispatchEvent(new Event("input", { bubbles: true }));
+    } else {
+      form.querySelector("[data-rich-message-editor]")?.replaceChildren();
+    }
     state.pendingAttachments = [];
     state.replyToMessage = null;
     renderAttachmentTray();
