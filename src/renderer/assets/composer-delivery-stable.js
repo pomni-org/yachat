@@ -164,6 +164,22 @@
     });
   }
 
+  function scheduleMessageDelivery(chat, message) {
+    let started = false;
+    const start = () => {
+      if (started) return;
+      started = true;
+      enqueueMessage(chat, message);
+    };
+
+    // Give the browser one rendering opportunity so the outgoing bubble and
+    // cleared composer are visible before network work starts. The timeout is
+    // a fallback for hidden/throttled documents where requestAnimationFrame
+    // may be delayed for an unreasonable amount of time.
+    requestAnimationFrame(() => window.setTimeout(start, 0));
+    window.setTimeout(start, 80);
+  }
+
   function clearComposer(form, transport, send) {
     transport.value = "";
     const nativeTextarea = form.querySelector("[data-native-ios-message-input]");
@@ -213,7 +229,7 @@
 
       renderOptimistic(chat, outgoing);
       clearComposer(form, transport, send);
-      queueMicrotask(() => enqueueMessage(chat, outgoing));
+      scheduleMessageDelivery(chat, outgoing);
     }, true);
   }
 
