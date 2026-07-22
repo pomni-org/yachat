@@ -1,5 +1,6 @@
 name: Native iOS textarea composer
 
+# Verifies the hidden multiline transport used by the v77 native iOS composer.
 on:
   push:
     branches: [main]
