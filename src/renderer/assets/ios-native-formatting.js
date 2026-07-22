@@ -15,7 +15,7 @@
   if (!form || !textarea) return;
 
   window.__yachatIosNativeFormattingInstalled = true;
-  form.dataset.yachatIosFormatting = "range-model-v1";
+  form.dataset.yachatIosFormatting = "range-model-v2";
 
   const formatOrder = ["link", "code", "bold", "italic", "underline", "strike"];
   const tagByType = {
@@ -37,6 +37,7 @@
   let previousValue = textarea.value;
   let submittedHtml = "";
   let toolbarPinned = false;
+  let savedSelection = { start: 0, end: 0 };
 
   function safeUrl(value) {
     const source = String(value || "").trim();
@@ -59,31 +60,63 @@
       .replaceAll("'", "&#39;");
   }
 
-  function normalizedRanges() {
+  function currentSelection() {
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? start;
+    return { start: Math.min(start, end), end: Math.max(start, end) };
+  }
+
+  function rememberSelection() {
+    savedSelection = currentSelection();
+    return savedSelection;
+  }
+
+  function actionSelection() {
+    const current = currentSelection();
+    if (document.activeElement === textarea && current.end > current.start) {
+      savedSelection = current;
+      return current;
+    }
+    return savedSelection;
+  }
+
+  function normalizedRanges(input = ranges) {
     const length = textarea.value.length;
     const result = [];
     const seen = new Set();
-    for (const item of ranges) {
+
+    for (const item of input) {
       const start = Math.max(0, Math.min(length, Number(item.start) || 0));
       const end = Math.max(start, Math.min(length, Number(item.end) || 0));
-      if (end <= start || !formatOrder.includes(item.type)) continue;
-      const href = item.type === "link" ? safeUrl(item.href) : "";
-      if (item.type === "link" && !href) continue;
-      const key = `${item.type}:${start}:${end}:${href}`;
+      const type = String(item.type || "");
+      if (end <= start || !formatOrder.includes(type)) continue;
+      const href = type === "link" ? safeUrl(item.href) : "";
+      if (type === "link" && !href) continue;
+      const key = `${type}:${start}:${end}:${href}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      result.push({ start, end, type: item.type, href });
+      result.push({ start, end, type, href });
     }
-    return result.sort((a, b) => a.start - b.start || a.end - b.end || formatOrder.indexOf(a.type) - formatOrder.indexOf(b.type));
+
+    return result.sort((left, right) => (
+      left.type.localeCompare(right.type)
+      || left.href.localeCompare(right.href)
+      || left.start - right.start
+      || left.end - right.end
+    ));
   }
 
   function mergeAdjacent(input) {
-    const sorted = [...input].sort((a, b) => a.type.localeCompare(b.type) || a.href.localeCompare(b.href) || a.start - b.start || a.end - b.end);
     const merged = [];
-    for (const item of sorted) {
-      const last = merged.at(-1);
-      if (last && last.type === item.type && last.href === item.href && item.start <= last.end) {
-        last.end = Math.max(last.end, item.end);
+    for (const item of normalizedRanges(input)) {
+      const previous = merged.at(-1);
+      if (
+        previous
+        && previous.type === item.type
+        && previous.href === item.href
+        && item.start <= previous.end
+      ) {
+        previous.end = Math.max(previous.end, item.end);
       } else {
         merged.push({ ...item });
       }
@@ -93,7 +126,6 @@
 
   function commitRanges(next) {
     ranges = mergeAdjacent(next);
-    ranges = normalizedRanges();
     updateToolbarState();
   }
 
@@ -120,9 +152,21 @@
   function rebaseRanges(before, after) {
     if (before === after || ranges.length === 0) return;
     const { oldStart, oldEnd, newEnd, delta } = diffWindow(before, after);
+    const insertion = oldStart === oldEnd && delta > 0;
     const next = [];
 
     for (const item of ranges) {
+      if (insertion) {
+        if (oldStart <= item.start) {
+          next.push({ ...item, start: item.start + delta, end: item.end + delta });
+        } else if (oldStart >= item.end) {
+          next.push({ ...item });
+        } else {
+          next.push({ ...item, end: item.end + delta });
+        }
+        continue;
+      }
+
       if (item.end <= oldStart) {
         next.push({ ...item });
         continue;
@@ -131,33 +175,27 @@
         next.push({ ...item, start: item.start + delta, end: item.end + delta });
         continue;
       }
-      if (item.start < oldStart && item.end > oldEnd) {
-        next.push({ ...item, end: item.end + delta });
+
+      if (item.start < oldStart) {
+        const end = item.end > oldEnd ? item.end + delta : oldStart;
+        if (end > item.start) next.push({ ...item, end });
         continue;
       }
-      if (item.start < oldStart && item.end <= oldEnd) {
-        if (oldStart > item.start) next.push({ ...item, end: oldStart });
-        continue;
-      }
-      if (item.start >= oldStart && item.end > oldEnd) {
-        const shiftedEnd = item.end + delta;
-        if (shiftedEnd > newEnd) next.push({ ...item, start: newEnd, end: shiftedEnd });
+
+      if (item.end > oldEnd) {
+        const end = item.end + delta;
+        if (end > newEnd) next.push({ ...item, start: newEnd, end });
       }
     }
-    commitRanges(next);
-  }
 
-  function selection() {
-    const start = textarea.selectionStart ?? 0;
-    const end = textarea.selectionEnd ?? start;
-    return { start: Math.min(start, end), end: Math.max(start, end) };
+    commitRanges(next);
   }
 
   function selectionCovered(type, start, end) {
     if (end <= start) return false;
     const matching = normalizedRanges()
       .filter((item) => item.type === type && item.start < end && item.end > start)
-      .sort((a, b) => a.start - b.start || b.end - a.end);
+      .sort((left, right) => left.start - right.start || right.end - left.end);
     let cursor = start;
     for (const item of matching) {
       if (item.start > cursor) return false;
@@ -180,8 +218,51 @@
     return next;
   }
 
-  function applyFormat(type, href = "") {
-    const { start, end } = selection();
+  function activeFormatsForSegment(start, end) {
+    return normalizedRanges().filter((item) => item.start <= start && item.end >= end);
+  }
+
+  function serializeFormattedHtml() {
+    const text = textarea.value;
+    if (!text) return "";
+    const activeRanges = normalizedRanges();
+    if (activeRanges.length === 0) return "";
+
+    const boundaries = new Set([0, text.length]);
+    activeRanges.forEach((item) => {
+      boundaries.add(item.start);
+      boundaries.add(item.end);
+    });
+    const points = [...boundaries].sort((left, right) => left - right);
+    let html = "";
+
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const start = points[index];
+      const end = points[index + 1];
+      if (end <= start) continue;
+      let segment = escapeHtml(text.slice(start, end)).replace(/\n/g, "<br>");
+      const active = activeFormatsForSegment(start, end)
+        .sort((left, right) => formatOrder.indexOf(left.type) - formatOrder.indexOf(right.type));
+
+      for (let activeIndex = active.length - 1; activeIndex >= 0; activeIndex -= 1) {
+        const item = active[activeIndex];
+        if (item.type === "link") {
+          segment = `<a href="${escapeHtml(item.href)}" target="_blank" rel="noopener noreferrer">${segment}</a>`;
+        } else {
+          const tag = tagByType[item.type];
+          if (tag) segment = `<${tag}>${segment}</${tag}>`;
+        }
+      }
+      html += segment;
+    }
+    return html;
+  }
+
+  function applyFormat(type, href = "", target = actionSelection()) {
+    const length = textarea.value.length;
+    const start = Math.max(0, Math.min(length, Number(target.start) || 0));
+    const end = Math.max(start, Math.min(length, Number(target.end) || 0));
+
     if (end <= start) {
       window.yachatFeedback?.show?.("Сначала выделите текст", { tone: "error", icon: "circle-alert" });
       textarea.focus({ preventScroll: true });
@@ -198,49 +279,12 @@
       }
       next.push({ start, end, type, href: safeHref });
     }
+
+    savedSelection = { start, end };
     commitRanges(next);
     submittedHtml = serializeFormattedHtml();
     textarea.focus({ preventScroll: true });
     textarea.setSelectionRange(start, end);
-  }
-
-  function activeFormatsForSegment(start, end) {
-    return normalizedRanges().filter((item) => item.start <= start && item.end >= end);
-  }
-
-  function serializeFormattedHtml() {
-    const text = textarea.value;
-    if (!text) return "";
-    const activeRanges = normalizedRanges();
-    if (activeRanges.length === 0) return "";
-
-    const boundaries = new Set([0, text.length]);
-    activeRanges.forEach((item) => {
-      boundaries.add(item.start);
-      boundaries.add(item.end);
-    });
-    const points = [...boundaries].sort((a, b) => a - b);
-    let html = "";
-
-    for (let index = 0; index < points.length - 1; index += 1) {
-      const start = points[index];
-      const end = points[index + 1];
-      if (end <= start) continue;
-      let segment = escapeHtml(text.slice(start, end)).replace(/\n/g, "<br>");
-      const active = activeFormatsForSegment(start, end)
-        .sort((a, b) => formatOrder.indexOf(a.type) - formatOrder.indexOf(b.type));
-      for (let itemIndex = active.length - 1; itemIndex >= 0; itemIndex -= 1) {
-        const item = active[itemIndex];
-        if (item.type === "link") {
-          segment = `<a href="${escapeHtml(item.href)}" target="_blank" rel="noopener noreferrer">${segment}</a>`;
-        } else {
-          const tag = tagByType[item.type];
-          if (tag) segment = `<${tag}>${segment}</${tag}>`;
-        }
-      }
-      html += segment;
-    }
-    return html;
   }
 
   function parseFormattedHtml(formattedHtml, fallbackText = "") {
@@ -249,9 +293,15 @@
     let text = "";
     const parsedRanges = [];
 
-    function walk(node) {
+    function walk(node, active = []) {
       if (node.nodeType === Node.TEXT_NODE) {
-        text += node.nodeValue || "";
+        const value = node.nodeValue || "";
+        const start = text.length;
+        text += value;
+        const end = text.length;
+        active.forEach((item) => {
+          if (end > start) parsedRanges.push({ start, end, ...item });
+        });
         return;
       }
       if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -271,20 +321,21 @@
         CODE: "code",
         A: "link"
       }[node.tagName] || "";
-      const href = type === "link" ? safeUrl(node.getAttribute("href")) : "";
-      const start = text.length;
-      [...node.childNodes].forEach(walk);
-      const end = text.length;
-      if (type && end > start && (type !== "link" || href)) {
-        parsedRanges.push({ start, end, type, href });
+      const nextActive = [...active];
+      if (type === "link") {
+        const href = safeUrl(node.getAttribute("href"));
+        if (href) nextActive.push({ type, href });
+      } else if (type) {
+        nextActive.push({ type, href: "" });
       }
+      [...node.childNodes].forEach((child) => walk(child, nextActive));
     }
 
-    [...template.content.childNodes].forEach(walk);
+    [...template.content.childNodes].forEach((node) => walk(node));
     const cleanFallback = String(fallbackText || "").replace(/\r/g, "");
     if (!text && cleanFallback) return { text: cleanFallback, ranges: [] };
     if (cleanFallback && text !== cleanFallback) return { text: cleanFallback, ranges: [] };
-    return { text, ranges: parsedRanges };
+    return { text, ranges: mergeAdjacent(parsedRanges) };
   }
 
   function setFormatting(formattedHtml = "", fallbackText = textarea.value) {
@@ -294,6 +345,7 @@
       form.__yachatSyncRichEditor?.({ dispatch: false });
     }
     previousValue = textarea.value;
+    savedSelection = { start: textarea.value.length, end: textarea.value.length };
     commitRanges(parsed.ranges);
     submittedHtml = serializeFormattedHtml();
   }
@@ -324,6 +376,9 @@
     const style = document.createElement("style");
     style.dataset.yachatIosFormatting = "";
     style.textContent = `
+      .composer.is-native-ios-textarea-composer {
+        position: relative;
+      }
       .composer.is-native-ios-textarea-composer .ios-format-toggle {
         display: inline-flex !important;
         align-items: center;
@@ -375,38 +430,55 @@
   }
 
   function updateToolbarVisibility() {
-    const { start, end } = selection();
-    const visible = toolbarPinned || (document.activeElement === textarea && end > start);
+    const current = currentSelection();
+    const visible = toolbarPinned || (document.activeElement === textarea && current.end > current.start);
     toolbar.hidden = !visible;
     toggle.setAttribute("aria-expanded", visible ? "true" : "false");
   }
 
   function updateToolbarState() {
-    const { start, end } = selection();
+    const target = document.activeElement === textarea ? currentSelection() : savedSelection;
     toolbar.querySelectorAll("[data-ios-format]").forEach((button) => {
-      button.classList.toggle("is-active", end > start && selectionCovered(button.dataset.iosFormat, start, end));
+      button.classList.toggle(
+        "is-active",
+        target.end > target.start && selectionCovered(button.dataset.iosFormat, target.start, target.end)
+      );
     });
     updateToolbarVisibility();
   }
 
-  toggle.addEventListener("pointerdown", (event) => event.preventDefault());
+  toggle.addEventListener("pointerdown", (event) => {
+    rememberSelection();
+    event.preventDefault();
+  });
   toggle.addEventListener("click", () => {
     toolbarPinned = !toolbarPinned;
     updateToolbarVisibility();
     textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(savedSelection.start, savedSelection.end);
   });
 
-  toolbar.addEventListener("pointerdown", (event) => event.preventDefault());
+  toolbar.addEventListener("pointerdown", (event) => {
+    if (!event.target.closest("[data-ios-format]")) return;
+    rememberSelection();
+    event.preventDefault();
+  });
+  toolbar.addEventListener("touchstart", (event) => {
+    if (!event.target.closest("[data-ios-format]")) return;
+    rememberSelection();
+    event.preventDefault();
+  }, { passive: false });
   toolbar.addEventListener("click", (event) => {
     const button = event.target.closest("[data-ios-format]");
     if (!button) return;
+    const target = { ...savedSelection };
     const type = button.dataset.iosFormat;
     if (type === "link") {
       const raw = window.prompt("Вставьте ссылку");
       if (!raw) return;
-      applyFormat(type, raw);
+      applyFormat(type, raw, target);
     } else {
-      applyFormat(type);
+      applyFormat(type, "", target);
     }
   });
 
@@ -414,11 +486,21 @@
     const current = textarea.value;
     rebaseRanges(previousValue, current);
     previousValue = current;
+    rememberSelection();
     submittedHtml = serializeFormattedHtml();
   });
-  textarea.addEventListener("select", updateToolbarState);
-  textarea.addEventListener("keyup", updateToolbarState);
-  textarea.addEventListener("pointerup", updateToolbarState);
+  textarea.addEventListener("select", () => {
+    rememberSelection();
+    updateToolbarState();
+  });
+  textarea.addEventListener("keyup", () => {
+    rememberSelection();
+    updateToolbarState();
+  });
+  textarea.addEventListener("pointerup", () => {
+    rememberSelection();
+    updateToolbarState();
+  });
   textarea.addEventListener("blur", () => {
     window.setTimeout(() => {
       if (!toolbar.contains(document.activeElement) && !toggle.contains(document.activeElement)) {
@@ -429,7 +511,9 @@
   });
 
   document.addEventListener("selectionchange", () => {
-    if (document.activeElement === textarea) updateToolbarState();
+    if (document.activeElement !== textarea) return;
+    rememberSelection();
+    updateToolbarState();
   });
 
   form.addEventListener("submit", () => {
@@ -441,6 +525,7 @@
     form.__yachatSetNativeComposerValue = function setNativeValueWithFormatting(value = "", options = {}) {
       const result = previousSetNativeValue(value, options);
       previousValue = textarea.value;
+      savedSelection = currentSelection();
       if (!options.keepFormatting) commitRanges([]);
       return result;
     };
@@ -449,8 +534,9 @@
   if (typeof createTransientOutgoingMessage === "function" && !createTransientOutgoingMessage.__yachatIosFormatting) {
     const previousCreateTransient = createTransientOutgoingMessage;
     const wrappedCreateTransient = function createFormattedTransient(chat, payload = {}) {
+      const html = payload.formattedHtml || submittedHtml || serializeFormattedHtml();
       const message = previousCreateTransient.apply(this, arguments);
-      message.formattedHtml = payload.formattedHtml || submittedHtml || serializeFormattedHtml();
+      message.formattedHtml = html;
       submittedHtml = "";
       return message;
     };
@@ -465,6 +551,7 @@
       setFormatting(message?.formattedHtml || "", message?.text || textarea.value);
       textarea.focus({ preventScroll: true });
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      rememberSelection();
       return result;
     };
     Object.defineProperty(wrappedStartEditMessage, "__yachatIosFormatting", { value: true });
@@ -498,5 +585,6 @@
 
   form.__yachatGetNativeFormattedHtml = serializeFormattedHtml;
   form.__yachatSetNativeFormatting = setFormatting;
+  rememberSelection();
   updateToolbarState();
 })();
