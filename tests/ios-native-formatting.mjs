@@ -89,6 +89,8 @@ await page.evaluate(() => {
   globalThis.renderAttachmentTray = () => {};
   globalThis.renderActiveChat = () => {};
   globalThis.sentPayloads = [];
+  globalThis.promptCalls = 0;
+  globalThis.linkClicks = 0;
   globalThis.yachatApi = {
     messenger: {
       send: async (payload) => {
@@ -141,16 +143,34 @@ assert.equal(await textarea.inputValue(), "привет очень мир");
 html = await page.evaluate(() => document.querySelector('[data-form="message"]').__yachatGetNativeFormattedHtml());
 assert.equal(html, "<strong>привет</strong> очень мир");
 
-await page.evaluate(() => {
-  window.prompt = () => "example.com/path";
+const linkStateBefore = await page.evaluate(() => {
+  window.prompt = () => {
+    promptCalls += 1;
+    return "example.com/path";
+  };
+  const button = document.querySelector('[data-ios-format="link"]');
+  button.addEventListener("click", () => { linkClicks += 1; }, { once: true });
   const field = document.querySelector('[data-native-ios-message-input]');
   field.focus();
   field.setSelectionRange(13, 16);
   field.dispatchEvent(new Event("select", { bubbles: true }));
+  return document.querySelector('[data-form="message"]').__yachatGetNativeFormattingState();
 });
 await page.click('[data-ios-format="link"]');
-html = await page.evaluate(() => document.querySelector('[data-form="message"]').__yachatGetNativeFormattedHtml());
-assert.match(html, /<a href="https:\/\/example\.com\/path"[^>]*>мир<\/a>/);
+const linkDiagnostic = await page.evaluate(() => ({
+  before: globalThis.linkStateBefore || null,
+  after: document.querySelector('[data-form="message"]').__yachatGetNativeFormattingState(),
+  promptCalls,
+  linkClicks,
+  html: document.querySelector('[data-form="message"]').__yachatGetNativeFormattedHtml()
+}));
+linkDiagnostic.before = linkStateBefore;
+html = linkDiagnostic.html;
+assert.match(
+  html,
+  /<a href="https:\/\/example\.com\/path"[^>]*>мир<\/a>/,
+  `link formatting diagnostic: ${JSON.stringify(linkDiagnostic)}`
+);
 
 const transient = await page.evaluate(() => {
   const message = createTransientOutgoingMessage(getActiveChat(), {
