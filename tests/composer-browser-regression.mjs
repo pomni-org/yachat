@@ -81,6 +81,7 @@ await page.evaluate(() => {
 for (const path of [
   "src/renderer/assets/rich-composer-stable.js",
   "src/renderer/assets/message-mentions.js",
+  "src/renderer/assets/composer-enter-stable.js",
   "src/renderer/assets/composer-delivery-stable.js",
   "src/renderer/assets/composer-actions-stable.js",
   "src/renderer/assets/mobile-chat-stable.js"
@@ -193,19 +194,21 @@ pass("repeated Enter creates consecutive line breaks");
 
 await resetEditor();
 {
-  const prevented = await page.evaluate(() => {
+  const result = await page.evaluate(() => {
     const editor = document.querySelector('[data-rich-message-editor]');
+    const transport = document.querySelector('[data-message-input]');
     const event = new KeyboardEvent("keydown", {
       key: "Enter",
       bubbles: true,
       cancelable: true
     });
     editor.dispatchEvent(event);
-    return event.defaultPrevented;
+    return { prevented: event.defaultPrevented, value: transport.value };
   });
-  assert.equal(prevented, false, "plain Enter was prevented instead of being left to the browser");
+  assert.equal(result.prevented, true, "stable Enter handler did not own the line break");
+  assert.equal(result.value.includes("\n"), true, "explicit Enter did not reach the transport");
 }
-pass("plain Enter remains native and uncancelled");
+pass("plain Enter is converted to one explicit line break");
 
 await resetEditor();
 await page.evaluate(() => {
