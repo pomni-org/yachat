@@ -56,6 +56,10 @@
       "destination": "/api/challenge.py"
     },
     {
+      "source": "/api/digital-id",
+      "destination": "/api/digital_id_blocked.py"
+    },
+    {
       "source": "/api/developer/v1/health",
       "destination": "/api/digital_id_secure.py"
     },
@@ -167,6 +171,9 @@
     },
     "api/challenge.py": {
       "maxDuration": 20
+    },
+    "api/digital_id_blocked.py": {
+      "maxDuration": 10
     },
     "api/digital_id_secure.py": {
       "maxDuration": 20
