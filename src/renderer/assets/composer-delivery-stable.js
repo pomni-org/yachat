@@ -165,19 +165,16 @@
   }
 
   function scheduleMessageDelivery(chat, message) {
-    let started = false;
-    const start = () => {
-      if (started) return;
-      started = true;
-      enqueueMessage(chat, message);
-    };
+    const start = () => enqueueMessage(chat, message);
 
-    // Give the browser one rendering opportunity so the outgoing bubble and
-    // cleared composer are visible before network work starts. The timeout is
-    // a fallback for hidden/throttled documents where requestAnimationFrame
-    // may be delayed for an unreasonable amount of time.
+    // Visible pages get a real paint opportunity before network work starts.
+    // Hidden pages may throttle requestAnimationFrame indefinitely, and there
+    // is no visible interface to prioritize there, so use a timer instead.
+    if (document.visibilityState === "hidden") {
+      window.setTimeout(start, 0);
+      return;
+    }
     requestAnimationFrame(() => window.setTimeout(start, 0));
-    window.setTimeout(start, 80);
   }
 
   function clearComposer(form, transport, send) {
