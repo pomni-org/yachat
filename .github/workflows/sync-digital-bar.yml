@@ -1,0 +1,115 @@
+name: Sync Digital Bar source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/sync-digital-bar.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source branch
+        uses: actions/checkout@v4
+        with:
+          ref: digital-bar-source
+          fetch-depth: 0
+
+      - name: Download the last complete bar build
+        env:
+          BASE: https://digital-kfm78kdi9-roblox-kittens-projects-ae36c01e.vercel.app
+          SHARE: 7PimyIW8M6jOZvej7YVR5NlM3rjwc8UF
+        run: |
+          set -euo pipefail
+          mkdir -p digital-bar-deploy/public
+          for name in index.html app.js drinks.js styles.css favicon.svg bar.html bar.js bar.css; do
+            curl --fail --location --retry 3 --silent --show-error \
+              "$BASE/$name?_vercel_share=$SHARE" \
+              --output "digital-bar-deploy/public/$name"
+          done
+
+      - name: Enable Cyrillic Digital ID in the client
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          app_path = Path("digital-bar-deploy/public/app.js")
+          app = app_path.read_text(encoding="utf-8")
+          replacement = r'''const LATIN_DIGITAL_ID = /^(?:[A-HJ-NP-Z]{2}\d{4}|[A-HJ-NP-Z]{3}\d{3})$/;
+          const CYRILLIC_DIGITAL_ID = /^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЭЮЯ]{2}\d{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЭЮЯ]{3}\d{3})$/;
+
+          function normalizeDigitalId(value) {
+            return String(value || "")
+              .toUpperCase()
+              .replaceAll("Ё", "Е")
+              .replace(/[^A-ZА-Я0-9]/g, "")
+              .slice(0, 6);
+          }
+
+          function formatDigitalIdInput(value) {
+            const raw = normalizeDigitalId(value);
+            const letters = raw.match(/^[A-ZА-Я]+/)?.[0]?.slice(0, 3) || "";
+            const digits = raw.slice(letters.length).replace(/\D/g, "");
+            if (!digits) return letters;
+            return `${letters} — ${digits}`;
+          }
+
+          function validDigitalId(value = digitalIdInput.value) {
+            const normalized = normalizeDigitalId(value);
+            return LATIN_DIGITAL_ID.test(normalized) || CYRILLIC_DIGITAL_ID.test(normalized);
+          }
+
+          function randomBase64Url'''
+          app, count = re.subn(
+              r"function normalizeDigitalId\(value\) \{.*?function randomBase64Url",
+              replacement,
+              app,
+              count=1,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit("digital id client block was not found")
+          app = app.replace(
+              "введите цифровой ID в формате ABC — 123",
+              "введите цифровой ID в формате АБВ — 123",
+          )
+          app_path.write_text(app, encoding="utf-8")
+
+          index_path = Path("digital-bar-deploy/public/index.html")
+          index = index_path.read_text(encoding="utf-8").replace(
+              'placeholder="ABC — 123"',
+              'placeholder="АБВ — 123"',
+          )
+          index_path.write_text(index, encoding="utf-8")
+          PY
+
+          grep -q 'CYRILLIC_DIGITAL_ID' digital-bar-deploy/public/app.js
+          grep -q 'placeholder="АБВ — 123"' digital-bar-deploy/public/index.html
+
+      - name: Add autonomous deployment config
+        run: |
+          cat > digital-bar-deploy/vercel.json <<'JSON'
+          {
+            "$schema": "https://openapi.vercel.sh/vercel.json",
+            "rewrites": [
+              { "source": "/bar", "destination": "/bar.html" },
+              { "source": "/bar/", "destination": "/bar.html" },
+              { "source": "/api/orders", "destination": "https://wgohimmbowdwaxpypnyv.supabase.co/functions/v1/digital-bar-orders-unicode" },
+              { "source": "/api/admin", "destination": "https://wgohimmbowdwaxpypnyv.supabase.co/functions/v1/digital-bar-api?route=admin" },
+              { "source": "/api/session", "destination": "https://wgohimmbowdwaxpypnyv.supabase.co/functions/v1/digital-bar-api?route=session" }
+            ]
+          }
+          JSON
+
+      - name: Commit mirrored source
+        run: |
+          git config user.name "YaChat deployment bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add digital-bar-deploy
+          git commit -m "mirror autonomous digital bar with Cyrillic Digital ID" || exit 0
+          git push origin digital-bar-source
