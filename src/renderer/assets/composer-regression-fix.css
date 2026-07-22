@@ -1,0 +1,113 @@
+/* Compact final geometry. Loaded after every earlier composer stylesheet. */
+.composer {
+  box-sizing: border-box !important;
+  width: min(760px, calc(100% - 20px)) !important;
+  max-width: calc(100% - 20px) !important;
+  min-height: 54px !important;
+  max-height: min(220px, calc(100dvh - 86px)) !important;
+  margin: 0 auto !important;
+  padding: 4px 0 max(4px, env(safe-area-inset-bottom)) !important;
+}
+
+.composer-context {
+  margin: 0 2px 6px !important;
+}
+
+.attachment-tray {
+  margin: 0 0 5px !important;
+  padding: 3px 1px 1px !important;
+}
+
+.composer-bottom-row {
+  --composer-control: 46px !important;
+  --composer-gap: 8px !important;
+  grid-template-columns: var(--composer-control) minmax(0, 1fr) var(--composer-control) !important;
+  align-items: end !important;
+  gap: var(--composer-gap) !important;
+  min-height: var(--composer-control) !important;
+}
+
+.composer-bottom-row > input[name="message"],
+.composer-bottom-row > .message-editor,
+.composer-bottom-row > .ios-rich-message-field {
+  box-sizing: border-box !important;
+  min-height: var(--composer-control) !important;
+  max-height: 132px !important;
+  padding: 11px 48px 10px 17px !important;
+  border-radius: 24px !important;
+  font-size: 16px !important;
+  line-height: 22px !important;
+}
+
+.composer.is-native-ios-composer .composer-bottom-row > .ios-rich-message-field {
+  display: grid !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.composer.is-native-ios-composer .ios-rich-message-preview,
+.composer.is-native-ios-composer .ios-native-message-input {
+  box-sizing: border-box !important;
+  min-height: var(--composer-control) !important;
+  max-height: 132px !important;
+  padding: 11px 48px 10px 17px !important;
+  font-size: 16px !important;
+  line-height: 22px !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+}
+
+.composer-bottom-row .composer-tool,
+.composer-bottom-row .send-button {
+  width: var(--composer-control) !important;
+  min-width: var(--composer-control) !important;
+  height: var(--composer-control) !important;
+  min-height: var(--composer-control) !important;
+}
+
+.composer-bottom-row > [data-action="open-stickers"] {
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  margin: 3px !important;
+}
+
+.composer-bottom-row .composer-tool .css-icon,
+.composer-bottom-row .send-button .css-icon,
+.composer-bottom-row .composer-tool > svg,
+.composer-bottom-row .send-button > svg {
+  width: 26px !important;
+  height: 26px !important;
+}
+
+.composer-bottom-row > [data-action="open-stickers"] .css-icon,
+.composer-bottom-row > [data-action="open-stickers"] > svg {
+  width: 24px !important;
+  height: 24px !important;
+}
+
+.composer-bottom-row .send-button {
+  box-shadow: 0 6px 16px rgba(71, 26, 255, 0.25) !important;
+}
+
+@media (max-width: 640px) {
+  .composer {
+    width: calc(100% - 12px) !important;
+    max-width: calc(100% - 12px) !important;
+    min-height: 50px !important;
+    padding-top: 3px !important;
+  }
+
+  .composer-bottom-row {
+    --composer-control: 44px !important;
+    --composer-gap: 6px !important;
+  }
+
+  .composer-bottom-row > [data-action="open-stickers"] {
+    width: 38px !important;
+    min-width: 38px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+  }
+}
