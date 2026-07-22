@@ -12,6 +12,7 @@ on:
       - server/database.py
       - tests/ios-native-formatting.mjs
       - tests/composer-ios-native-textarea.mjs
+      - tests/frontend-first-delivery.mjs
       - tests/test_message_performance.py
       - tests/test_chat_poll_queries.py
       - scripts/build-vercel.cjs
@@ -44,6 +45,10 @@ jobs:
         env:
           CHROME_BIN: /usr/bin/google-chrome
         run: node tests/ios-native-formatting.mjs
+      - name: Verify optimistic compact delivery
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: node tests/frontend-first-delivery.mjs
       - name: Verify runtime syntax
         run: |
           node --check src/renderer/assets/ios-native-textarea.js
