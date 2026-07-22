@@ -1,0 +1,47 @@
+name: Composer browser regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/renderer/assets/rich-composer-stable.js
+      - src/renderer/assets/message-mentions.js
+      - src/renderer/assets/composer-delivery-stable.js
+      - src/renderer/assets/composer-actions-stable.js
+      - src/renderer/assets/mobile-chat-stable.js
+      - tests/composer-browser-regression.mjs
+      - .github/workflows/composer-browser-regression.yml
+  pull_request:
+    paths:
+      - src/renderer/assets/rich-composer-stable.js
+      - src/renderer/assets/message-mentions.js
+      - src/renderer/assets/composer-delivery-stable.js
+      - src/renderer/assets/composer-actions-stable.js
+      - src/renderer/assets/mobile-chat-stable.js
+      - tests/composer-browser-regression.mjs
+      - .github/workflows/composer-browser-regression.yml
+
+permissions:
+  contents: read
+
+jobs:
+  chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright
+        run: npm install --no-save playwright@1.55.0
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run composer regression suite
+        run: node tests/composer-browser-regression.mjs
