@@ -24,7 +24,7 @@ const files = [
   "developers.html"
 ];
 
-const BRAND_VERSION = "79";
+const BRAND_VERSION = "80";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -85,6 +85,7 @@ const SCRIPT_ASSETS = [
   "ios-native-formatting.js",
   "ios-native-mentions.js",
   "message-mentions.js",
+  "composer-enter-stable.js",
   "media-emoji-upgrade.js",
   "system-upgrade-v29.js",
   "theme-message-reference.js",
@@ -133,6 +134,7 @@ async function validateRuntimeScripts() {
     "ios-native-formatting.js",
     "ios-native-mentions.js",
     "message-mentions.js",
+    "composer-enter-stable.js",
     "theme-message-reference.js",
     "channel-avatar-persistence.js",
     "push-repair.js",
