@@ -180,8 +180,6 @@
     document.body.classList.add("settings-redesign-open");
 
     panelBody.innerHTML = `
-      ${digitalIdEntry()}
-
       <div class="settings-profile-hero">
         <button class="settings-profile-corner is-left" type="button" data-settings-action="invite-friends" aria-label="Поделиться профилем">
           ${iconSvg("share-2")}
@@ -195,6 +193,8 @@
         <h2>${escapeHtml(cleanDisplayText(account.displayName, account.username || "ЯЧат"))} ${renderVerified(account)}</h2>
         <p>${escapeHtml(cleanDisplayText(account.contact, `@${cleanDisplayText(account.username, "user")}`))}</p>
       </div>
+
+      ${digitalIdEntry()}
 
       ${renderProfileEditor(account)}
 
