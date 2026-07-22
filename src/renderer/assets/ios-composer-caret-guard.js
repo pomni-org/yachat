@@ -17,10 +17,16 @@
 
   let composing = false;
   let lastCaretOffset = 0;
+  let expectedCaretOffset = 0;
+  let beforeInputLength = 0;
   let repairFrame = 0;
 
-  function textLength(root = editor) {
-    return String(root.innerText || root.textContent || "").replace(/\r/g, "").length;
+  function editorText() {
+    return String(editor.innerText || editor.textContent || "").replace(/\r/g, "");
+  }
+
+  function textLength() {
+    return editorText().length;
   }
 
   function selectionOffset() {
@@ -69,7 +75,9 @@
 
   function rememberCaret() {
     const offset = selectionOffset();
-    if (offset !== null) lastCaretOffset = offset;
+    if (offset === null) return;
+    lastCaretOffset = offset;
+    expectedCaretOffset = offset;
   }
 
   function selectionIsHealthy() {
@@ -80,6 +88,22 @@
     return editor.contains(range.startContainer) && editor.contains(range.endContainer);
   }
 
+  function expectedOffsetAfterInput(event) {
+    const currentLength = textLength();
+    const lengthDelta = currentLength - beforeInputLength;
+    const inputType = String(event?.inputType || "");
+
+    if (inputType.startsWith("deleteContentBackward")) return Math.max(0, lastCaretOffset - 1);
+    if (inputType.startsWith("delete")) return Math.max(0, Math.min(lastCaretOffset, currentLength));
+    if (inputType === "insertParagraph" || inputType === "insertLineBreak") {
+      return Math.min(currentLength, lastCaretOffset + Math.max(1, lengthDelta));
+    }
+    if (inputType.startsWith("insert")) {
+      return Math.min(currentLength, lastCaretOffset + Math.max(0, lengthDelta));
+    }
+    return Math.min(currentLength, Math.max(lastCaretOffset, lastCaretOffset + lengthDelta));
+  }
+
   function repairCaret() {
     repairFrame = 0;
     if (composing || !editor.isConnected || editor.getAttribute("aria-disabled") === "true") return;
@@ -88,13 +112,14 @@
       return;
     }
 
-    const fallback = Math.max(lastCaretOffset, textLength());
+    const fallback = Math.max(0, Math.min(expectedCaretOffset, textLength()));
     editor.focus({ preventScroll: true });
     const selection = window.getSelection();
     const range = rangeAtOffset(fallback);
     selection?.removeAllRanges();
     selection?.addRange(range);
     lastCaretOffset = selectionOffset() ?? fallback;
+    expectedCaretOffset = lastCaretOffset;
   }
 
   function scheduleRepair() {
@@ -103,26 +128,56 @@
     repairFrame = requestAnimationFrame(repairCaret);
   }
 
-  editor.addEventListener("beforeinput", rememberCaret, true);
-  editor.addEventListener("input", scheduleRepair, true);
+  editor.addEventListener("beforeinput", () => {
+    rememberCaret();
+    beforeInputLength = textLength();
+  }, true);
+
+  editor.addEventListener("input", (event) => {
+    expectedCaretOffset = expectedOffsetAfterInput(event);
+    if (selectionIsHealthy()) rememberCaret();
+    else scheduleRepair();
+  }, true);
+
   editor.addEventListener("keyup", rememberCaret, true);
   editor.addEventListener("pointerup", rememberCaret, true);
-  editor.addEventListener("compositionstart", () => { composing = true; }, true);
+  editor.addEventListener("compositionstart", () => {
+    composing = true;
+    rememberCaret();
+    beforeInputLength = textLength();
+  }, true);
   editor.addEventListener("compositionend", () => {
     composing = false;
-    rememberCaret();
-    scheduleRepair();
+    expectedCaretOffset = Math.min(textLength(), Math.max(lastCaretOffset, lastCaretOffset + textLength() - beforeInputLength));
+    if (selectionIsHealthy()) rememberCaret();
+    else scheduleRepair();
   }, true);
 
   document.addEventListener("selectionchange", () => {
     if (document.activeElement === editor) rememberCaret();
   });
 
+  if (!document.querySelector("style[data-yachat-ios-composer-caret-guard]")) {
+    const style = document.createElement("style");
+    style.dataset.yachatIosComposerCaretGuard = "";
+    style.textContent = `
+      .composer.is-ios-native-emoji-only [data-action="open-stickers"] {
+        display: none !important;
+        pointer-events: none !important;
+      }
+      .composer.is-ios-native-emoji-only .composer-bottom-row > .message-editor {
+        padding-right: 17px !important;
+      }
+    `;
+    document.head.append(style);
+  }
+
   if (emojiButton) {
     emojiButton.hidden = true;
     emojiButton.disabled = true;
     emojiButton.tabIndex = -1;
     emojiButton.setAttribute("aria-hidden", "true");
+    emojiButton.style.setProperty("display", "none", "important");
     form.classList.add("is-ios-native-emoji-only");
   }
 
