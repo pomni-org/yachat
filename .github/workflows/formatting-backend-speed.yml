@@ -10,6 +10,7 @@ on:
       - server/database.py
       - tests/ios-native-formatting.mjs
       - tests/composer-ios-native-textarea.mjs
+      - tests/frontend-first-runtime.mjs
       - tests/test_message_performance.py
       - scripts/build-vercel.cjs
       - .github/workflows/formatting-backend-speed.yml
@@ -44,11 +45,15 @@ jobs:
           textarea_code=$?
           node tests/ios-native-formatting.mjs > native-formatting-output.txt 2>&1
           formatting_code=$?
+          node tests/frontend-first-runtime.mjs > frontend-first-output.txt 2>&1
+          frontend_code=$?
           printf '%s\n' "$textarea_code" > native-textarea-exit-code.txt
           printf '%s\n' "$formatting_code" > native-formatting-exit-code.txt
+          printf '%s\n' "$frontend_code" > frontend-first-exit-code.txt
           cat native-textarea-output.txt
           cat native-formatting-output.txt
-          test "$textarea_code" = "0" -a "$formatting_code" = "0"
+          cat frontend-first-output.txt
+          test "$textarea_code" = "0" -a "$formatting_code" = "0" -a "$frontend_code" = "0"
       - name: Upload complete browser output
         if: always()
         uses: actions/upload-artifact@v4
@@ -57,8 +62,10 @@ jobs:
           path: |
             native-textarea-output.txt
             native-formatting-output.txt
+            frontend-first-output.txt
             native-textarea-exit-code.txt
             native-formatting-exit-code.txt
+            frontend-first-exit-code.txt
           if-no-files-found: error
           retention-days: 3
       - name: Verify runtime syntax
@@ -72,9 +79,11 @@ jobs:
         run: |
           textarea_code="$(cat native-textarea-exit-code.txt 2>/dev/null || echo 1)"
           formatting_code="$(cat native-formatting-exit-code.txt 2>/dev/null || echo 1)"
+          frontend_code="$(cat frontend-first-exit-code.txt 2>/dev/null || echo 1)"
           cat native-textarea-output.txt 2>/dev/null || true
           cat native-formatting-output.txt 2>/dev/null || true
-          test "$textarea_code" = "0" -a "$formatting_code" = "0"
+          cat frontend-first-output.txt 2>/dev/null || true
+          test "$textarea_code" = "0" -a "$formatting_code" = "0" -a "$frontend_code" = "0"
 
   backend-writes:
     runs-on: ubuntu-latest
