@@ -1,0 +1,246 @@
+/* Финальная геометрия композера: инструменты стоят снизу, текст растёт только вверх. */
+.composer {
+  display: block !important;
+  width: min(760px, calc(100% - 24px)) !important;
+  max-width: calc(100% - 24px) !important;
+  min-height: 72px !important;
+  max-height: min(244px, calc(100dvh - 92px)) !important;
+  margin: 0 auto !important;
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom)) !important;
+  overflow: visible !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.composer-context,
+.attachment-policy-note,
+.attachment-tray,
+.message-mention-strip {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.composer-context {
+  margin: 0 4px 8px !important;
+  border-radius: 16px !important;
+  background: color-mix(in srgb, var(--card), transparent 4%) !important;
+}
+
+.attachment-policy-note {
+  display: none !important;
+}
+
+.attachment-tray {
+  display: flex !important;
+  min-height: 0 !important;
+  margin: 0 0 6px !important;
+  padding: 4px 2px 2px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+}
+
+.attachment-tray[hidden] {
+  display: none !important;
+}
+
+.composer-bottom-row {
+  --composer-control: 56px;
+  --composer-gap: 10px;
+  display: grid;
+  grid-template-columns: var(--composer-control) minmax(0, 1fr) var(--composer-control);
+  align-items: end;
+  gap: var(--composer-gap);
+  width: 100%;
+  min-height: var(--composer-control);
+}
+
+.composer-bottom-row > [data-action="attach-file"] {
+  grid-column: 1;
+}
+
+.composer > [data-action="attach-document"] {
+  display: none !important;
+}
+
+.composer-bottom-row > [data-action="open-stickers"] {
+  z-index: 5;
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  justify-self: end;
+  margin: 5px !important;
+}
+
+.composer-bottom-row > .send-button {
+  grid-column: 3;
+}
+
+.composer-bottom-row > input[name="message"],
+.composer-bottom-row > .message-editor,
+.composer-bottom-row > .ios-rich-message-field {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: var(--composer-control) !important;
+  max-height: 144px !important;
+  margin: 0 !important;
+  padding: 15px 58px 14px 22px !important;
+  overflow-y: auto !important;
+  border: 1px solid color-mix(in srgb, var(--card-edge), transparent 18%) !important;
+  border-radius: 29px !important;
+  background: color-mix(in srgb, var(--field), var(--card) 34%) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+  font-size: 16px !important;
+  line-height: 22px !important;
+}
+
+:root[data-theme="light"] .composer-bottom-row > input[name="message"],
+:root[data-theme="light"] .composer-bottom-row > .message-editor,
+:root[data-theme="light"] .composer-bottom-row > .ios-rich-message-field {
+  border-color: rgba(15, 23, 42, 0.05) !important;
+  background: #fff !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+}
+
+.composer.is-native-ios-composer .composer-bottom-row > .ios-rich-message-field {
+  display: grid !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.composer.is-native-ios-composer .ios-rich-message-preview,
+.composer.is-native-ios-composer .ios-native-message-input {
+  min-height: var(--composer-control) !important;
+  max-height: 144px !important;
+  padding: 15px 58px 14px 22px !important;
+  border-radius: inherit !important;
+  font-size: 16px !important;
+  line-height: 22px !important;
+}
+
+.composer-bottom-row .composer-tool,
+.composer-bottom-row .send-button {
+  display: grid !important;
+  place-items: center !important;
+  flex: 0 0 auto !important;
+  width: var(--composer-control) !important;
+  min-width: var(--composer-control) !important;
+  height: var(--composer-control) !important;
+  min-height: var(--composer-control) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border-radius: 50% !important;
+  line-height: 0 !important;
+  transform: none;
+}
+
+.composer-bottom-row > [data-action="attach-file"] {
+  background: transparent !important;
+  color: var(--text) !important;
+}
+
+.composer-bottom-row > [data-action="open-stickers"] {
+  width: 46px !important;
+  min-width: 46px !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  background: transparent !important;
+  color: color-mix(in srgb, var(--text), transparent 24%) !important;
+}
+
+.composer-bottom-row .send-button {
+  background: linear-gradient(155deg, #5a32ff 0%, #471aff 55%, #6732ff 100%) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 20px rgba(71, 26, 255, 0.28) !important;
+}
+
+.composer-bottom-row .send-button:disabled {
+  opacity: .42 !important;
+  box-shadow: none !important;
+}
+
+.composer-bottom-row .composer-tool .css-icon,
+.composer-bottom-row .send-button .css-icon,
+.composer-bottom-row .composer-tool > svg,
+.composer-bottom-row .send-button > svg {
+  display: grid !important;
+  place-items: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  margin: 0 !important;
+}
+
+.composer-bottom-row > [data-action="open-stickers"] .css-icon,
+.composer-bottom-row > [data-action="open-stickers"] > svg {
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.composer.is-preparing-attachments [data-action="attach-file"] {
+  opacity: .56;
+  pointer-events: none;
+}
+
+.composer-attachment-menu {
+  position: fixed;
+  z-index: 10040;
+  display: grid;
+  gap: 2px;
+  width: min(260px, calc(100vw - 16px));
+  padding: 6px;
+  border: 1px solid var(--card-edge);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--card), transparent 2%);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .3);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.composer-attachment-menu[hidden] {
+  display: none !important;
+}
+
+.composer-attachment-menu button {
+  min-height: 44px;
+  padding: 0 13px;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.composer-attachment-menu button:hover,
+.composer-attachment-menu button:focus-visible {
+  background: var(--field-hover);
+}
+
+.rich-selection-toolbar,
+.ios-rich-format-toolbar {
+  z-index: 10060 !important;
+  touch-action: manipulation !important;
+}
+
+@media (max-width: 640px) {
+  .composer {
+    width: calc(100% - 16px) !important;
+    max-width: calc(100% - 16px) !important;
+    min-height: 70px !important;
+  }
+
+  .composer-bottom-row {
+    --composer-control: 54px;
+    --composer-gap: 8px;
+  }
+
+  .composer-bottom-row > input[name="message"],
+  .composer-bottom-row > .message-editor,
+  .composer-bottom-row > .ios-rich-message-field,
+  .composer.is-native-ios-composer .ios-rich-message-preview,
+  .composer.is-native-ios-composer .ios-native-message-input {
+    font-size: 16px !important;
+  }
+}
