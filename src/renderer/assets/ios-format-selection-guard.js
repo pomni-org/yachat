@@ -9,20 +9,26 @@
   if (!form || !textarea || !toolbar) return;
 
   window.__yachatIosFormatSelectionGuardInstalled = true;
+  let suppressSelectionChangeUntil = 0;
 
   function keepTextareaSelection(event) {
     if (!event.target.closest('[data-ios-format]')) return;
+    suppressSelectionChangeUntil = performance.now() + 750;
     event.preventDefault();
-    event.stopImmediatePropagation();
   }
 
-  // WebKit may focus the toolbar control before its bubble listener runs,
-  // collapsing textarea.selectionStart/End. The formatter already saved the
-  // last real range on `select`; block only the focus-changing press event.
+  // WebKit may collapse textarea.selectionStart/End between a toolbar press
+  // and its click. Preserve the formatter's last real range during that small
+  // window, while still allowing the formatter's own pointer and click logic.
   toolbar.addEventListener('pointerdown', keepTextareaSelection, true);
   toolbar.addEventListener('mousedown', keepTextareaSelection, true);
   toolbar.addEventListener('touchstart', keepTextareaSelection, {
     capture: true,
     passive: false
   });
+
+  document.addEventListener('selectionchange', (event) => {
+    if (performance.now() >= suppressSelectionChangeUntil) return;
+    event.stopImmediatePropagation();
+  }, true);
 })();
