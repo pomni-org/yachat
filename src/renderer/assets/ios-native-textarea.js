@@ -15,8 +15,13 @@
   if (!form || !transport || !richEditor) return;
 
   window.__yachatIosNativeTextareaInstalled = true;
-  form.dataset.yachatIosComposer = "native-textarea-v5";
+  form.dataset.yachatIosComposer = "native-textarea-v6";
   form.classList.add("is-native-ios-textarea-composer");
+
+  // A text input applies the value-sanitization algorithm and removes every
+  // line break. Keep the same DOM node (the app holds a reference to it), but
+  // use a hidden input so multiline textarea values survive transport sync.
+  transport.type = "hidden";
 
   const textarea = document.createElement("textarea");
   textarea.className = "ios-native-message-input";
