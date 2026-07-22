@@ -1,6 +1,6 @@
 name: Native iOS textarea composer
 
-# Regression rerun against the v74 microtask Enter fallback.
+# Regression rerun against the v75 beforeinput/keyup Enter handling.
 on:
   pull_request:
     paths:
