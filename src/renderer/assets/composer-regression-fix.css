@@ -68,7 +68,6 @@
 .composer.is-native-ios-composer[data-form="message"] .composer-bottom-row > .ios-rich-message-field {
   box-sizing: border-box !important;
   position: relative !important;
-  display: grid !important;
   grid-column: 2 !important;
   grid-row: 1 !important;
   align-self: end !important;
@@ -96,10 +95,15 @@
 
 .composer[data-form="message"] .composer-bottom-row > input[name="message"],
 .composer[data-form="message"] .composer-bottom-row > .message-editor {
+  display: block !important;
   padding: 11px 48px 10px 17px !important;
   overflow-y: auto !important;
   font-size: 16px !important;
   line-height: 22px !important;
+}
+
+.composer.is-native-ios-composer[data-form="message"] .composer-bottom-row > .ios-rich-message-field {
+  display: grid !important;
 }
 
 .composer.is-native-ios-composer[data-form="message"] .ios-rich-message-field > .ios-rich-message-preview,
