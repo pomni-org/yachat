@@ -5,6 +5,7 @@ on:
     paths:
       - src/renderer/assets/ios-native-textarea.js
       - src/renderer/assets/ios-native-formatting.js
+      - src/renderer/assets/ios-format-selection-guard.js
       - src/renderer/assets/composer-enter-stable.js
       - src/renderer/assets/frontend-first-runtime.js
       - src/renderer/assets/composer-delivery-stable.js
@@ -71,6 +72,7 @@ jobs:
         run: |
           node --check src/renderer/assets/ios-native-textarea.js
           node --check src/renderer/assets/ios-native-formatting.js
+          node --check src/renderer/assets/ios-format-selection-guard.js
           node --check src/renderer/assets/composer-enter-stable.js
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
