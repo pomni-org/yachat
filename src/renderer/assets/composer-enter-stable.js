@@ -5,10 +5,16 @@
 
   const form = document.querySelector('[data-form="message"]');
   const editor = form?.querySelector('[data-rich-message-editor]');
-  if (!form || !editor || form.querySelector('[data-native-ios-message-input]')) return;
+  const transport = form?.querySelector('[data-message-input]');
+  if (!form || !editor || !transport || form.querySelector('[data-native-ios-message-input]')) return;
 
   window.__yachatComposerEnterStableInstalled = true;
-  form.dataset.yachatComposerEnter = "explicit-line-break-v2";
+  form.dataset.yachatComposerEnter = "explicit-line-break-v3";
+
+  // A text input silently removes line breaks from assigned values. The rich
+  // editor is the visible control, so its transport can safely become hidden
+  // while retaining the same DOM node and application reference.
+  if (transport instanceof HTMLInputElement) transport.type = "hidden";
 
   function editorRange() {
     const selection = window.getSelection();
