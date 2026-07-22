@@ -72,6 +72,10 @@
       "destination": "/api/digital_id_secure.py"
     },
     {
+      "source": "/api/message/delete",
+      "destination": "/api/message.py"
+    },
+    {
       "source": "/api/message",
       "destination": "/api/message.py"
     },
