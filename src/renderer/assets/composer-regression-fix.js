@@ -7,11 +7,12 @@
   const form = document.querySelector('[data-form="message"]');
   const transport = document.querySelector('[data-message-input]');
   const send = form?.querySelector('.send-button');
-  if (!form || !transport || !send) return;
+  const attachment = form?.querySelector('[data-action="attach-file"]');
+  const stickers = form?.querySelector('[data-action="open-stickers"]');
+  if (!form || !transport || !send || !attachment) return;
 
   const previewCache = new Map();
   let submittingExplicitly = false;
-  let dispatchingSnapshot = false;
 
   function activeChat() {
     try {
@@ -30,10 +31,29 @@
     }
   }
 
+  function visibleField() {
+    return form.querySelector('.ios-rich-message-field')
+      || form.querySelector('[data-rich-message-editor]')
+      || transport;
+  }
+
   function visibleEditor() {
     return form.querySelector('[data-ios-message-input]')
       || form.querySelector('[data-rich-message-editor]')
       || transport;
+  }
+
+  function installCompactLayout() {
+    let row = form.querySelector('.composer-bottom-row');
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'composer-bottom-row';
+      form.append(row);
+    }
+
+    [attachment, visibleField(), stickers, send].forEach((element) => {
+      if (element && element.parentElement !== row) row.append(element);
+    });
   }
 
   function editorText(editor = visibleEditor()) {
@@ -71,39 +91,6 @@
     }
     updateSendState();
   }
-
-  function makeSnapshotEvent() {
-    if (typeof InputEvent === 'function') {
-      try {
-        return new InputEvent('beforeinput', {
-          bubbles: true,
-          cancelable: true,
-          inputType: 'yachatSelectionSnapshot',
-          data: null
-        });
-      } catch {}
-    }
-    const event = new Event('beforeinput', { bubbles: true, cancelable: true });
-    try { Object.defineProperty(event, 'inputType', { value: 'yachatSelectionSnapshot' }); } catch {}
-    return event;
-  }
-
-  // The previous repair manually inserted a newline and fought Safari's own selection model.
-  // Let the browser perform the real edit, but first give the iOS formatter a harmless
-  // beforeinput pass so it snapshots the current text and keeps formatting ranges aligned.
-  form.addEventListener('beforeinput', (event) => {
-    if (dispatchingSnapshot || !['insertParagraph', 'insertLineBreak'].includes(event.inputType)) return;
-    const target = event.target;
-    if (!(target instanceof HTMLTextAreaElement) && !target?.matches?.('[data-rich-message-editor]')) return;
-
-    dispatchingSnapshot = true;
-    try {
-      target.dispatchEvent(makeSnapshotEvent());
-    } finally {
-      dispatchingSnapshot = false;
-    }
-    event.stopImmediatePropagation();
-  }, true);
 
   const scheduleSync = () => queueMicrotask(syncTransport);
   form.addEventListener('input', scheduleSync, true);
@@ -247,5 +234,7 @@
     deliverTransientMessage = wrappedDeliverTransientMessage;
   }
 
+  installCompactLayout();
+  new MutationObserver(installCompactLayout).observe(form, { childList: true, subtree: true });
   updateSendState();
 })();
