@@ -47,16 +47,28 @@
   function rangeAtOffset(offset) {
     const target = Math.max(0, Math.min(Number(offset) || 0, textLength()));
     const range = document.createRange();
-    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_ALL, {
+      acceptNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT;
+        if (node.nodeType === Node.ELEMENT_NODE && node.nodeName === "BR") return NodeFilter.FILTER_ACCEPT;
+        return NodeFilter.FILTER_SKIP;
+      }
+    });
     let remaining = target;
     let node = walker.nextNode();
-    let lastText = null;
+    let lastNode = null;
 
     while (node) {
-      lastText = node;
-      const size = node.nodeValue?.length || 0;
+      lastNode = node;
+      const size = node.nodeType === Node.TEXT_NODE ? (node.nodeValue?.length || 0) : 1;
       if (remaining <= size) {
-        range.setStart(node, remaining);
+        if (node.nodeType === Node.TEXT_NODE) {
+          range.setStart(node, Math.min(remaining, size));
+        } else if (remaining === 0) {
+          range.setStartBefore(node);
+        } else {
+          range.setStartAfter(node);
+        }
         range.collapse(true);
         return range;
       }
@@ -64,11 +76,8 @@
       node = walker.nextNode();
     }
 
-    if (lastText) {
-      range.setStart(lastText, lastText.nodeValue?.length || 0);
-    } else {
-      range.selectNodeContents(editor);
-    }
+    if (lastNode) range.setStartAfter(lastNode);
+    else range.selectNodeContents(editor);
     range.collapse(false);
     return range;
   }
@@ -128,6 +137,32 @@
     repairFrame = requestAnimationFrame(repairCaret);
   }
 
+  function insertLineBreakFallback(offset) {
+    if (!selectionIsHealthy()) {
+      expectedCaretOffset = offset;
+      repairCaret();
+    }
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return;
+
+    range.deleteContents();
+    const lineBreak = document.createElement("br");
+    range.insertNode(lineBreak);
+    range.setStartAfter(lineBreak);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    lastCaretOffset = Math.min(textLength(), offset + 1);
+    expectedCaretOffset = lastCaretOffset;
+    editor.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertLineBreak",
+      data: null
+    }));
+  }
+
   editor.addEventListener("beforeinput", () => {
     rememberCaret();
     beforeInputLength = textLength();
@@ -137,6 +172,20 @@
     expectedCaretOffset = expectedOffsetAfterInput(event);
     if (selectionIsHealthy()) rememberCaret();
     else scheduleRepair();
+  }, true);
+
+  editor.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing || composing) return;
+    const htmlBefore = editor.innerHTML;
+    const lengthBefore = textLength();
+    const offsetBefore = selectionOffset() ?? lastCaretOffset;
+    requestAnimationFrame(() => {
+      if (event.defaultPrevented || composing || !editor.isConnected) return;
+      const browserChangedEditor = editor.innerHTML !== htmlBefore
+        || textLength() !== lengthBefore
+        || (selectionOffset() ?? offsetBefore) !== offsetBefore;
+      if (!browserChangedEditor) insertLineBreakFallback(offsetBefore);
+    });
   }, true);
 
   editor.addEventListener("keyup", rememberCaret, true);
