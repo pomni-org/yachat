@@ -1,5 +1,6 @@
 name: Composer emoji iOS regression
 
+# This comment intentionally changes the PR branch so the browser regression runs.
 on:
   push:
     branches: [main]
