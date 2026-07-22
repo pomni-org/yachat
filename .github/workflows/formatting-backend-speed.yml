@@ -5,6 +5,7 @@ on:
     paths:
       - src/renderer/assets/ios-native-textarea.js
       - src/renderer/assets/ios-native-formatting.js
+      - src/renderer/assets/composer-enter-stable.js
       - src/renderer/assets/frontend-first-runtime.js
       - src/renderer/assets/composer-delivery-stable.js
       - api/message.py
@@ -16,6 +17,7 @@ on:
       - tests/test_message_performance.py
       - tests/test_chat_poll_queries.py
       - scripts/build-vercel.cjs
+      - vercel.json
       - .github/workflows/formatting-backend-speed.yml
   workflow_dispatch:
 
@@ -69,9 +71,11 @@ jobs:
         run: |
           node --check src/renderer/assets/ios-native-textarea.js
           node --check src/renderer/assets/ios-native-formatting.js
+          node --check src/renderer/assets/composer-enter-stable.js
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
           node --check scripts/build-vercel.cjs
+          node -e "JSON.parse(require('fs').readFileSync('vercel.json', 'utf8'))"
       - name: Upload browser regression output
         if: always()
         uses: actions/upload-artifact@v4
