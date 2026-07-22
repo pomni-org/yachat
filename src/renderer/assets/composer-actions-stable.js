@@ -32,7 +32,9 @@
   }
 
   function visibleField() {
-    return form.querySelector('[data-rich-message-editor]') || transport;
+    return form.querySelector('[data-native-ios-message-input]')
+      || form.querySelector('[data-rich-message-editor]')
+      || transport;
   }
 
   function installCompactLayout() {
