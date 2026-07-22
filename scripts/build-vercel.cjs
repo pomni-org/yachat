@@ -24,7 +24,7 @@ const files = [
   "developers.html"
 ];
 
-const BRAND_VERSION = "67";
+const BRAND_VERSION = "68";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -87,7 +87,7 @@ const SCRIPT_ASSETS = [
   "theme-message-reference.js",
   "channel-avatar-persistence.js",
   "push-repair.js",
-  "interaction-hotfix.js",
+  "interaction-stable.js",
   "message-state-repair.js",
   "composer-delivery-stable.js",
   "composer-actions-stable.js",
@@ -129,7 +129,7 @@ async function validateRuntimeScripts() {
     "theme-message-reference.js",
     "channel-avatar-persistence.js",
     "push-repair.js",
-    "interaction-hotfix.js",
+    "interaction-stable.js",
     "message-state-repair.js",
     "composer-delivery-stable.js",
     "composer-actions-stable.js",
