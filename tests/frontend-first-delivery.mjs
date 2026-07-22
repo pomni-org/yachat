@@ -29,7 +29,15 @@ await page.evaluate(() => {
   const pendingResolvers = [];
   globalThis.pendingResolvers = pendingResolvers;
   globalThis.sentPayloads = [];
+  globalThis.eventOrder = [];
   globalThis.renderCounts = { chats: 0, messages: 0, active: 0 };
+
+  const nativeRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = (callback) => nativeRequestAnimationFrame((time) => {
+    eventOrder.push("frame");
+    callback(time);
+  });
+
   globalThis.state = {
     account: { id: "self" },
     activeChatId: "chat-1",
@@ -56,9 +64,18 @@ await page.evaluate(() => {
   globalThis.canSendToChat = () => true;
   globalThis.renderAttachmentTray = () => {};
   globalThis.renderComposerContext = () => {};
-  globalThis.renderChatList = () => { renderCounts.chats += 1; };
-  globalThis.renderMessages = () => { renderCounts.messages += 1; };
-  globalThis.renderActiveChat = () => { renderCounts.active += 1; };
+  globalThis.renderChatList = () => {
+    eventOrder.push("render-chats");
+    renderCounts.chats += 1;
+  };
+  globalThis.renderMessages = () => {
+    eventOrder.push("render-messages");
+    renderCounts.messages += 1;
+  };
+  globalThis.renderActiveChat = () => {
+    eventOrder.push("render-active");
+    renderCounts.active += 1;
+  };
   globalThis.showActionFeedback = () => {};
   globalThis.translatedServerMessage = (message) => message;
   globalThis.ensureRealChatForMessage = async (chat) => chat;
@@ -95,6 +112,7 @@ await page.evaluate(() => {
   globalThis.yachatApi = {
     messenger: {
       send: (payload) => {
+        eventOrder.push("network");
         sentPayloads.push(payload);
         return new Promise((resolve) => pendingResolvers.push(() => resolve({
           ok: true,
@@ -136,8 +154,8 @@ const optimistic = await page.evaluate(() => ({
     status: message.deliveryStatus
   })),
   persisted: state.messages.length,
-  sent: sentPayloads.length,
-  chatPreview: state.chats[0].lastMessage
+  chatPreview: state.chats[0].lastMessage,
+  eventOrder: [...eventOrder]
 }));
 
 assert.equal(optimistic.input, "", "composer must clear before the network response");
@@ -147,12 +165,25 @@ assert.deepEqual(optimistic.transient, [{
   status: "sending"
 }]);
 assert.equal(optimistic.persisted, 0);
-assert.equal(optimistic.sent, 0, "network delivery is intentionally queued after optimistic paint");
 
 await page.waitForFunction(() => sentPayloads.length === 1);
-const requestPayload = await page.evaluate(() => sentPayloads[0]);
-assert.equal(requestPayload.text, "быстро");
-assert.equal(requestPayload.formattedHtml, "<strong>быстро</strong>");
+const requestState = await page.evaluate(() => ({
+  payload: sentPayloads[0],
+  eventOrder: [...eventOrder]
+}));
+assert.equal(requestState.payload.text, "быстро");
+assert.equal(requestState.payload.formattedHtml, "<strong>быстро</strong>");
+
+const firstRender = Math.min(
+  ...["render-messages", "render-chats"]
+    .map((name) => requestState.eventOrder.indexOf(name))
+    .filter((index) => index >= 0)
+);
+const firstFrame = requestState.eventOrder.indexOf("frame");
+const firstNetwork = requestState.eventOrder.indexOf("network");
+assert.ok(firstRender >= 0, `optimistic render missing: ${requestState.eventOrder.join(", ")}`);
+assert.ok(firstFrame > firstRender, `network frame was not scheduled after rendering: ${requestState.eventOrder.join(", ")}`);
+assert.ok(firstNetwork > firstFrame, `network started before the render frame: ${requestState.eventOrder.join(", ")}`);
 
 await page.evaluate(() => pendingResolvers.shift()?.());
 await page.waitForFunction(() => state.messages.length === 1 && transientMessagesForChat("chat-1").length === 0);
