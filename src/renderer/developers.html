@@ -43,31 +43,31 @@
           <img src="/assets/yachat-brand-64.png" alt="" />
           <strong>ЯЧат для разработчиков</strong>
         </a>
-        <a href="/api/developer/v1/openapi.json">OpenAPI JSON</a>
+        <a href="/">Вернуться в ЯЧат</a>
       </nav>
 
       <header class="api-hero">
         <span class="api-kicker">Digital ID API · v1</span>
         <h1>Подтверждённый пользователь ЯЧата в вашем сервисе</h1>
-        <p class="api-lead">Пользователь вводит цифровой ID, получает одноразовый код в боте «Коды подтверждения», а ваш сервер погашает короткоживущий токен и получает стабильный идентификатор пользователя.</p>
-        <div class="api-warning"><strong>Важно:</strong> цифровой ID не является паролем. Не считайте человека подтверждённым, пока сервер не получил ответ <code>verified: true</code> от метода <code>identity/consume</code>.</div>
+        <p class="api-lead">Пользователь вводит цифровой ID и подтверждает вход кодом в ЯЧате. После подтверждения ваш сервер получает результат проверки, который можно связать с заказом или другой операцией.</p>
+        <div class="api-warning"><strong>Важно:</strong> цифровой ID не является паролем. Доверяйте только подтверждённому ответу API, полученному вашим сервером. Секретный ключ нельзя размещать в браузере или мобильном клиенте.</div>
       </header>
 
       <section class="api-grid" aria-label="Свойства протокола">
-        <article class="api-card"><b>Подтверждение в ЯЧате</b><p>Код видит только владелец аккаунта в системном боте «Коды подтверждения».</p></article>
-        <article class="api-card"><b>PKCE S256</b><p>Код и токен привязаны к вашему случайному verifier — перехваченного токена недостаточно.</p></article>
-        <article class="api-card"><b>Короткоживущий токен</b><p>Токен действует 5 минут. Повтор того же серверного запроса безопасен только с исходными verifier и externalReference.</p></article>
-        <article class="api-card"><b>Стабильный subject</b><p>Ваш сервер получает отдельный непрозрачный <code>subject</code>, постоянный для пары пользователь + клиент.</p></article>
+        <article class="api-card"><b>Подтверждение в ЯЧате</b><p>Действие подтверждает сам владелец аккаунта через системный бот.</p></article>
+        <article class="api-card"><b>Проверка на сервере</b><p>Итоговая проверка выполняется только между сервером разработчика и ЯЧатом.</p></article>
+        <article class="api-card"><b>Отдельный идентификатор</b><p>Интеграция получает идентификатор, предназначенный именно для своего клиента.</p></article>
+        <article class="api-card"><b>Минимум данных</b><p>API возвращает только данные, необходимые для подтверждения операции.</p></article>
       </section>
 
       <section class="api-section">
         <h2>Порядок интеграции</h2>
         <ol class="api-flow">
-          <li>Зарегистрируйте клиент и получите <code>clientId</code>. Серверным клиентам также выдаётся <code>X-YaChat-API-Key</code>; публичным браузерным клиентам задаются разрешённые origins.</li>
-          <li>Создайте случайный PKCE <code>codeVerifier</code>, вычислите S256 <code>codeChallenge</code> и сохраните verifier до конца операции.</li>
-          <li>Передайте введённый ID в <code>identity/initiate</code>. Код появится у пользователя в ЯЧате.</li>
-          <li>Отправьте код пользователя и verifier в <code>identity/confirm</code>. Полученный <code>identityToken</code> не сохраняйте в браузере надолго.</li>
-          <li>Передайте токен, verifier и тот же <code>externalReference</code> на свой сервер. Сервер вызывает <code>identity/consume</code> до создания заказа или транзакции.</li>
+          <li>Зарегистрируйте приложение и получите параметры клиента.</li>
+          <li>Создайте уникальную ссылку на будущую операцию — <code>externalReference</code>.</li>
+          <li>Передайте цифровой ID в <code>identity/initiate</code> и попросите пользователя ввести код из ЯЧата.</li>
+          <li>Подтвердите код через <code>identity/confirm</code>.</li>
+          <li>Передайте результат на свой сервер и вызовите <code>identity/consume</code> до создания заказа или транзакции.</li>
         </ol>
       </section>
 
@@ -82,7 +82,7 @@
   "codeChallenge": "BASE64URL_SHA256_VERIFIER",
   "metadata": { "cartItems": 2 }
 }</pre>
-        <p>Ответ содержит <code>challengeId</code>, канал <code>yachat-codes</code> и время истечения. Один пользователь может запросить не более пяти кодов от клиента за 15 минут.</p>
+        <p>Ответ содержит <code>challengeId</code>, который понадобится на следующем шаге. Защитные параметры клиента формируются по выданной при регистрации спецификации.</p>
       </section>
 
       <section class="api-section">
@@ -94,7 +94,7 @@
   "code": "123456",
   "codeVerifier": "ORIGINAL_RANDOM_VERIFIER"
 }</pre>
-        <p>После пяти неверных попыток запрос блокируется. Успешный ответ содержит <code>identityToken</code>, действующий 5 минут.</p>
+        <p>Успешный ответ содержит <code>identityToken</code>. Сразу передайте его на свой сервер и не сохраняйте в постоянном хранилище клиента.</p>
       </section>
 
       <section class="api-section">
@@ -121,7 +121,7 @@
 const proof = await response.json();
 if (!response.ok || !proof.verified) throw new Error("Identity rejected");
 
-// Сохраняйте proof.transactionId и proof.identity.subject с заказом.
+// Свяжите подтверждение с операцией только после ответа verified: true.
 await createOrder({ yachat: proof.identity, proofId: proof.transactionId });</pre>
         <pre>{
   "verified": true,
@@ -130,22 +130,21 @@ await createOrder({ yachat: proof.identity, proofId: proof.transactionId });</pr
   "identity": {
     "subject": "yachat_a1b2…",
     "displayName": "Имя пользователя",
-    "digitalId": "ABC — 123",
-    "rawDigitalId": "ABC123"
+    "digitalId": "ABC — 123"
   }
 }</pre>
       </section>
 
       <section class="api-section">
-        <h2>Ошибки и повторные запросы</h2>
+        <h2>Обработка ошибок</h2>
         <ul>
-          <li><code>401</code> — неверный код, API key, PKCE или identity token.</li>
-          <li><code>403</code> — origin не зарегистрирован для публичного клиента.</li>
-          <li><code>409</code> — challenge завершён или <code>externalReference</code> уже связан с другой проверкой.</li>
-          <li><code>410</code> — код или identity token истёк.</li>
-          <li><code>429</code> — превышен лимит запросов или неверных попыток.</li>
+          <li><code>401</code> — запрос не подтверждён или не авторизован.</li>
+          <li><code>403</code> — клиенту не разрешено выполнить операцию.</li>
+          <li><code>409</code> — операция уже завершена или конфликтует с другой проверкой.</li>
+          <li><code>410</code> — подтверждение больше не действует.</li>
+          <li><code>429</code> — запросов слишком много; повторите позже.</li>
         </ul>
-        <p>Если ответ <code>identity/consume</code> потерялся из-за сети, сервер может повторить тот же запрос с теми же token, verifier и <code>externalReference</code>: API вернёт ту же подтверждённую транзакцию с <code>replayed: true</code>. Для новой проверки создайте новый PKCE verifier и новый challenge.</p>
+        <p>Не показывайте пользователю технические ответы целиком. Запишите код ошибки на сервере и предложите начать подтверждение заново.</p>
       </section>
 
       <footer class="api-footer">YaChat Digital ID API · Базовый URL: <code>https://yachat.vercel.app</code></footer>
