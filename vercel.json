@@ -56,10 +56,6 @@
       "destination": "/api/challenge.py"
     },
     {
-      "source": "/api/digital-id",
-      "destination": "/api/digital_id_secure.py"
-    },
-    {
       "source": "/api/developer/v1/health",
       "destination": "/api/digital_id_secure.py"
     },
