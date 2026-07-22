@@ -54,6 +54,20 @@
     });
   }
 
+  function installDesktopLineBreaks() {
+    const field = visibleField();
+    if (!(field instanceof HTMLElement) || !field.matches('[data-rich-message-editor]')) return;
+    field.addEventListener('beforeinput', (event) => {
+      if (event.isComposing || !['insertParagraph', 'insertLineBreak'].includes(event.inputType)) return;
+      event.preventDefault();
+      field.focus({ preventScroll: true });
+      document.execCommand('insertLineBreak', false);
+      queueMicrotask(() => {
+        try { form.__yachatSyncRichEditor?.({ dispatch: true }); } catch {}
+      });
+    }, true);
+  }
+
   function updateSendState() {
     let attachmentCount = 0;
     let editing = false;
@@ -208,5 +222,6 @@
   }
 
   installCompactLayout();
+  installDesktopLineBreaks();
   updateSendState();
 })();
