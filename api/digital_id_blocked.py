@@ -1,9 +1,9 @@
 """Owner-only YaChat Digital ID endpoint and privacy-safe user lookup.
 
-The human-readable ID is returned only to the currently authenticated account.
-Creation is atomic and one-time; the database rejects every later attempt to
-change an existing ID. Sidebar lookup accepts Latin and Cyrillic IDs but never
-returns the lookup key in its response.
+The human-readable ID is returned to its owner and to an explicitly verified
+one-time developer flow. Creation is atomic and one-time; the database rejects
+every later attempt to change an existing ID. Sidebar lookup accepts Latin and
+Cyrillic IDs but never returns the lookup key in directory results.
 """
 
 import re
@@ -21,7 +21,7 @@ CYRILLIC_DIGITAL_ID = re.compile(r"^[АБВГДЕЖЗИКЛМНОПРСТУФХ�
 
 app = FastAPI(
     title="YaChat private Digital ID boundary",
-    version="1.5.0",
+    version="1.6.0",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -70,8 +70,6 @@ def owned_digital_id(request: Request) -> dict[str, object]:
         with connect_db() as connection:
             with connection.transaction():
                 with connection.cursor(row_factory=dict_row) as cursor:
-                    # The one-argument database function reads the persisted UI
-                    # language and chooses Cyrillic or Latin only on first creation.
                     cursor.execute(
                         "select public.yachat_get_or_create_digital_id(%s) as digital_id",
                         (user_id,),
@@ -177,23 +175,48 @@ def digital_id_health():
     return {
         "ok": True,
         "service": "yachat-digital-id",
-        "version": "1.5.0",
+        "version": "1.6.0",
         "proof": "otp-pkce-one-time-token",
-        "digitalIdExposure": "owner-session-only",
+        "digitalIdExposure": "verified-developer-proof",
         "immutable": True,
         "alphabets": ["latin", "cyrillic"],
     }
 
 
 # Reuse this already-deployed serverless boundary for the developer identity
-# flow. Monkey-patch the legacy module before importing the secure routes so
-# every endpoint uses the same Latin/Cyrillic contract without creating a
-# thirteenth Vercel function on the Hobby plan.
+# flow. Patch the legacy module before importing the secure routes so every
+# endpoint uses the same Latin/Cyrillic contract without creating a thirteenth
+# Vercel function on the Hobby plan.
 from api import index as index_api  # noqa: E402
 
 index_api.normalize_digital_id = normalize_digital_id
 index_api.format_digital_id = format_digital_id
 
-from api.digital_id_secure import app as identity_app  # noqa: E402
+from api import digital_id_secure as identity_api  # noqa: E402
 
+_secure_verified_identity = identity_api.verified_identity
+
+
+def verified_identity_with_digital_id(user: dict[str, Any], client_id: str) -> dict[str, Any]:
+    identity = _secure_verified_identity(user, client_id)
+    user_id = str(user.get("user_id") or user.get("id") or "")
+    if not user_id:
+        return identity
+
+    try:
+        with connect_db() as connection:
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute("select digital_id from public_users where id = %s limit 1", (user_id,))
+                row = cursor.fetchone()
+    except psycopg.Error:
+        return identity
+
+    raw_id = normalize_digital_id(row.get("digital_id") if row else "")
+    if raw_id:
+        identity["digitalId"] = format_digital_id(raw_id)
+    return identity
+
+
+identity_api.verified_identity = verified_identity_with_digital_id
+identity_app = identity_api.app
 app.mount("/", identity_app)
