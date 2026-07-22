@@ -33,20 +33,48 @@ jobs:
         run: |
           test -x /usr/bin/google-chrome
           /usr/bin/google-chrome --version
-      - name: Verify native textarea remains stable
+      - name: Run browser suites
+        id: browser
+        continue-on-error: true
         env:
           CHROME_BIN: /usr/bin/google-chrome
-        run: node tests/composer-ios-native-textarea.mjs
-      - name: Verify native textarea formatting
-        env:
-          CHROME_BIN: /usr/bin/google-chrome
-        run: node tests/ios-native-formatting.mjs
+        run: |
+          set +e
+          node tests/composer-ios-native-textarea.mjs > native-textarea-output.txt 2>&1
+          textarea_code=$?
+          node tests/ios-native-formatting.mjs > native-formatting-output.txt 2>&1
+          formatting_code=$?
+          printf '%s\n' "$textarea_code" > native-textarea-exit-code.txt
+          printf '%s\n' "$formatting_code" > native-formatting-exit-code.txt
+          cat native-textarea-output.txt
+          cat native-formatting-output.txt
+          test "$textarea_code" = "0" -a "$formatting_code" = "0"
+      - name: Upload complete browser output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formatting-backend-speed-browser-output
+          path: |
+            native-textarea-output.txt
+            native-formatting-output.txt
+            native-textarea-exit-code.txt
+            native-formatting-exit-code.txt
+          if-no-files-found: error
+          retention-days: 3
       - name: Verify runtime syntax
         run: |
           node --check src/renderer/assets/ios-native-formatting.js
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
           node --check scripts/build-vercel.cjs
+      - name: Fail when a browser suite failed
+        if: always()
+        run: |
+          textarea_code="$(cat native-textarea-exit-code.txt 2>/dev/null || echo 1)"
+          formatting_code="$(cat native-formatting-exit-code.txt 2>/dev/null || echo 1)"
+          cat native-textarea-output.txt 2>/dev/null || true
+          cat native-formatting-output.txt 2>/dev/null || true
+          test "$textarea_code" = "0" -a "$formatting_code" = "0"
 
   backend-writes:
     runs-on: ubuntu-latest
