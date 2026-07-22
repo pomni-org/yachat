@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>YaChat Digital ID API</title>
+    <link rel="icon" href="/assets/yachat-brand-32.png" />
+    <link rel="stylesheet" href="./page.css" />
+    <style>
+      :root { --api-accent: #6f4cff; --api-border: rgba(148, 163, 184, .22); }
+      body { margin: 0; background: #0d0c12; color: #f7f5ff; font-family: Roboto, system-ui, sans-serif; }
+      .api-shell { width: min(1040px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 80px; }
+      .api-nav { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+      .api-brand { display: flex; align-items: center; gap: 12px; color: inherit; text-decoration: none; }
+      .api-brand img { width: 40px; height: 40px; border-radius: 12px; }
+      .api-nav a:last-child { color: #c6bcff; }
+      .api-hero { padding: 72px 0 44px; max-width: 780px; }
+      .api-kicker { color: #a998ff; font-size: 14px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+      h1 { margin: 12px 0 18px; color: #f7f5ff; font-size: clamp(38px, 7vw, 72px); line-height: .98; }
+      .api-lead { margin: 0; color: #c9c5d4; font-size: clamp(18px, 3vw, 23px); line-height: 1.5; }
+      .api-warning { margin-top: 28px; padding: 18px 20px; border: 1px solid rgba(255, 190, 92, .35); border-radius: 16px; background: rgba(255, 190, 92, .08); color: #ffe0a8; line-height: 1.5; }
+      .api-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+      .api-card, .api-section { border: 1px solid var(--api-border); border-radius: 22px; background: #17151e; }
+      .api-card { padding: 22px; }
+      .api-card b { display: block; margin-bottom: 8px; font-size: 18px; }
+      .api-card p, .api-section p, .api-section li { color: #bbb6c8; line-height: 1.6; }
+      .api-section { margin-top: 18px; padding: clamp(22px, 5vw, 38px); }
+      .api-section h2 { margin: 0 0 16px; color: #f7f5ff; font-size: clamp(25px, 4vw, 36px); }
+      .api-section h3 { margin: 28px 0 10px; color: #f7f5ff; }
+      .api-flow { margin: 0; padding-left: 22px; }
+      code { color: #d8d1ff; }
+      pre { overflow: auto; margin: 14px 0 0; padding: 18px; border-radius: 16px; background: #0c0b10; color: #e9e5ff; font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .api-method { display: inline-flex; margin-right: 8px; padding: 4px 8px; border-radius: 7px; background: #5135d8; color: white; font-size: 12px; }
+      .api-footer { padding: 34px 4px; color: #8f899d; }
+      @media (max-width: 700px) { .api-grid { grid-template-columns: 1fr; } .api-hero { padding-top: 52px; } }
+    </style>
+  </head>
+  <body>
+    <main class="api-shell">
+      <nav class="api-nav">
+        <a class="api-brand" href="/">
+          <img src="/assets/yachat-brand-64.png" alt="" />
+          <strong>ЯЧат для разработчиков</strong>
+        </a>
+        <a href="/api/developer/v1/openapi.json">OpenAPI JSON</a>
+      </nav>
+
+      <header class="api-hero">
+        <span class="api-kicker">Digital ID API · v1</span>
+        <h1>Подтверждённый пользователь ЯЧата в вашем сервисе</h1>
+        <p class="api-lead">Пользователь вводит цифровой ID, получает одноразовый код в боте «Коды подтверждения», а ваш сервер погашает короткоживущий токен и получает стабильный идентификатор пользователя.</p>
+        <div class="api-warning"><strong>Важно:</strong> цифровой ID не является паролем. Не считайте человека подтверждённым, пока сервер не получил ответ <code>verified: true</code> от метода <code>identity/consume</code>.</div>
+      </header>
+
+      <section class="api-grid" aria-label="Свойства протокола">
+        <article class="api-card"><b>Подтверждение в ЯЧате</b><p>Код видит только владелец аккаунта в системном боте «Коды подтверждения».</p></article>
+        <article class="api-card"><b>PKCE S256</b><p>Код и токен привязаны к вашему случайному verifier — перехваченного токена недостаточно.</p></article>
+        <article class="api-card"><b>Короткоживущий токен</b><p>Токен действует 5 минут. Повтор того же серверного запроса безопасен только с исходными verifier и externalReference.</p></article>
+        <article class="api-card"><b>Стабильный subject</b><p>Ваш сервер получает отдельный непрозрачный <code>subject</code>, постоянный для пары пользователь + клиент.</p></article>
+      </section>
+
+      <section class="api-section">
+        <h2>Порядок интеграции</h2>
+        <ol class="api-flow">
+          <li>Зарегистрируйте клиент и получите <code>clientId</code>. Серверным клиентам также выдаётся <code>X-YaChat-API-Key</code>; публичным браузерным клиентам задаются разрешённые origins.</li>
+          <li>Создайте случайный PKCE <code>codeVerifier</code>, вычислите S256 <code>codeChallenge</code> и сохраните verifier до конца операции.</li>
+          <li>Передайте введённый ID в <code>identity/initiate</code>. Код появится у пользователя в ЯЧате.</li>
+          <li>Отправьте код пользователя и verifier в <code>identity/confirm</code>. Полученный <code>identityToken</code> не сохраняйте в браузере надолго.</li>
+          <li>Передайте токен, verifier и тот же <code>externalReference</code> на свой сервер. Сервер вызывает <code>identity/consume</code> до создания заказа или транзакции.</li>
+        </ol>
+      </section>
+
+      <section class="api-section">
+        <h2>1. Начать подтверждение</h2>
+        <h3><span class="api-method">POST</span><code>/api/developer/v1/identity/initiate</code></h3>
+        <pre>{
+  "clientId": "your-client-id",
+  "digitalId": "ABC — 123",
+  "purpose": "Подтверждение заказа",
+  "externalReference": "order-draft-7f30c4",
+  "codeChallenge": "BASE64URL_SHA256_VERIFIER",
+  "metadata": { "cartItems": 2 }
+}</pre>
+        <p>Ответ содержит <code>challengeId</code>, канал <code>yachat-codes</code> и время истечения. Один пользователь может запросить не более пяти кодов от клиента за 15 минут.</p>
+      </section>
+
+      <section class="api-section">
+        <h2>2. Подтвердить код</h2>
+        <h3><span class="api-method">POST</span><code>/api/developer/v1/identity/confirm</code></h3>
+        <pre>{
+  "clientId": "your-client-id",
+  "challengeId": "1d32…",
+  "code": "123456",
+  "codeVerifier": "ORIGINAL_RANDOM_VERIFIER"
+}</pre>
+        <p>После пяти неверных попыток запрос блокируется. Успешный ответ содержит <code>identityToken</code>, действующий 5 минут.</p>
+      </section>
+
+      <section class="api-section">
+        <h2>3. Погасить токен на сервере</h2>
+        <h3><span class="api-method">POST</span><code>/api/developer/v1/identity/consume</code></h3>
+        <pre>const response = await fetch(
+  "https://yachat.vercel.app/api/developer/v1/identity/consume",
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-YaChat-API-Key": process.env.YACHAT_API_KEY
+    },
+    body: JSON.stringify({
+      clientId: process.env.YACHAT_CLIENT_ID,
+      identityToken,
+      codeVerifier,
+      externalReference,
+      metadata: { orderNumber: "A-1042" }
+    })
+  }
+);
+
+const proof = await response.json();
+if (!response.ok || !proof.verified) throw new Error("Identity rejected");
+
+// Сохраняйте proof.transactionId и proof.identity.subject с заказом.
+await createOrder({ yachat: proof.identity, proofId: proof.transactionId });</pre>
+        <pre>{
+  "verified": true,
+  "transactionId": "57e5…",
+  "externalReference": "order-draft-7f30c4",
+  "identity": {
+    "subject": "yachat_a1b2…",
+    "displayName": "Имя пользователя",
+    "digitalId": "ABC — 123",
+    "rawDigitalId": "ABC123"
+  }
+}</pre>
+      </section>
+
+      <section class="api-section">
+        <h2>Ошибки и повторные запросы</h2>
+        <ul>
+          <li><code>401</code> — неверный код, API key, PKCE или identity token.</li>
+          <li><code>403</code> — origin не зарегистрирован для публичного клиента.</li>
+          <li><code>409</code> — challenge завершён или <code>externalReference</code> уже связан с другой проверкой.</li>
+          <li><code>410</code> — код или identity token истёк.</li>
+          <li><code>429</code> — превышен лимит запросов или неверных попыток.</li>
+        </ul>
+        <p>Если ответ <code>identity/consume</code> потерялся из-за сети, сервер может повторить тот же запрос с теми же token, verifier и <code>externalReference</code>: API вернёт ту же подтверждённую транзакцию с <code>replayed: true</code>. Для новой проверки создайте новый PKCE verifier и новый challenge.</p>
+      </section>
+
+      <footer class="api-footer">YaChat Digital ID API · Базовый URL: <code>https://yachat.vercel.app</code></footer>
+    </main>
+  </body>
+</html>

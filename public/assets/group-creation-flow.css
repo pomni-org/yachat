@@ -1,0 +1,517 @@
+body.group-creation-open {
+  overflow: hidden !important;
+}
+
+.group-flow-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: block;
+  width: 100%;
+  height: 100dvh;
+  padding: 0;
+  background: var(--page);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.group-flow-layer[hidden] {
+  display: none !important;
+}
+
+.group-flow-screen {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: var(--page);
+  color: var(--text);
+  box-shadow: none;
+  pointer-events: auto;
+}
+
+.group-flow-screen button,
+.group-flow-screen input {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.group-flow-header {
+  position: relative;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 56px;
+  align-items: center;
+  min-height: calc(106px + env(safe-area-inset-top));
+  padding: calc(34px + env(safe-area-inset-top)) 18px 18px;
+  border-bottom: 1px solid var(--card-edge);
+  background: var(--page);
+}
+
+.group-flow-back {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.group-flow-back:active {
+  background: color-mix(in srgb, var(--surface), transparent 35%);
+}
+
+.group-flow-back svg {
+  width: 34px;
+  height: 34px;
+}
+
+.group-flow-heading {
+  min-width: 0;
+  text-align: center;
+}
+
+.group-flow-heading h1,
+.group-flow-heading p {
+  margin: 0;
+}
+
+.group-flow-heading h1 {
+  overflow: hidden;
+  color: var(--text);
+  font-size: clamp(25px, 6vw, 31px);
+  line-height: 1.15;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-flow-heading p {
+  max-width: 720px;
+  margin: 12px auto 0;
+  color: var(--muted);
+  font-size: clamp(16px, 4vw, 20px);
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+.group-flow-header-spacer {
+  width: 48px;
+  height: 48px;
+}
+
+.group-flow-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--page);
+}
+
+.group-flow-participants-main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0 0 0 max(22px, calc((100vw - 760px) / 2));
+}
+
+.group-flow-search {
+  position: relative;
+  display: block;
+  padding: 24px max(48px, calc((100vw - 760px) / 2 + 22px)) 17px 0;
+  border-bottom: 1px solid var(--card-edge);
+  background: var(--page);
+}
+
+.group-flow-search > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.group-flow-search input {
+  display: block;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 10px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  color: var(--text);
+  box-shadow: none !important;
+  font-size: clamp(18px, 4.7vw, 22px);
+  line-height: 1.2;
+}
+
+.group-flow-search input::placeholder {
+  color: var(--muted);
+  opacity: .82;
+}
+
+.group-flow-contact-list {
+  min-height: 0;
+  padding-right: max(46px, calc((100vw - 760px) / 2 + 36px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-top: 14px;
+  touch-action: pan-y;
+}
+
+.group-flow-letter-section {
+  scroll-margin-top: 8px;
+}
+
+.group-flow-letter-section + .group-flow-letter-section {
+  margin-top: 12px;
+}
+
+.group-flow-letter-section > h2 {
+  margin: 0;
+  padding: 20px 8px 8px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 500;
+}
+
+.group-flow-user-row {
+  display: grid;
+  grid-template-columns: 48px 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 86px;
+  padding: 10px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--card-edge);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.group-flow-user-row:active {
+  background: color-mix(in srgb, var(--surface), transparent 48%);
+}
+
+.group-flow-selection {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--soft);
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+}
+
+.group-flow-user-row.is-selected .group-flow-selection {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.group-flow-selection svg {
+  width: 20px;
+  height: 20px;
+}
+
+.group-flow-user-row .user-avatar {
+  width: 58px !important;
+  height: 58px !important;
+  min-width: 58px;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.group-flow-user-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.group-flow-user-copy strong,
+.group-flow-user-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-flow-user-copy strong {
+  font-size: clamp(18px, 4.5vw, 22px);
+  line-height: 1.15;
+  font-weight: 500;
+}
+
+.group-flow-user-copy small {
+  color: var(--muted);
+  font-size: clamp(15px, 3.8vw, 18px);
+  line-height: 1.15;
+}
+
+.group-flow-alphabet {
+  position: absolute;
+  z-index: 3;
+  top: 16px;
+  right: max(3px, calc((100vw - 820px) / 2));
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 28px;
+  pointer-events: auto;
+}
+
+.group-flow-alphabet button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  min-height: 13px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--nav-active);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.group-flow-alphabet button:disabled {
+  color: color-mix(in srgb, var(--muted), transparent 38%);
+  cursor: default;
+}
+
+.group-flow-empty {
+  margin: 48px 18px;
+  color: var(--muted);
+  font-size: 16px;
+  text-align: center;
+}
+
+.group-flow-details-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 42px;
+  padding: clamp(40px, 8vh, 86px) max(24px, calc((100vw - 760px) / 2 + 24px)) 28px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.group-details-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: clamp(112px, 28vw, 136px);
+  height: clamp(112px, 28vw, 136px);
+  padding: 0 !important;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 50% !important;
+  outline: 0 !important;
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: none !important;
+  cursor: pointer;
+  clip-path: circle(50% at 50% 50%);
+}
+
+.group-details-avatar::before,
+.group-details-avatar::after {
+  display: none !important;
+  content: none !important;
+}
+
+.group-details-avatar svg {
+  width: 58%;
+  height: 58%;
+}
+
+.group-details-avatar img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  border-radius: 50% !important;
+  object-fit: cover;
+  object-position: center;
+  box-shadow: none !important;
+}
+
+.group-details-name {
+  width: 100%;
+  min-height: 70px;
+  padding: 0 24px;
+  border: 0 !important;
+  border-radius: 24px !important;
+  outline: 0 !important;
+  background: var(--field);
+  color: var(--field-text);
+  box-shadow: none !important;
+  font-size: clamp(20px, 5vw, 25px);
+  line-height: 1.2;
+}
+
+.group-details-name::placeholder {
+  color: var(--muted);
+}
+
+.group-flow-footer {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  gap: 4px;
+  padding: 14px max(24px, calc((100vw - 760px) / 2 + 24px)) calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--card-edge);
+  background: var(--page);
+}
+
+.group-flow-message {
+  min-height: 0;
+  margin: 0;
+  color: var(--danger);
+  font-size: 14px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.group-flow-message:empty {
+  display: none;
+}
+
+.group-flow-primary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 64px;
+  padding: 0 64px;
+  border: 0;
+  border-radius: 24px;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: none;
+  font-size: clamp(19px, 4.8vw, 23px);
+  line-height: 1.15;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.group-flow-primary:active:not(:disabled) {
+  transform: scale(.992);
+}
+
+.group-flow-primary:disabled {
+  background: var(--button-disabled);
+  color: var(--button-disabled-text);
+  cursor: default;
+}
+
+.group-flow-count {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  display: grid;
+  place-items: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent);
+  font-size: 17px;
+  line-height: 1;
+  font-weight: 700;
+  transform: translateY(-50%);
+}
+
+@media (max-width: 420px) {
+  .group-flow-header {
+    min-height: calc(96px + env(safe-area-inset-top));
+    padding: calc(28px + env(safe-area-inset-top)) 10px 14px;
+    grid-template-columns: 52px minmax(0, 1fr) 52px;
+  }
+
+  .group-flow-heading h1 {
+    font-size: 26px;
+  }
+
+  .group-flow-heading p {
+    max-width: 290px;
+    font-size: 17px;
+  }
+
+  .group-flow-participants-main {
+    padding-left: 18px;
+  }
+
+  .group-flow-search {
+    padding-top: 21px;
+    padding-right: 44px;
+  }
+
+  .group-flow-contact-list {
+    padding-right: 38px;
+  }
+
+  .group-flow-user-row {
+    grid-template-columns: 42px 52px minmax(0, 1fr);
+    gap: 12px;
+    min-height: 78px;
+  }
+
+  .group-flow-user-row .user-avatar {
+    width: 52px !important;
+    height: 52px !important;
+    min-width: 52px;
+  }
+
+  .group-flow-selection {
+    width: 31px;
+    height: 31px;
+  }
+
+  .group-flow-alphabet {
+    right: 1px;
+    width: 24px;
+  }
+
+  .group-flow-alphabet button {
+    width: 24px;
+    min-height: 12px;
+    font-size: 10px;
+  }
+
+  .group-flow-details-main {
+    gap: 34px;
+    padding-inline: 22px;
+  }
+
+  .group-flow-footer {
+    padding-inline: 18px;
+  }
+}

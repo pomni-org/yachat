@@ -10,25 +10,43 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ЯЧат" />
     <meta name="msapplication-TileColor" content="#f8f8f8" />
-    <meta name="msapplication-TileImage" content="/assets/yachat-brand-512.png?v=10" />
+    <meta name="msapplication-TileImage" content="/assets/yachat-brand-512.png?v=50" />
     <title>ЯЧат</title>
-    <link rel="manifest" href="/manifest.webmanifest?v=10" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/assets/yachat-brand-180.png?v=10" />
-    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/assets/yachat-brand-180.png?v=10" />
-    <link rel="icon" type="image/png" sizes="256x256" href="/assets/yachat-brand-256.png?v=10" />
-    <link rel="icon" type="image/png" sizes="48x48" href="/assets/yachat-brand-48.png?v=10" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/assets/yachat-brand-32.png?v=10" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/assets/yachat-brand-16.png?v=10" />
-    <link rel="shortcut icon" href="/assets/yachat-brand.ico?v=10" />
-    <link rel="stylesheet" href="/styles.css?v=10" />
-    <link rel="stylesheet" href="/assets/web-runtime-fix.css?v=10" />
-    <link rel="stylesheet" href="/assets/chat-presence.css?v=10" />
-    <link rel="stylesheet" href="/assets/username-copy.css?v=10" />
-    <link rel="stylesheet" href="/assets/profile-modal.css?v=10" />
-    <link rel="stylesheet" href="/assets/avatar-preview.css?v=10" />
-    <link rel="stylesheet" href="/assets/loading-shine.css?v=10" />
-    <link rel="stylesheet" href="/assets/verification-scope.css?v=10" />
-    <link rel="stylesheet" href="/assets/composer-upgrade.css?v=10" />
+    <link rel="manifest" href="/manifest.webmanifest?v=50" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/yachat-brand-180.png?v=50" />
+    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/assets/yachat-brand-180.png?v=50" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/assets/yachat-brand-256.png?v=50" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/assets/yachat-brand-48.png?v=50" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/yachat-brand-32.png?v=50" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/yachat-brand-16.png?v=50" />
+    <link rel="shortcut icon" href="/assets/yachat-brand.ico?v=50" />
+    <link rel="stylesheet" href="/styles.css?v=50" />
+    <link rel="stylesheet" href="/assets/web-runtime-fix.css?v=50" />
+    <link rel="stylesheet" href="/assets/chat-presence.css?v=50" />
+    <link rel="stylesheet" href="/assets/username-copy.css?v=50" />
+    <link rel="stylesheet" href="/assets/profile-modal.css?v=50" />
+    <link rel="stylesheet" href="/assets/loading-shine.css?v=50" />
+    <link rel="stylesheet" href="/assets/verification-scope.css?v=50" />
+    <link rel="stylesheet" href="/assets/composer-upgrade.css?v=50" />
+    <link rel="stylesheet" href="/assets/icon-size-fix.css?v=50" />
+    <link rel="stylesheet" href="/assets/settings-redesign.css?v=51" />
+    <link rel="stylesheet" href="/assets/group-creation-flow.css?v=50" />
+    <link rel="stylesheet" href="/assets/group-title-fit.css?v=50" />
+    <link rel="stylesheet" href="/assets/folders-fix.css?v=50" />
+    <link rel="stylesheet" href="/assets/background-sync.css?v=50" />
+    <link rel="stylesheet" href="/assets/chat-list-layout.css?v=50" />
+    <link rel="stylesheet" href="/assets/chat-selection.css?v=50" />
+    <link rel="stylesheet" href="/assets/avatar-fullscreen.css?v=50" />
+    <link rel="stylesheet" href="/assets/ui-accessibility.css?v=50" />
+    <link rel="stylesheet" href="/assets/message-search.css?v=50" />
+    <link rel="stylesheet" href="/assets/rich-composer.css?v=50" />
+    <link rel="stylesheet" href="/assets/message-mentions.css?v=50" />
+    <link rel="stylesheet" href="/assets/media-emoji-upgrade.css?v=50" />
+    <link rel="stylesheet" href="/assets/system-upgrade-v29.css?v=50" />
+    <link rel="stylesheet" href="/assets/profile-settings-polish.css?v=50" />
+    <link rel="stylesheet" href="/assets/theme-message-reference.css?v=50" />
+    <link rel="stylesheet" href="/assets/avatar-preview.css?v=50" />
+    <link rel="stylesheet" href="/assets/chat-profile-runtime.css?v=50" />
   </head>
   <body class="app-booting">
     <main class="app-shell" aria-label="ячат">
@@ -120,7 +138,7 @@
             <button type="button" data-action="open-terms" data-info-page="terms">пользовательское соглашение</button>
           </div>
 
-          <button class="link-button" type="button" data-action="open-qr">Войти по QR-коду</button>
+          <button class="link-button" type="button" data-action="open-qr">Войти по коду</button>
         </section>
 
         <section class="screen delivery-screen" data-screen="delivery" data-delivery-modal>
@@ -230,23 +248,23 @@
           </form>
         </section>
 
-        <section class="screen qr-screen" data-screen="qr">
-          <button class="back-button" type="button" data-action="back-phone">
+        <section class="screen device-code-login-screen" data-screen="qr">
+          <button class="back-button" type="button" data-device-code-back>
             <span class="css-icon gg-chevron-left"></span>
             Назад
           </button>
-
           <div class="screen-copy">
-            <h1>Вход по QR-коду</h1>
-            <p data-qr-status>Создаём код входа для нового устройства</p>
+            <h1>Вход по коду</h1>
+            <p>Откройте Настройки → Безопасность на устройстве, где уже выполнен вход.</p>
           </div>
-
-          <div class="qr-box" aria-label="QR-код для входа" data-qr-box>
-            <div class="qr-grid" data-qr-code></div>
-            <div class="qr-logo">Я</div>
-          </div>
-
-          <button class="link-button" type="button" data-action="refresh-qr">Обновить QR-код</button>
+          <form class="auth-form device-code-login-form" data-device-code-login>
+            <label class="device-code-input-shell">
+              <input type="text" inputmode="text" enterkeyhint="done" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="7" placeholder="АБ1-234" data-device-code-input />
+            </label>
+            <div class="form-message" data-device-code-message></div>
+            <button class="main-button" type="submit" disabled>Войти</button>
+          </form>
+          <p class="device-code-location">Код действует 10 минут и используется один раз.</p>
         </section>
 
         <section class="screen done-screen" data-screen="done">
@@ -456,11 +474,36 @@
       </section>
     </main>
 
-    <script src="/app.js?v=10"></script>
-    <script src="/assets/chat-presence.js?v=10"></script>
-    <script src="/assets/username-copy.js?v=10"></script>
-    <script src="/assets/profile-modal.js?v=10"></script>
-    <script src="/assets/contacts-sync-v2.js?v=10"></script>
-    <script src="/assets/verification-scope.js?v=10"></script>
+        <script src="/assets/language-runtime.js?v=50"></script>
+<script src="/app.js?v=50"></script>
+    <script src="/assets/db-resilience.js?v=50"></script>
+    <script src="/assets/chat-load-optimization.js?v=50"></script>
+    <script src="/assets/ui-stability.js?v=50"></script>
+    <script src="/assets/chat-profile-runtime.js?v=50"></script>
+    <script src="/assets/chat-presence.js?v=50"></script>
+    <script src="/assets/typing-stop-fix.js?v=50"></script>
+    <script src="/assets/username-copy.js?v=50"></script>
+    <script src="/assets/profile-modal.js?v=50"></script>
+    <script src="/assets/contacts-sync-v2.js?v=50"></script>
+    <script src="/assets/contact-open-fix.js?v=50"></script>
+    <script src="/assets/verification-scope.js?v=50"></script>
+    <script src="/assets/settings-icons.js?v=50"></script>
+    <script src="/assets/background-sync.js?v=50"></script>
+    <script src="/assets/settings-redesign.js?v=51"></script>
+    <script src="/assets/settings-i18n.js?v=50"></script>
+    <script src="/assets/group-creation-flow.js?v=50"></script>
+    <script src="/assets/folders-fix.js?v=50"></script>
+    <script src="/assets/chat-selection.js?v=50"></script>
+    <script src="/assets/avatar-fullscreen.js?v=50"></script>
+    <script src="/assets/ui-accessibility.js?v=50"></script>
+    <script src="/assets/message-search.js?v=50"></script>
+    <script src="/assets/rich-composer.js?v=50"></script>
+    <script src="/assets/message-mentions.js?v=50"></script>
+    <script src="/assets/media-emoji-upgrade.js?v=50"></script>
+    <script src="/assets/system-upgrade-v29.js?v=50"></script>
+    <script src="/assets/theme-message-reference.js?v=50"></script>
+    <script src="/assets/channel-avatar-persistence.js?v=50"></script>
+    <script src="/assets/push-repair.js?v=50"></script>
+    <script src="/assets/interaction-hotfix.js?v=50"></script>
   </body>
 </html>

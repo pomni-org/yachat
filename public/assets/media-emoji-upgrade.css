@@ -1,0 +1,326 @@
+/* Быстрые вложения, преобразование фото в документ и меню эмодзи. */
+
+.composer-document-tool,
+[data-action="attach-document"] {
+  display: none !important;
+}
+
+.attachment-preview.is-photo {
+  position: relative;
+  overflow: visible;
+}
+
+.attachment-preview.is-photo .attachment-preview-media {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--page), #000 8%);
+}
+
+.attachment-preview.is-photo .attachment-preview-media img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.attachment-preview.is-photo .attachment-preview-remove,
+.attachment-preview.is-photo .attachment-preview-delete,
+.attachment-preview.is-photo .attachment-preview-copy {
+  display: none !important;
+}
+
+.attachment-photo-action {
+  position: absolute;
+  z-index: 3;
+  bottom: 8px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(17, 17, 21, 0.72);
+  color: #fff;
+  box-shadow: 0 5px 16px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.attachment-photo-action svg {
+  width: 19px;
+  height: 19px;
+  stroke-width: 2;
+}
+
+.attachment-photo-action.is-remove {
+  left: 8px;
+}
+
+.attachment-photo-action.is-document {
+  right: 8px;
+}
+
+.attachment-photo-action.is-document[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent), #fff 28%);
+  background: var(--accent);
+}
+
+.attachment-photo-action:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.attachment-preview.is-processing .attachment-preview-media {
+  filter: saturate(0.72) brightness(0.72);
+}
+
+.attachment-processing {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 3px solid rgba(255, 255, 255, 0.36);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: attachment-processing-spin 0.75s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes attachment-processing-spin {
+  to { transform: rotate(360deg); }
+}
+
+.emoji-picker {
+  position: fixed;
+  z-index: 10030;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  max-height: min(430px, calc(100dvh - 92px));
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px;
+  background: rgba(26, 26, 31, 0.97);
+  color: #fff;
+  box-shadow: 0 20px 54px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  transform-origin: bottom right;
+  animation: emoji-picker-in 150ms ease-out both;
+}
+
+.emoji-picker[hidden] {
+  display: none !important;
+}
+
+@keyframes emoji-picker-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.emoji-picker-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 7px;
+  align-items: center;
+}
+
+.emoji-picker-head input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 13px;
+  outline: 0;
+  background: rgba(255, 255, 255, 0.09);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.emoji-picker-head input::placeholder {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.emoji-picker-head > button,
+.emoji-picker-tabs button,
+.emoji-picker-grid button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.emoji-picker-head > button {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+}
+
+.emoji-picker-head > button:hover,
+.emoji-picker-head > button:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  outline: 0;
+}
+
+.emoji-picker-tabs {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(36px, 1fr));
+  gap: 3px;
+  margin: 8px 0 6px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.emoji-picker-tabs button {
+  height: 36px;
+  border-radius: 10px;
+  font-size: 19px;
+}
+
+.emoji-picker-tabs button.is-active {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(34px, 1fr));
+  gap: 2px;
+  min-height: 154px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.emoji-picker-grid button {
+  min-width: 0;
+  height: 40px;
+  border-radius: 10px;
+  font-family: system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.emoji-picker-grid button:hover,
+.emoji-picker-grid button:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  outline: 0;
+}
+
+.emoji-picker-empty {
+  grid-column: 1 / -1;
+  align-self: center;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  font-size: 13px;
+}
+
+:root[data-theme="light"] .attachment-photo-action {
+  border-color: rgba(15, 23, 42, 0.13);
+  background: rgba(250, 250, 252, 0.84);
+  color: #0a0a0c;
+  box-shadow: 0 5px 16px rgba(15, 23, 42, 0.18);
+}
+
+:root[data-theme="light"] .attachment-photo-action.is-document[aria-pressed="true"] {
+  color: #fff;
+  background: var(--accent);
+}
+
+:root[data-theme="light"] .emoji-picker {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(250, 250, 252, 0.98);
+  color: #09090c;
+  box-shadow: 0 20px 54px rgba(15, 23, 42, 0.24);
+}
+
+:root[data-theme="light"] .emoji-picker-head input,
+:root[data-theme="light"] .emoji-picker-tabs button.is-active,
+:root[data-theme="light"] .emoji-picker-head > button:hover,
+:root[data-theme="light"] .emoji-picker-head > button:focus-visible,
+:root[data-theme="light"] .emoji-picker-grid button:hover,
+:root[data-theme="light"] .emoji-picker-grid button:focus-visible {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="light"] .emoji-picker-head input::placeholder,
+:root[data-theme="light"] .emoji-picker-empty {
+  color: rgba(15, 23, 42, 0.48);
+}
+
+:root[data-theme="light"] .emoji-picker-tabs {
+  border-bottom-color: rgba(15, 23, 42, 0.09);
+}
+
+@media (max-width: 640px) {
+  .attachment-photo-action {
+    width: 34px;
+    height: 34px;
+    bottom: 7px;
+  }
+
+  .attachment-photo-action.is-remove { left: 7px; }
+  .attachment-photo-action.is-document { right: 7px; }
+
+  .emoji-picker {
+    max-height: min(390px, calc(100dvh - 82px));
+    padding: 9px;
+    border-radius: 20px;
+  }
+
+  .emoji-picker-grid {
+    grid-template-columns: repeat(7, minmax(36px, 1fr));
+  }
+
+  .emoji-picker-grid button {
+    height: 42px;
+    font-size: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emoji-picker { animation: none; }
+  .attachment-processing { animation-duration: 1.4s; }
+}
+
+
+/* Композер без пустой колонки удалённой кнопки документа. */
+.composer {
+  grid-template-columns: 42px minmax(0, 1fr) 42px 50px;
+}
+
+.composer > [data-action="attach-file"] { grid-column: 1; }
+.composer > input[name="message"],
+.composer > .message-editor { grid-column: 2; }
+.composer > [data-action="open-stickers"] { grid-column: 3; }
+.composer > .send-button { grid-column: 4; }
+
+@media (max-width: 640px) {
+  .composer {
+    grid-template-columns: 38px minmax(0, 1fr) 38px 48px;
+  }
+}
+
+@media (max-width: 390px) {
+  .composer {
+    grid-template-columns: 36px minmax(0, 1fr) 36px 46px;
+  }
+}
