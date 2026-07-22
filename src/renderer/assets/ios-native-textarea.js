@@ -15,7 +15,7 @@
   if (!form || !transport || !richEditor) return;
 
   window.__yachatIosNativeTextareaInstalled = true;
-  form.dataset.yachatIosComposer = "native-textarea-v4";
+  form.dataset.yachatIosComposer = "native-textarea-v5";
   form.classList.add("is-native-ios-textarea-composer");
 
   const textarea = document.createElement("textarea");
@@ -110,7 +110,7 @@
     document.head.append(style);
   }
 
-  let pendingEnter = null;
+  let enterHandledByKeydown = false;
 
   function resizeTextarea() {
     textarea.style.height = "auto";
@@ -174,31 +174,23 @@
   textarea.addEventListener("beforeinput", (event) => {
     if (event.isComposing || !["insertLineBreak", "insertParagraph"].includes(event.inputType)) return;
     event.preventDefault();
-    if (pendingEnter) pendingEnter.handled = true;
-    insertNativeLineBreak();
+    if (!enterHandledByKeydown) insertNativeLineBreak();
   });
   textarea.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     event.stopPropagation();
     if (event.isComposing) return;
-    pendingEnter = {
-      value: textarea.value,
-      start: textarea.selectionStart,
-      end: textarea.selectionEnd,
-      handled: false,
-      prevented: false
-    };
-    queueMicrotask(() => {
-      if (pendingEnter) pendingEnter.prevented = event.defaultPrevented;
-    });
+
+    enterHandledByKeydown = false;
+    const mentionStripOpen = Boolean(form.querySelector(".message-mention-strip:not([hidden])"));
+    if (mentionStripOpen) return;
+
+    event.preventDefault();
+    enterHandledByKeydown = true;
+    insertNativeLineBreak();
   });
   textarea.addEventListener("keyup", (event) => {
-    if (event.key !== "Enter" || !pendingEnter) return;
-    const pending = pendingEnter;
-    pendingEnter = null;
-    if (!pending.handled && !pending.prevented && textarea.value === pending.value) {
-      insertNativeLineBreak(pending.start, pending.end);
-    }
+    if (event.key === "Enter") enterHandledByKeydown = false;
   });
   textarea.addEventListener("focus", resizeTextarea);
 
