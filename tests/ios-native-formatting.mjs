@@ -19,7 +19,13 @@ page.on("console", (message) => {
 
 await page.setContent(`<!doctype html>
 <html>
-  <head><meta charset="utf-8"></head>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      body { padding-top: 120px; }
+      .composer { position: relative; }
+    </style>
+  </head>
   <body>
     <form class="composer" data-form="message">
       <div data-composer-context hidden></div>
