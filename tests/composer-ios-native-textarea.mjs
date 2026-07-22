@@ -117,6 +117,7 @@ await page.evaluate(() => {
   };
   globalThis.showActionFeedback = () => {};
   globalThis.translatedServerMessage = (message) => message;
+  globalThis.addAttachments = () => Promise.resolve([]);
   globalThis.readFileAsDataUrl = async () => "data:application/octet-stream;base64,";
   globalThis.loadImageElement = async () => ({ naturalWidth: 1, naturalHeight: 1 });
   globalThis.attachmentTypeLabel = () => "file";
