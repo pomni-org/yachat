@@ -17,7 +17,7 @@ page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push(message.text());
 });
 
-await page.setContent(`<!doctype html>
+const documentHtml = `<!doctype html>
 <html>
   <head><meta charset="utf-8"></head>
   <body>
@@ -35,7 +35,13 @@ await page.setContent(`<!doctype html>
     </form>
     <div data-message-list></div>
   </body>
-</html>`);
+</html>`;
+await page.route("https://yachat.test/", (route) => route.fulfill({
+  status: 200,
+  contentType: "text/html; charset=utf-8",
+  body: documentHtml
+}));
+await page.goto("https://yachat.test/");
 
 await page.evaluate(() => {
   globalThis.messageForm = document.querySelector('[data-form="message"]');
