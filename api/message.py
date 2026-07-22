@@ -22,11 +22,12 @@ from api.index import (
     require_chat_member,
     require_chat_messaging_allowed,
     require_user,
+    resolve_message_chat_id,
     row_value,
 )
 from server.push_delivery import send_push_to_user
 
-app = FastAPI(title="YaChat message API", version="0.4.0")
+app = FastAPI(title="YaChat message API", version="0.5.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
@@ -79,6 +80,23 @@ async def deliver_pushes(deliveries: list[tuple[str, str, str, str, str]]) -> li
             for user_id, title, body, url, tag in deliveries
         ]
     )
+
+
+def message_ids(payload: dict[str, Any]) -> list[str]:
+    raw = payload.get("messageIds") if isinstance(payload.get("messageIds"), list) else [payload.get("messageId")]
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in raw:
+        message_id = str(value or "").strip()
+        if not message_id or message_id in seen:
+            continue
+        seen.add(message_id)
+        result.append(message_id)
+        if len(result) >= 100:
+            break
+    if not result:
+        raise HTTPException(status_code=400, detail="Select a message first.")
+    return result
 
 
 @app.post("/api/message")
@@ -213,9 +231,6 @@ async def send_message(request: Request):
                 """,
                 (chat_id, user["id"]),
             )
-            # A retry after the client timed out must still retry Web Push. The
-            # message-specific notification tag coalesces retries of this message
-            # without suppressing later messages from the same chat.
             recipients = [] if is_saved_chat else [str(row["user_id"]) for row in cursor.fetchall()]
 
     sender_name = str(row_value(user, "display_name", "preview_name", "username")) or "ЯЧат"
@@ -242,4 +257,72 @@ async def send_message(request: Request):
         "message": message_payload(message, user_id),
         "inserted": inserted,
         "push": aggregate_push(push_results),
+    }
+
+
+@app.post("/api/message/delete")
+async def delete_message(request: Request):
+    user = require_user(request)
+    payload = await read_json_payload(request)
+    requested_chat_id = clean_chat_id(payload.get("chatId"))
+    scope = str(payload.get("scope") or "self").strip().lower()
+    if scope not in {"self", "everyone"}:
+        raise HTTPException(status_code=400, detail="Choose how to delete the message.")
+
+    ids = message_ids(payload)
+    user_id = str(user["id"])
+
+    if requested_chat_id.startswith("yachat-") and requested_chat_id != "yachat-favorites":
+        raise HTTPException(status_code=403, detail="This message cannot be deleted.")
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            chat_id = resolve_message_chat_id(cursor, requested_chat_id, user_id)
+            require_chat_member(cursor, chat_id, user_id)
+            cursor.execute(
+                """
+                select id, sender_id
+                from yachat_messages
+                where chat_id = %s
+                  and id::text = any(%s)
+                  and deleted_at is null
+                """,
+                (chat_id, ids),
+            )
+            rows = [dict(row) for row in cursor.fetchall()]
+            rows_by_id = {str(row["id"]): row for row in rows}
+            if any(message_id not in rows_by_id for message_id in ids):
+                raise HTTPException(status_code=404, detail="Message not found.")
+
+            if scope == "everyone":
+                if any(str(row_value(rows_by_id[message_id], "sender_id")) != user_id for message_id in ids):
+                    raise HTTPException(status_code=403, detail="You can delete only your own messages for everyone.")
+                cursor.execute(
+                    """
+                    update yachat_messages
+                    set deleted_at = now()
+                    where chat_id = %s
+                      and sender_id = %s
+                      and id::text = any(%s)
+                      and deleted_at is null
+                    """,
+                    (chat_id, user_id, ids),
+                )
+            else:
+                cursor.execute(
+                    """
+                    insert into yachat_message_hidden(message_id, user_id, hidden_at)
+                    select id, %s, now()
+                    from yachat_messages
+                    where chat_id = %s
+                      and id::text = any(%s)
+                      and deleted_at is null
+                    on conflict(message_id, user_id) do nothing
+                    """,
+                    (user_id, chat_id, ids),
+                )
+
+    return {
+        "chats": list_user_chats(user_id),
+        "messages": get_chat_messages(requested_chat_id, user_id),
     }
