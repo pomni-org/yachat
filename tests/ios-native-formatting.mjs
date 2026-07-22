@@ -104,7 +104,8 @@ await page.evaluate(() => {
 for (const path of [
   "src/renderer/assets/rich-composer-stable.js",
   "src/renderer/assets/ios-native-textarea.js",
-  "src/renderer/assets/ios-native-formatting.js"
+  "src/renderer/assets/ios-native-formatting.js",
+  "src/renderer/assets/ios-format-selection-guard.js"
 ]) {
   await page.addScriptTag({ path });
 }
