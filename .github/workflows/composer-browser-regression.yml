@@ -6,6 +6,7 @@ on:
     paths:
       - src/renderer/assets/rich-composer-stable.js
       - src/renderer/assets/message-mentions.js
+      - src/renderer/assets/composer-enter-stable.js
       - src/renderer/assets/composer-delivery-stable.js
       - src/renderer/assets/composer-actions-stable.js
       - src/renderer/assets/mobile-chat-stable.js
@@ -15,6 +16,7 @@ on:
     paths:
       - src/renderer/assets/rich-composer-stable.js
       - src/renderer/assets/message-mentions.js
+      - src/renderer/assets/composer-enter-stable.js
       - src/renderer/assets/composer-delivery-stable.js
       - src/renderer/assets/composer-actions-stable.js
       - src/renderer/assets/mobile-chat-stable.js
@@ -42,6 +44,9 @@ jobs:
 
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
+
+      - name: Verify Enter runtime syntax
+        run: node --check src/renderer/assets/composer-enter-stable.js
 
       - name: Run composer regression suite
         id: regression
