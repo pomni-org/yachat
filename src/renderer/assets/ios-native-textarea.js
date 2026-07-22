@@ -15,7 +15,7 @@
   if (!form || !transport || !richEditor) return;
 
   window.__yachatIosNativeTextareaInstalled = true;
-  form.dataset.yachatIosComposer = "native-textarea-v2";
+  form.dataset.yachatIosComposer = "native-textarea-v3";
   form.classList.add("is-native-ios-textarea-composer");
 
   const textarea = document.createElement("textarea");
@@ -168,7 +168,7 @@
     const valueBefore = textarea.value;
     const selectionStart = textarea.selectionStart;
     const selectionEnd = textarea.selectionEnd;
-    requestAnimationFrame(() => {
+    queueMicrotask(() => {
       if (event.defaultPrevented || !textarea.isConnected || textarea.value !== valueBefore) return;
       textarea.setRangeText("\n", selectionStart, selectionEnd, "end");
       textarea.dispatchEvent(new InputEvent("input", {
