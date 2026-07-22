@@ -1,6 +1,5 @@
 name: Native iOS textarea composer
 
-# Regression rerun against the v76 immediate Enter handling.
 on:
   pull_request:
     paths:
@@ -10,6 +9,7 @@ on:
       - src/renderer/assets/composer-delivery-stable.js
       - src/renderer/assets/composer-actions-stable.js
       - tests/composer-ios-native-textarea.mjs
+      - tests/debug-ios-native-enter.mjs
       - .github/workflows/composer-ios-native-textarea.yml
   workflow_dispatch:
 
@@ -37,6 +37,11 @@ jobs:
           test -x /usr/bin/google-chrome
           /usr/bin/google-chrome --version
 
+      - name: Trace Enter event sequence
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: node tests/debug-ios-native-enter.mjs | tee native-enter-trace.txt
+
       - name: Run native textarea composer suite
         id: regression
         continue-on-error: true
@@ -56,6 +61,7 @@ jobs:
         with:
           name: native-ios-textarea-output
           path: |
+            native-enter-trace.txt
             native-textarea-output.txt
             native-textarea-exit-code.txt
           if-no-files-found: error
