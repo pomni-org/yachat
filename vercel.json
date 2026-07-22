@@ -161,9 +161,6 @@
     "api/chat_poll.py": {
       "maxDuration": 10
     },
-    "api/presence.py": {
-      "maxDuration": 10
-    },
     "api/presence_runtime.py": {
       "maxDuration": 10
     },
