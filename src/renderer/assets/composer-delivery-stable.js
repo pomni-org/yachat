@@ -213,7 +213,7 @@
 
       renderOptimistic(chat, outgoing);
       clearComposer(form, transport, send);
-      requestAnimationFrame(() => window.setTimeout(() => enqueueMessage(chat, outgoing), 0));
+      queueMicrotask(() => enqueueMessage(chat, outgoing));
     }, true);
   }
 
