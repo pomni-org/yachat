@@ -139,14 +139,69 @@
     renderMessages();
   }
 
+  function messageTime(value) {
+    const parsed = new Date(value || 0).getTime();
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function mergeServerMessage(targetChat, localMessage, result) {
+    const remote = result?.message && typeof result.message === "object"
+      ? { ...localMessage, ...result.message }
+      : { ...localMessage };
+    remote.chatId = remote.chatId || targetChat.id;
+    remote.deliveryStatus = "sent";
+
+    removeTransientMessage(targetChat.id, localMessage.id);
+    outboxChats.delete(localMessage.id);
+
+    if (String(state.activeChatId || "") === String(targetChat.id) && Array.isArray(state.messages)) {
+      const identifiers = new Set([String(localMessage.id || ""), String(remote.id || "")]);
+      state.messages = state.messages
+        .filter((item) => !identifiers.has(String(item?.id || "")))
+        .concat(remote)
+        .sort((left, right) => messageTime(left?.createdAt) - messageTime(right?.createdAt));
+    }
+
+    const chat = Array.isArray(state.chats)
+      ? state.chats.find((item) => String(item?.id || "") === String(targetChat.id))
+      : null;
+    if (chat) {
+      chat.lastMessage = String(remote.text || "").trim() || (remote.attachments?.length ? "Файл" : chat.lastMessage || "");
+      chat.lastAt = remote.createdAt || new Date().toISOString();
+      chat.unread = 0;
+    }
+
+    if (state.activeChatId === targetChat.id) renderMessages();
+    renderChatList();
+    return remote;
+  }
+
+  async function deliverCompactMessage(targetChat, message) {
+    if (typeof yachatApi === "undefined" || !yachatApi?.messenger?.send) {
+      return deliverTransientMessage(targetChat, message);
+    }
+
+    const result = await yachatApi.messenger.send({
+      chatId: targetChat.id,
+      text: message.text || "",
+      formattedHtml: sanitizeRichHtml(message.formattedHtml || ""),
+      attachments: Array.isArray(message.attachments) ? message.attachments : [],
+      replyToMessageId: message.replyToMessageId || message.replyTo?.messageId || null,
+      clientMessageId: message.id,
+      compact: true,
+      responseMode: "compact"
+    });
+    mergeServerMessage(targetChat, message, result);
+    return true;
+  }
+
   async function sendQueuedMessage(sourceChat, message) {
     if (inFlight.has(message.id)) return;
     inFlight.add(message.id);
     try {
       const targetChat = await resolveTargetChat(sourceChat);
       moveTransient(sourceChat, targetChat, message);
-      const delivered = await deliverTransientMessage(targetChat, message);
-      if (delivered) outboxChats.delete(message.id);
+      await deliverCompactMessage(targetChat, message);
     } catch (error) {
       markCreateChatFailed(sourceChat, message, error);
     } finally {
