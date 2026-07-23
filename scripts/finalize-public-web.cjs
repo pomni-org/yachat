@@ -32,17 +32,26 @@ function forbidText(content, forbidden, label) {
   }
 }
 
-async function patchAppLinks() {
-  const app = await read("app.js");
-  requireText(app, "function appRoutePath", "web route base patch");
+async function patchWebApp() {
+  const [appSource, webSource] = await Promise.all([
+    read("app.js"),
+    read("web.html")
+  ]);
+  requireText(appSource, "function appRoutePath", "web route base patch");
 
-  const patched = app.replaceAll(
-    "https://yachat.vercel.app/",
-    `${canonicalOrigin}/web/`
-  );
+  const app = appSource
+    .replaceAll("https://yachat.vercel.app/", `${canonicalOrigin}/web/`)
+    .replaceAll("./assets/", "/assets/");
+  const web = webSource.replaceAll("./assets/", "/assets/");
 
-  forbidText(patched, "https://yachat.vercel.app/", "legacy profile URL");
-  await write("app.js", patched);
+  forbidText(app, "https://yachat.vercel.app/", "legacy profile URL");
+  forbidText(app, "./assets/", "relative app asset path");
+  forbidText(web, "./assets/", "relative web shell asset path");
+
+  await Promise.all([
+    write("app.js", app),
+    write("web.html", web)
+  ]);
 }
 
 async function retainLegacyCiGate() {
@@ -76,6 +85,8 @@ async function validatePublicBundle() {
   requireText(privacy, 'rel="canonical" href="https://yachat.eu.org/privacy"', "privacy canonical");
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
   requireText(web, "/assets/private-chat-presence.js?v=87", "v87 private chat runtime");
+  requireText(web, "/assets/yachat-brand.svg?v=87", "absolute web brand asset");
+  forbidText(web, "./assets/", "relative web asset path");
   requireText(robots, "Disallow: /web", "robots web exclusion");
   requireText(robots, "Disallow: /api/", "robots API exclusion");
   requireText(robots, "Sitemap: https://yachat.eu.org/sitemap.xml", "robots sitemap declaration");
@@ -86,10 +97,11 @@ async function validatePublicBundle() {
   requireText(manifest, '"start_url": "/web"', "manifest start URL");
   requireText(manifest, '"scope": "/web"', "manifest scope");
   requireText(vercelApp, `${canonicalOrigin}/web/`, "canonical shared profile URL");
+  forbidText(vercelApp, "./assets/", "relative app asset path");
 }
 
 async function main() {
-  await patchAppLinks();
+  await patchWebApp();
   await retainLegacyCiGate();
   await validatePublicBundle();
 }
