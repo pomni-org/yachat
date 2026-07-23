@@ -16,12 +16,16 @@ from psycopg.rows import dict_row
 from api.index import connect_db, enforce_rate_limit, ensure_schema, public_user, require_user
 
 
-LATIN_DIGITAL_ID = re.compile(r"^[ABCDEFGHJKLMNPQRSTUVWXYZ]{2,3}[0-9]{3,4}$")
-CYRILLIC_DIGITAL_ID = re.compile(r"^[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЭЮЯ]{2,3}[0-9]{3,4}$")
+LATIN_DIGITAL_ID = re.compile(
+    r"^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ]{2}[0-9]{4}|[ABCDEFGHJKLMNPQRSTUVWXYZ]{3}[0-9]{3})$"
+)
+CYRILLIC_DIGITAL_ID = re.compile(
+    r"^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}[0-9]{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}[0-9]{3})$"
+)
 
 app = FastAPI(
     title="YaChat private Digital ID boundary",
-    version="1.6.0",
+    version="1.6.1",
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
@@ -175,7 +179,7 @@ def digital_id_health():
     return {
         "ok": True,
         "service": "yachat-digital-id",
-        "version": "1.6.0",
+        "version": "1.6.1",
         "proof": "otp-pkce-one-time-token",
         "digitalIdExposure": "verified-developer-proof",
         "immutable": True,
