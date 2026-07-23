@@ -9,12 +9,14 @@ on:
       - src/renderer/assets/composer-enter-stable.js
       - src/renderer/assets/frontend-first-runtime.js
       - src/renderer/assets/composer-delivery-stable.js
+      - src/renderer/assets/composer-actions-stable.js
       - src/renderer/assets/settings-detail-layout.css
       - src/renderer/assets/settings-detail-navigation.js
       - src/renderer/assets/avatar-preserve.css
       - src/renderer/assets/avatar-preserve.js
       - api/message.py
       - api/chat_poll.py
+      - api/digital_id_blocked.py
       - server/database.py
       - tests/ios-native-formatting.mjs
       - tests/composer-ios-native-textarea.mjs
@@ -23,7 +25,10 @@ on:
       - tests/avatar-preserve.mjs
       - tests/test_message_performance.py
       - tests/test_chat_poll_queries.py
+      - tests/test_digital_id_migration.py
       - scripts/build-vercel.cjs
+      - package.json
+      - supabase/migrations/20260723030000_digital_id_single_script.sql
       - vercel.json
       - .github/workflows/formatting-backend-speed.yml
   workflow_dispatch:
@@ -50,10 +55,18 @@ jobs:
         env:
           CHROME_BIN: /usr/bin/google-chrome
         run: node tests/settings-detail-navigation.mjs
-      - name: Verify avatars preserve complete artwork
+      - name: Verify lossless avatar positioning and Digital IDs
+        id: avatar
+        continue-on-error: true
         env:
           CHROME_BIN: /usr/bin/google-chrome
-        run: node tests/avatar-preserve.mjs
+        run: |
+          set +e
+          node tests/avatar-preserve.mjs > avatar-test-output.txt 2>&1
+          code=$?
+          echo "$code" > avatar-test-exit-code.txt
+          cat avatar-test-output.txt
+          exit "$code"
       - name: Verify native textarea remains stable
         env:
           CHROME_BIN: /usr/bin/google-chrome
@@ -70,7 +83,7 @@ jobs:
           echo "$code" > formatting-test-exit-code.txt
           cat formatting-test-output.txt
           exit "$code"
-      - name: Verify optimistic compact delivery
+      - name: Verify first-tap compact delivery
         id: delivery
         continue-on-error: true
         env:
@@ -90,26 +103,33 @@ jobs:
           node --check src/renderer/assets/composer-enter-stable.js
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
+          node --check src/renderer/assets/composer-actions-stable.js
           node --check src/renderer/assets/settings-detail-navigation.js
           node --check src/renderer/assets/avatar-preserve.js
           node --check tests/settings-detail-navigation.mjs
           node --check tests/avatar-preserve.mjs
+          node --check tests/frontend-first-delivery.mjs
           node --check scripts/build-vercel.cjs
+          node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('vercel.json', 'utf8'))"
       - name: Build Vercel bundle
         run: npm run build:vercel
-      - name: Verify avatar assets in bundle
+      - name: Verify v83 assets in bundle
         run: |
           test -f public/assets/avatar-preserve.css
           test -f public/assets/avatar-preserve.js
-          grep -Fq '/assets/avatar-preserve.css?v=82' public/index.html
-          grep -Fq '/assets/avatar-preserve.js?v=82' public/index.html
+          grep -Fq '/assets/composer-delivery-stable.js?v=83' public/index.html
+          grep -Fq '/assets/composer-actions-stable.js?v=83' public/index.html
+          grep -Fq '/assets/avatar-preserve.css?v=83' public/index.html
+          grep -Fq '/assets/avatar-preserve.js?v=83' public/index.html
       - name: Upload browser regression output
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: formatting-delivery-test-output
+          name: avatar-formatting-delivery-test-output
           path: |
+            avatar-test-output.txt
+            avatar-test-exit-code.txt
             formatting-test-output.txt
             formatting-test-exit-code.txt
             delivery-test-output.txt
@@ -119,8 +139,10 @@ jobs:
       - name: Fail when a browser regression failed
         if: always()
         run: |
+          avatar_code="$(cat avatar-test-exit-code.txt 2>/dev/null || echo 1)"
           formatting_code="$(cat formatting-test-exit-code.txt 2>/dev/null || echo 1)"
           delivery_code="$(cat delivery-test-exit-code.txt 2>/dev/null || echo 1)"
+          test "$avatar_code" = "0"
           test "$formatting_code" = "0"
           test "$delivery_code" = "0"
 
@@ -136,9 +158,11 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Verify Python syntax
         run: |
-          python -m py_compile api/message.py api/chat_poll.py server/database.py
-          python -m py_compile tests/test_message_performance.py tests/test_chat_poll_queries.py
+          python -m py_compile api/message.py api/chat_poll.py api/digital_id_blocked.py server/database.py
+          python -m py_compile tests/test_message_performance.py tests/test_chat_poll_queries.py tests/test_digital_id_migration.py
       - name: Test compact writes and physical deletion
         run: python -m unittest tests.test_message_performance -v
       - name: Test combined chat polling query
         run: python -m unittest tests.test_chat_poll_queries -v
+      - name: Test single-script Digital ID migration
+        run: python -m unittest tests.test_digital_id_migration -v

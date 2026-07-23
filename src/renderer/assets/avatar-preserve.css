@@ -1,6 +1,5 @@
-/* ЯЧат: аватар задаётся размером контейнера, само изображение не режется. */
+/* ЯЧат: контейнер задаёт размер аватара, исходный файл сохраняется целиком. */
 
-/* Кнопка-рамка не должна тайно съедать место внутренними отступами. */
 :where(
   .avatar-preview,
   .profile-edit-avatar-preview,
@@ -60,7 +59,51 @@
   -webkit-user-drag: none;
 }
 
-/* Системные логотипы тоже вписываются целиком, но сохраняют собственный размер. */
+/* Позиционированный аватар визуально заполняет рамку, но его исходник не режется. */
+:where(
+  [data-avatar-view],
+  [data-avatar-modal-image],
+  .avatar-preview,
+  .done-mark,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .group-member-avatar,
+  .mention-avatar,
+  .message-author-avatar
+) > img.is-yachat-positioned-avatar,
+:where(
+  [data-avatar-view],
+  [data-avatar-modal-image],
+  .avatar-preview,
+  .done-mark,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .group-member-avatar,
+  .mention-avatar,
+  .message-author-avatar
+) img.is-yachat-positioned-avatar {
+  object-fit: cover !important;
+  object-position: var(--yachat-avatar-position-x, 50%) var(--yachat-avatar-position-y, 50%) !important;
+  transform: scale(var(--yachat-avatar-zoom, 1)) !important;
+  transform-origin: center center !important;
+}
+
 .digital-id-identity-card > img,
 .kotoslugi-row > img {
   max-width: 100%;
@@ -72,7 +115,6 @@
   -webkit-user-drag: none;
 }
 
-/* Пустое место вокруг неквадратной авы принадлежит рамке, а не обрезается. */
 :where(
   [data-avatar-view],
   [data-avatar-modal-image],
@@ -92,5 +134,21 @@
   .mention-avatar,
   .message-author-avatar
 ) {
+  overflow: hidden;
   background-clip: padding-box;
+}
+
+img[data-avatar-modal-image] {
+  object-fit: contain !important;
+  object-position: center center !important;
+  transform: none !important;
+  image-rendering: auto;
+  -webkit-user-drag: none;
+}
+
+img[data-avatar-modal-image].is-yachat-positioned-avatar {
+  object-fit: cover !important;
+  object-position: var(--yachat-avatar-position-x, 50%) var(--yachat-avatar-position-y, 50%) !important;
+  transform: scale(var(--yachat-avatar-zoom, 1)) !important;
+  transform-origin: center center !important;
 }
