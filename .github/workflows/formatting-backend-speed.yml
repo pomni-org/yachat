@@ -11,6 +11,8 @@ on:
       - src/renderer/assets/composer-delivery-stable.js
       - src/renderer/assets/settings-detail-layout.css
       - src/renderer/assets/settings-detail-navigation.js
+      - src/renderer/assets/avatar-preserve.css
+      - src/renderer/assets/avatar-preserve.js
       - api/message.py
       - api/chat_poll.py
       - server/database.py
@@ -18,6 +20,7 @@ on:
       - tests/composer-ios-native-textarea.mjs
       - tests/frontend-first-delivery.mjs
       - tests/settings-detail-navigation.mjs
+      - tests/avatar-preserve.mjs
       - tests/test_message_performance.py
       - tests/test_chat_poll_queries.py
       - scripts/build-vercel.cjs
@@ -47,6 +50,10 @@ jobs:
         env:
           CHROME_BIN: /usr/bin/google-chrome
         run: node tests/settings-detail-navigation.mjs
+      - name: Verify avatars preserve complete artwork
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: node tests/avatar-preserve.mjs
       - name: Verify native textarea remains stable
         env:
           CHROME_BIN: /usr/bin/google-chrome
@@ -84,9 +91,19 @@ jobs:
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
           node --check src/renderer/assets/settings-detail-navigation.js
+          node --check src/renderer/assets/avatar-preserve.js
           node --check tests/settings-detail-navigation.mjs
+          node --check tests/avatar-preserve.mjs
           node --check scripts/build-vercel.cjs
           node -e "JSON.parse(require('fs').readFileSync('vercel.json', 'utf8'))"
+      - name: Build Vercel bundle
+        run: npm run build:vercel
+      - name: Verify avatar assets in bundle
+        run: |
+          test -f public/assets/avatar-preserve.css
+          test -f public/assets/avatar-preserve.js
+          grep -Fq '/assets/avatar-preserve.css?v=82' public/index.html
+          grep -Fq '/assets/avatar-preserve.js?v=82' public/index.html
       - name: Upload browser regression output
         if: always()
         uses: actions/upload-artifact@v4

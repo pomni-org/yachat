@@ -24,7 +24,7 @@ const files = [
   "developers.html"
 ];
 
-const BRAND_VERSION = "81";
+const BRAND_VERSION = "82";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -54,7 +54,8 @@ const STYLE_ASSETS = [
   "avatar-preview.css",
   "chat-profile-runtime.css",
   "composer-regression-fix.css",
-  "mobile-chat-runtime.css"
+  "mobile-chat-runtime.css",
+  "avatar-preserve.css"
 ];
 const PRE_APP_SCRIPT_ASSETS = [
   "language-runtime.js"
@@ -99,7 +100,8 @@ const SCRIPT_ASSETS = [
   "composer-delivery-stable.js",
   "composer-actions-stable.js",
   "mobile-chat-stable.js",
-  "frontend-first-runtime.js"
+  "frontend-first-runtime.js",
+  "avatar-preserve.js"
 ];
 const BRAND_REPLACEMENTS = [
   ["/assets/yachat-shortcut-512.png", `/assets/yachat-brand-512.png?v=${BRAND_VERSION}`],
@@ -148,7 +150,8 @@ async function validateRuntimeScripts() {
     "composer-delivery-stable.js",
     "composer-actions-stable.js",
     "mobile-chat-stable.js",
-    "frontend-first-runtime.js"
+    "frontend-first-runtime.js",
+    "avatar-preserve.js"
   ];
   await Promise.all(requiredScripts.map((name) => execFileAsync(process.execPath, [
     "--check",
