@@ -17,6 +17,41 @@
       : compact;
   }
 
+  function prepareDeviceCodeField() {
+    if (!input || !form) {
+      return;
+    }
+
+    const shell = input.closest("label");
+    if (shell) {
+      shell.classList.remove("device-code-input-shell");
+      shell.classList.add("device-code-field");
+      if (!shell.querySelector("[data-device-code-label]")) {
+        const label = document.createElement("span");
+        label.dataset.deviceCodeLabel = "";
+        label.textContent = "Код входа";
+        shell.prepend(label);
+      }
+    }
+
+    const screen = form.closest('[data-screen="qr"]');
+    const title = screen?.querySelector(".screen-copy h1");
+    const description = screen?.querySelector(".screen-copy p");
+    const location = screen?.querySelector(".device-code-location");
+    if (title) {
+      title.textContent = "Введите код ЯЧата";
+    }
+    if (description) {
+      description.textContent = "Откройте Настройки → Безопасность на устройстве, где вы уже вошли.";
+    }
+    if (location) {
+      location.textContent = "Введите 6 символов. Дефис добавится сам. Код действует 10 минут и используется один раз.";
+    }
+
+    input.setAttribute("aria-label", "Код входа ЯЧата");
+    input.setAttribute("placeholder", "АБ1-234");
+  }
+
   function syncDeviceCode() {
     if (!input || !form) {
       return;
@@ -37,7 +72,7 @@
   }
 
   if (input && form) {
-    input.setAttribute("aria-label", "Код входа ЯЧата");
+    prepareDeviceCodeField();
     input.addEventListener("input", syncDeviceCode);
     input.addEventListener("change", syncDeviceCode);
     input.addEventListener("blur", syncDeviceCode);
