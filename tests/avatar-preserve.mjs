@@ -22,9 +22,12 @@ await page.setContent(`<!doctype html>
       .chat-avatar,
       .profile-edit-avatar-preview,
       .avatar-modal-image {
+        box-sizing: border-box;
         width: 120px;
         height: 120px;
+        padding: 0;
         overflow: hidden;
+        border: 0;
         border-radius: 50%;
       }
       .avatar-box img,
