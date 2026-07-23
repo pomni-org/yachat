@@ -167,9 +167,7 @@
   function formatSingleScriptDigitalId(value) {
     const compact = String(value || "").replace(/[\s—–-]+/g, "").toUpperCase();
     if (!digitalIdScript(compact)) return "";
-    const digitIndex = compact.search(/[0-9]/);
-    if (digitIndex < 0) return "";
-    return `${compact.slice(0, digitIndex)} — ${compact.slice(digitIndex)}`;
+    return `${compact.slice(0, 3)} — ${compact.slice(3)}`;
   }
 
   function installDigitalIdGuard() {
