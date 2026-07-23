@@ -16,6 +16,7 @@ on:
       - src/renderer/assets/avatar-preserve.js
       - api/message.py
       - api/chat_poll.py
+      - api/digital_id_blocked.py
       - server/database.py
       - tests/ios-native-formatting.mjs
       - tests/composer-ios-native-textarea.mjs
@@ -26,7 +27,6 @@ on:
       - tests/test_chat_poll_queries.py
       - tests/test_digital_id_migration.py
       - scripts/build-vercel.cjs
-      - scripts/build-vercel-v83.cjs
       - package.json
       - supabase/migrations/20260723030000_digital_id_single_script.sql
       - vercel.json
@@ -102,7 +102,6 @@ jobs:
           node --check tests/avatar-preserve.mjs
           node --check tests/frontend-first-delivery.mjs
           node --check scripts/build-vercel.cjs
-          node --check scripts/build-vercel-v83.cjs
           node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('vercel.json', 'utf8'))"
       - name: Build Vercel bundle
@@ -147,7 +146,7 @@ jobs:
         run: python -m pip install -r requirements.txt
       - name: Verify Python syntax
         run: |
-          python -m py_compile api/message.py api/chat_poll.py server/database.py
+          python -m py_compile api/message.py api/chat_poll.py api/digital_id_blocked.py server/database.py
           python -m py_compile tests/test_message_performance.py tests/test_chat_poll_queries.py tests/test_digital_id_migration.py
       - name: Test compact writes and physical deletion
         run: python -m unittest tests.test_message_performance -v
