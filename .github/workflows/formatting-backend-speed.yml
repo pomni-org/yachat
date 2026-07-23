@@ -128,14 +128,14 @@ jobs:
           node -e "JSON.parse(require('fs').readFileSync('vercel.json', 'utf8'))"
       - name: Build Vercel bundle
         run: npm run build:vercel
-      - name: Verify v83 assets in bundle
+      - name: Verify v84 assets in bundle
         run: |
           test -f public/assets/avatar-preserve.css
           test -f public/assets/avatar-preserve.js
-          grep -Fq '/assets/composer-delivery-stable.js?v=83' public/index.html
-          grep -Fq '/assets/composer-actions-stable.js?v=83' public/index.html
-          grep -Fq '/assets/avatar-preserve.css?v=83' public/index.html
-          grep -Fq '/assets/avatar-preserve.js?v=83' public/index.html
+          grep -Fq '/assets/composer-delivery-stable.js?v=84' public/index.html
+          grep -Fq '/assets/composer-actions-stable.js?v=84' public/index.html
+          grep -Fq '/assets/avatar-preserve.css?v=84' public/index.html
+          grep -Fq '/assets/avatar-preserve.js?v=84' public/index.html
       - name: Upload browser regression output
         if: always()
         uses: actions/upload-artifact@v4
