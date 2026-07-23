@@ -23,6 +23,7 @@ on:
       - tests/frontend-first-delivery.mjs
       - tests/settings-detail-navigation.mjs
       - tests/avatar-preserve.mjs
+      - tests/existing-profile-avatar.mjs
       - tests/test_message_performance.py
       - tests/test_chat_poll_queries.py
       - tests/test_digital_id_migration.py
@@ -67,6 +68,18 @@ jobs:
           echo "$code" > avatar-test-exit-code.txt
           cat avatar-test-output.txt
           exit "$code"
+      - name: Verify existing profile avatar replacement
+        id: profile-avatar
+        continue-on-error: true
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: |
+          set +e
+          node tests/existing-profile-avatar.mjs > profile-avatar-test-output.txt 2>&1
+          code=$?
+          echo "$code" > profile-avatar-test-exit-code.txt
+          cat profile-avatar-test-output.txt
+          exit "$code"
       - name: Verify native textarea remains stable
         env:
           CHROME_BIN: /usr/bin/google-chrome
@@ -108,6 +121,7 @@ jobs:
           node --check src/renderer/assets/avatar-preserve.js
           node --check tests/settings-detail-navigation.mjs
           node --check tests/avatar-preserve.mjs
+          node --check tests/existing-profile-avatar.mjs
           node --check tests/frontend-first-delivery.mjs
           node --check scripts/build-vercel.cjs
           node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
@@ -130,6 +144,8 @@ jobs:
           path: |
             avatar-test-output.txt
             avatar-test-exit-code.txt
+            profile-avatar-test-output.txt
+            profile-avatar-test-exit-code.txt
             formatting-test-output.txt
             formatting-test-exit-code.txt
             delivery-test-output.txt
@@ -140,9 +156,11 @@ jobs:
         if: always()
         run: |
           avatar_code="$(cat avatar-test-exit-code.txt 2>/dev/null || echo 1)"
+          profile_avatar_code="$(cat profile-avatar-test-exit-code.txt 2>/dev/null || echo 1)"
           formatting_code="$(cat formatting-test-exit-code.txt 2>/dev/null || echo 1)"
           delivery_code="$(cat delivery-test-exit-code.txt 2>/dev/null || echo 1)"
           test "$avatar_code" = "0"
+          test "$profile_avatar_code" = "0"
           test "$formatting_code" = "0"
           test "$delivery_code" = "0"
 
