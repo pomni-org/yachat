@@ -16,7 +16,7 @@
     },
     {
       "source": "/api/presence",
-      "destination": "/api/presence_runtime.py"
+      "destination": "/api/presence.py"
     },
     {
       "source": "/api/contacts",
@@ -252,7 +252,7 @@
     "api/chat_poll.py": {
       "maxDuration": 10
     },
-    "api/presence_runtime.py": {
+    "api/presence.py": {
       "maxDuration": 10
     },
     "api/contacts.py": {
