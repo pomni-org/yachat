@@ -85,7 +85,7 @@ async function validatePublicBundle() {
   requireText(privacy, 'rel="canonical" href="https://yachat.eu.org/privacy"', "privacy canonical");
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
   requireText(web, "/assets/private-chat-presence.js?v=87", "v87 private chat runtime");
-  requireText(web, "/assets/yachat-brand.svg?v=87", "absolute web brand asset");
+  requireText(web, "/assets/yachat-brand-light.png?v=87", "absolute web brand asset");
   forbidText(web, "./assets/", "relative web asset path");
   requireText(robots, "Disallow: /web", "robots web exclusion");
   requireText(robots, "Disallow: /api/", "robots API exclusion");
