@@ -47,7 +47,8 @@
   .group-member-avatar,
   .mention-avatar,
   .message-author-avatar
-) img {
+) img,
+img[data-avatar-modal-image] {
   width: 100% !important;
   height: 100% !important;
   max-width: 100% !important;
@@ -61,6 +62,8 @@
 
 /* Позиционированный аватар визуально заполняет рамку, но его исходник не режется. */
 :where(
+  [data-avatar-view],
+  [data-avatar-modal-image],
   .avatar-preview,
   .done-mark,
   .chat-avatar,
@@ -78,6 +81,8 @@
   .message-author-avatar
 ) > img.is-yachat-positioned-avatar,
 :where(
+  [data-avatar-view],
+  [data-avatar-modal-image],
   .avatar-preview,
   .done-mark,
   .chat-avatar,
@@ -93,7 +98,8 @@
   .group-member-avatar,
   .mention-avatar,
   .message-author-avatar
-) img.is-yachat-positioned-avatar {
+) img.is-yachat-positioned-avatar,
+img[data-avatar-modal-image].is-yachat-positioned-avatar {
   object-fit: cover !important;
   object-position: var(--yachat-avatar-position-x, 50%) var(--yachat-avatar-position-y, 50%) !important;
   transform: scale(var(--yachat-avatar-zoom, 1)) !important;
