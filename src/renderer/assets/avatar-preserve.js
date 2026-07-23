@@ -40,6 +40,23 @@
     root.querySelectorAll?.(SYSTEM_AVATAR_SELECTOR).forEach(normalizeSystemAvatar);
   }
 
+  function installLosslessAvatarReader() {
+    try {
+      if (typeof readAvatarFile !== "function" || typeof readImageFile !== "function") {
+        return;
+      }
+
+      readAvatarFile = async function readAvatarFileWithoutCrop(file) {
+        return readImageFile(file);
+      };
+
+      document.documentElement.dataset.yachatAvatarUpload = "original-file-v1";
+    } catch {
+      // A shell without the main avatar reader can keep its own implementation.
+    }
+  }
+
+  installLosslessAvatarReader();
   scan();
 
   const observer = new MutationObserver((records) => {
