@@ -12,6 +12,31 @@ page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push(message.text());
 });
 
+const transparentPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0X8AAAAASUVORK5CYII=",
+  "base64"
+);
+
+await page.route("https://yachat.test/**", async (route) => {
+  const url = new URL(route.request().url());
+  if (url.pathname.endsWith(".png")) {
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: transparentPng
+    });
+    return;
+  }
+
+  await route.fulfill({
+    status: 200,
+    contentType: "text/html",
+    body: "<!doctype html><html><body></body></html>"
+  });
+});
+
+await page.goto("https://yachat.test/");
+
 const wideAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='100' viewBox='0 0 300 100'%3E%3Crect width='300' height='100' fill='%23555'/%3E%3C/svg%3E";
 
 await page.setContent(`<!doctype html>
