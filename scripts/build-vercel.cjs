@@ -24,7 +24,7 @@ const files = [
   "developers.html"
 ];
 
-const BRAND_VERSION = "85";
+const BRAND_VERSION = "86";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -101,6 +101,7 @@ const SCRIPT_ASSETS = [
   "composer-actions-stable.js",
   "mobile-chat-stable.js",
   "frontend-first-runtime.js",
+  "private-chat-presence.js",
   "avatar-preserve.js"
 ];
 const BRAND_REPLACEMENTS = [
@@ -151,6 +152,7 @@ async function validateRuntimeScripts() {
     "composer-actions-stable.js",
     "mobile-chat-stable.js",
     "frontend-first-runtime.js",
+    "private-chat-presence.js",
     "avatar-preserve.js"
   ];
   await Promise.all(requiredScripts.map((name) => execFileAsync(process.execPath, [
