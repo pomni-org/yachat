@@ -1,9 +1,14 @@
 const fs = require("fs/promises");
 const path = require("path");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
 
+const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
 const canonicalOrigin = "https://yachat.eu.org";
+const AUTH_ENTRY_CSS = "/assets/auth-entry-fix.css?v=1";
+const AUTH_ENTRY_JS = "/assets/auth-entry-fix.js?v=1";
 const LEGACY_CI_MARKERS = [
   "/assets/composer-delivery-stable.js?v=86",
   "/assets/composer-actions-stable.js?v=86",
@@ -54,6 +59,36 @@ async function patchWebApp() {
   ]);
 }
 
+async function injectAuthEntryFix() {
+  let web = await read("web.html");
+
+  if (!web.includes(AUTH_ENTRY_CSS)) {
+    web = web.replace(
+      "</head>",
+      `    <link rel="stylesheet" href="${AUTH_ENTRY_CSS}" />\n  </head>`
+    );
+  }
+
+  if (!web.includes(AUTH_ENTRY_JS)) {
+    web = web.replace(
+      "</body>",
+      `    <script src="${AUTH_ENTRY_JS}"></script>\n  </body>`
+    );
+  }
+
+  await write("web.html", web);
+
+  const [css, script] = await Promise.all([
+    read("assets/auth-entry-fix.css"),
+    read("assets/auth-entry-fix.js")
+  ]);
+  requireText(css, ".country-choice-row", "country picker repair CSS");
+  requireText(css, ".device-code-field", "plain device code field CSS");
+  requireText(script, "normalizeDeviceCode", "device code normalizer");
+  requireText(script, "repairCountryRows", "country row repair runtime");
+  await execFileAsync(process.execPath, ["--check", path.join(publicDir, "assets", "auth-entry-fix.js")]);
+}
+
 async function retainLegacyCiGate() {
   let landing = await read("index.html");
   if (landing.includes("data-yachat-ci-compat")) {
@@ -90,6 +125,8 @@ async function validatePublicBundle() {
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
   requireText(web, "/assets/private-chat-presence.js?v=87", "v87 private chat runtime");
   requireText(web, "/assets/yachat-brand-256.png?v=87", "absolute web brand asset");
+  requireText(web, AUTH_ENTRY_CSS, "auth entry repair stylesheet");
+  requireText(web, AUTH_ENTRY_JS, "auth entry repair runtime");
   forbidText(web, "./assets/", "relative web asset path");
   requireText(robots, "Disallow: /web", "robots web exclusion");
   requireText(robots, "Disallow: /api/", "robots API exclusion");
@@ -107,6 +144,7 @@ async function validatePublicBundle() {
 
 async function main() {
   await patchWebApp();
+  await injectAuthEntryFix();
   await retainLegacyCiGate();
   await validatePublicBundle();
 }
