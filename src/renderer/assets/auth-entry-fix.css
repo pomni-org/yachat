@@ -1,0 +1,195 @@
+/* Keeps the sign-in controls stable after older mobile overrides load. */
+
+.country-choice {
+  z-index: 120;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(420px, calc(100dvh - 170px));
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.country-choice > input[data-country-search] {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.2;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.country-choice-list {
+  display: flex !important;
+  flex-direction: column;
+  gap: 4px !important;
+  min-height: 0;
+  max-height: min(330px, calc(100dvh - 260px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.country-choice-row {
+  position: static !important;
+  display: grid !important;
+  grid-template-columns: 42px minmax(0, 1fr) max-content !important;
+  align-items: center !important;
+  gap: 10px !important;
+  flex: 0 0 46px;
+  width: 100% !important;
+  min-width: 0;
+  height: 46px !important;
+  min-height: 46px !important;
+  margin: 0 !important;
+  padding: 0 12px !important;
+  overflow: hidden;
+  line-height: 1.2 !important;
+  transform: none !important;
+}
+
+.country-choice-row > span,
+.country-choice-row > strong,
+.country-choice-row > small {
+  position: static !important;
+  display: block !important;
+  min-width: 0;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden;
+  line-height: 1.2 !important;
+  text-overflow: ellipsis;
+  white-space: nowrap !important;
+  transform: none !important;
+}
+
+.country-choice-row > span {
+  color: var(--text);
+  font-size: 14px !important;
+  font-weight: 600 !important;
+}
+
+.country-choice-row > strong {
+  color: var(--text);
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+.country-choice-row > small {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+
+.device-code-login-form {
+  width: min(420px, 100%);
+  margin-inline: auto;
+}
+
+.device-code-field {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+
+.device-code-field > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.device-code-field > input[data-device-code-input] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 58px;
+  margin: 0;
+  padding: 0 18px;
+  border: 1px solid var(--card-edge);
+  border-radius: 16px;
+  outline: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--field);
+  color: var(--field-text);
+  caret-color: var(--yachat-comet);
+  font-family: var(--font-main);
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 58px;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+.device-code-field > input[data-device-code-input]::placeholder {
+  color: var(--soft);
+  opacity: 1;
+}
+
+.device-code-field > input[data-device-code-input]:focus {
+  border-color: rgba(71, 26, 255, 0.62);
+  box-shadow: 0 0 0 3px rgba(71, 26, 255, 0.18);
+}
+
+.device-code-field > input[data-device-code-input][aria-invalid="true"]:not(:placeholder-shown) {
+  border-color: rgba(255, 48, 60, 0.56);
+}
+
+@media (max-width: 640px) {
+  .country-choice {
+    position: fixed !important;
+    inset: auto 12px max(12px, env(safe-area-inset-bottom)) 12px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: min(68dvh, 620px);
+    padding: 12px;
+    border-radius: 22px;
+    background: color-mix(in srgb, var(--card), transparent 2%);
+    box-shadow: 0 24px 72px rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .country-choice > input[data-country-search] {
+    height: 48px;
+    border-radius: 14px;
+    padding-inline: 14px;
+    font-size: 16px;
+  }
+
+  .country-choice-list {
+    max-height: none;
+  }
+
+  .country-choice-row {
+    flex-basis: 50px;
+    height: 50px !important;
+    min-height: 50px !important;
+    border-radius: 14px;
+  }
+
+  .country-choice-row > span,
+  .country-choice-row > strong {
+    font-size: 16px !important;
+  }
+
+  .country-choice-row > small {
+    font-size: 15px !important;
+  }
+
+  .device-code-login-screen .screen-copy p {
+    max-width: 340px;
+    margin-inline: auto;
+  }
+
+  .device-code-field > input[data-device-code-input] {
+    height: 56px;
+    border-radius: 16px;
+    font-size: 21px;
+    line-height: 56px;
+  }
+}
