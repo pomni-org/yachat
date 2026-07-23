@@ -66,10 +66,11 @@ async function retainLegacyCiGate() {
 }
 
 async function validatePublicBundle() {
-  const [landing, about, privacy, web, robots, sitemap, manifest, vercelApp] = await Promise.all([
+  const [landing, about, privacy, terms, web, robots, sitemap, manifest, vercelApp] = await Promise.all([
     read("index.html"),
     read("about.html"),
     read("privacy.html"),
+    read("terms.html"),
     read("web.html"),
     read("robots.txt"),
     read("sitemap.xml"),
@@ -80,9 +81,12 @@ async function validatePublicBundle() {
   requireText(landing, "<title>ячат — веб-мессенджер</title>", "landing title");
   requireText(landing, 'rel="canonical" href="https://yachat.eu.org/"', "landing canonical");
   requireText(landing, 'href="/web"', "landing app link");
+  forbidText(landing, "intent=register", "unused registration intent");
   LEGACY_CI_MARKERS.forEach((marker) => requireText(landing, marker, "legacy CI marker"));
   requireText(about, 'rel="canonical" href="https://yachat.eu.org/about"', "about canonical");
   requireText(privacy, 'rel="canonical" href="https://yachat.eu.org/privacy"', "privacy canonical");
+  requireText(terms, 'rel="canonical" href="https://yachat.eu.org/terms"', "terms canonical");
+  requireText(terms, 'name="robots" content="index, follow, max-snippet:-1"', "terms robots meta");
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
   requireText(web, "/assets/private-chat-presence.js?v=87", "v87 private chat runtime");
   requireText(web, "/assets/yachat-brand-256.png?v=87", "absolute web brand asset");
@@ -92,6 +96,7 @@ async function validatePublicBundle() {
   requireText(robots, "Sitemap: https://yachat.eu.org/sitemap.xml", "robots sitemap declaration");
   requireText(sitemap, "https://yachat.eu.org/about", "about sitemap entry");
   requireText(sitemap, "https://yachat.eu.org/privacy", "privacy sitemap entry");
+  requireText(sitemap, "https://yachat.eu.org/terms", "terms sitemap entry");
   forbidText(sitemap, "/web", "private web route in sitemap");
   forbidText(sitemap, "/profile", "profile route in sitemap");
   requireText(manifest, '"start_url": "/web"', "manifest start URL");
