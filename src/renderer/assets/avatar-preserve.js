@@ -7,7 +7,6 @@
     [data-avatar-view] img,
     [data-avatar-modal-image] > img,
     [data-avatar-modal-image] img,
-    img[data-avatar-modal-image],
     .avatar-preview > img,
     .done-mark > img,
     .chat-avatar > img,
