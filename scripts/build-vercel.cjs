@@ -24,7 +24,7 @@ const files = [
   "developers.html"
 ];
 
-const BRAND_VERSION = "80";
+const BRAND_VERSION = "81";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -35,6 +35,7 @@ const STYLE_ASSETS = [
   "composer-upgrade.css",
   "icon-size-fix.css",
   "settings-redesign.css",
+  "settings-detail-layout.css",
   "group-creation-flow.css",
   "group-title-fit.css",
   "folders-fix.css",
@@ -73,6 +74,7 @@ const SCRIPT_ASSETS = [
   "settings-icons.js",
   "background-sync.js",
   "settings-redesign.js",
+  "settings-detail-navigation.js",
   "settings-i18n.js",
   "group-creation-flow.js",
   "folders-fix.js",
@@ -128,6 +130,7 @@ async function validateRuntimeScripts() {
     "chat-profile-runtime.js",
     "typing-stop-fix.js",
     "settings-i18n.js",
+    "settings-detail-navigation.js",
     "group-creation-flow.js",
     "message-search.js",
     "rich-composer-stable.js",
