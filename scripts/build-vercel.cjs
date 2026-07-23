@@ -9,22 +9,27 @@ const root = path.resolve(__dirname, "..");
 const rendererDir = path.join(root, "src", "renderer");
 const outputDir = path.join(root, "public");
 
-const files = [
-  "index.html",
-  "favicon.ico",
-  "favicon-v2.ico",
-  "manifest.webmanifest",
-  "app.js",
-  "styles.css",
-  "page.css",
-  "sw.js",
-  "privacy.html",
-  "terms.html",
-  "help.html",
-  "developers.html"
+const COPY_MAP = [
+  ["index.html", "web.html"],
+  ["landing.html", "index.html"],
+  ["about.html", "about.html"],
+  ["landing.css", "landing.css"],
+  ["robots.txt", "robots.txt"],
+  ["sitemap.xml", "sitemap.xml"],
+  ["favicon.ico", "favicon.ico"],
+  ["favicon-v2.ico", "favicon-v2.ico"],
+  ["manifest.webmanifest", "manifest.webmanifest"],
+  ["app.js", "app.js"],
+  ["styles.css", "styles.css"],
+  ["page.css", "page.css"],
+  ["sw.js", "sw.js"],
+  ["privacy.html", "privacy.html"],
+  ["terms.html", "terms.html"],
+  ["help.html", "help.html"],
+  ["developers.html", "developers.html"]
 ];
 
-const BRAND_VERSION = "86";
+const BRAND_VERSION = "87";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -120,8 +125,8 @@ const BRAND_REPLACEMENTS = [
   ["./assets/yachat-logo-DARK.png", `./assets/yachat-brand-dark.png?v=${BRAND_VERSION}`]
 ];
 
-async function copyFile(name) {
-  await fs.copyFile(path.join(rendererDir, name), path.join(outputDir, name));
+async function copyRendererFile(sourceName, outputName = sourceName) {
+  await fs.copyFile(path.join(rendererDir, sourceName), path.join(outputDir, outputName));
 }
 
 async function validateRuntimeScripts() {
@@ -178,9 +183,24 @@ function assetTags(kind, names) {
   ).join("\n");
 }
 
+async function prepareWebDocument() {
+  const webPath = path.join(outputDir, "web.html");
+  let html = await fs.readFile(webPath, "utf8");
+  html = html.replace(
+    '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+    [
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+      '    <meta name="robots" content="noindex, nofollow, noarchive" />',
+      '    <meta name="description" content="Вход, регистрация и чаты веб-мессенджера ЯЧат." />'
+    ].join("\n")
+  );
+  html = html.replace("<title>ЯЧат</title>", "<title>ЯЧат — веб-приложение</title>");
+  await fs.writeFile(webPath, html, "utf8");
+}
+
 async function injectEnhancementAssets() {
-  const indexPath = path.join(outputDir, "index.html");
-  const html = await fs.readFile(indexPath, "utf8");
+  const webPath = path.join(outputDir, "web.html");
+  const html = await fs.readFile(webPath, "utf8");
   const withStyles = html.replace(
     '<link rel="stylesheet" href="./styles.css" />',
     [
@@ -196,11 +216,46 @@ async function injectEnhancementAssets() {
       assetTags("script", SCRIPT_ASSETS)
     ].join("\n")
   );
-  await fs.writeFile(indexPath, withScripts, "utf8");
+  await fs.writeFile(webPath, withScripts, "utf8");
+}
+
+function replaceRequired(content, before, after, label) {
+  if (!content.includes(before)) {
+    throw new Error(`Unable to patch ${label}.`);
+  }
+  return content.replace(before, after);
+}
+
+async function patchWebRouteBase() {
+  const appPath = path.join(outputDir, "app.js");
+  let app = await fs.readFile(appPath, "utf8");
+
+  app = replaceRequired(
+    app,
+    `function currentRoutePath() {\n  if (!canUseHistoryRoutes()) {\n    return "";\n  }\n\n  return decodeURIComponent(window.location.pathname || "/").replace(/^\\/+|\\/+$/g, "");\n}`,
+    `function currentRoutePath() {\n  if (!canUseHistoryRoutes()) {\n    return "";\n  }\n\n  const pathname = decodeURIComponent(window.location.pathname || "/");\n  return pathname.replace(/^\\/web(?:\\/|$)/i, "/").replace(/^\\/+|\\/+$/g, "");\n}`,
+    "currentRoutePath"
+  );
+
+  app = replaceRequired(
+    app,
+    `function routeUsernameFromLocation() {\n  if (!canUseHistoryRoutes()) {\n    return "";\n  }\n\n  const path = decodeURIComponent(window.location.pathname || "/").replace(/^\\/+|\\/+$/g, "");\n  if (!path || path.includes("/") || standaloneRoutePaths.has(path.toLowerCase())) {\n    return "";\n  }\n\n  return normalizeUsername(path);\n}`,
+    `function routeUsernameFromLocation() {\n  if (!canUseHistoryRoutes()) {\n    return "";\n  }\n\n  const path = currentRoutePath();\n  if (!path || path.includes("/") || standaloneRoutePaths.has(path.toLowerCase())) {\n    return "";\n  }\n\n  return normalizeUsername(path);\n}`,
+    "routeUsernameFromLocation"
+  );
+
+  app = replaceRequired(
+    app,
+    `function replaceAppRoute(path = "/") {\n  if (!canUseHistoryRoutes()) {\n    return;\n  }\n\n  const nextUrl = new URL(path, window.location.origin);\n  if (nextUrl.pathname !== window.location.pathname || nextUrl.search !== window.location.search) {\n    window.history.replaceState({}, "", nextUrl.href);\n  }\n}\n\nfunction updateChatRoute(chat, options = {}) {\n  if (!canUseHistoryRoutes() || options.preserveRoute) {\n    return;\n  }\n\n  const username = routeUsernameForChat(chat);\n  const nextPath = username ? \`/\${encodeURIComponent(username)}\` : "/";\n  const nextUrl = new URL(nextPath, window.location.origin);\n  if (nextUrl.pathname === window.location.pathname && !window.location.search) {\n    return;\n  }\n\n  const method = options.replace ? "replaceState" : "pushState";\n  window.history[method]({}, "", nextUrl.href);\n}`,
+    `function appRoutePath(path = "/") {\n  const source = String(path || "/");\n  const normalized = source.startsWith("/") ? source : \`/\${source}\`;\n  return normalized === "/" ? "/web" : \`/web\${normalized}\`;\n}\n\nfunction replaceAppRoute(path = "/") {\n  if (!canUseHistoryRoutes()) {\n    return;\n  }\n\n  const nextUrl = new URL(appRoutePath(path), window.location.origin);\n  if (nextUrl.pathname !== window.location.pathname || nextUrl.search !== window.location.search) {\n    window.history.replaceState({}, "", nextUrl.href);\n  }\n}\n\nfunction updateChatRoute(chat, options = {}) {\n  if (!canUseHistoryRoutes() || options.preserveRoute) {\n    return;\n  }\n\n  const username = routeUsernameForChat(chat);\n  const nextPath = username ? \`/\${encodeURIComponent(username)}\` : "/";\n  const nextUrl = new URL(appRoutePath(nextPath), window.location.origin);\n  if (nextUrl.pathname === window.location.pathname && !window.location.search) {\n    return;\n  }\n\n  const method = options.replace ? "replaceState" : "pushState";\n  window.history[method]({}, "", nextUrl.href);\n}`,
+    "web route history"
+  );
+
+  await fs.writeFile(appPath, app, "utf8");
 }
 
 async function normalizeWebAssetPaths() {
-  for (const name of ["styles.css", "page.css"]) {
+  for (const name of ["styles.css", "page.css", "landing.css"]) {
     const filePath = path.join(outputDir, name);
     let content = await fs.readFile(filePath, "utf8");
     content = content.replaceAll('url("./assets/', 'url("/assets/');
@@ -221,23 +276,28 @@ async function build() {
   await fs.rm(outputDir, { recursive: true, force: true });
   await fs.mkdir(outputDir, { recursive: true });
 
-  await Promise.all(files.map(copyFile));
+  await Promise.all(COPY_MAP.map(([sourceName, outputName]) => copyRendererFile(sourceName, outputName)));
   await fs.cp(path.join(rendererDir, "assets"), path.join(outputDir, "assets"), {
     recursive: true
   });
 
   await Promise.all([
     "index.html",
+    "about.html",
+    "web.html",
     "privacy.html",
     "terms.html",
     "help.html",
     "developers.html",
     "styles.css",
-    "page.css"
+    "page.css",
+    "landing.css"
   ].map(rewriteBrandReferences));
   await rewriteBrandReferences("manifest.webmanifest");
   await rewriteBrandReferences("sw.js");
+  await prepareWebDocument();
   await injectEnhancementAssets();
+  await patchWebRouteBase();
   await normalizeWebAssetPaths();
 }
 
