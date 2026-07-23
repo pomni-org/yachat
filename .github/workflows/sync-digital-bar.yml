@@ -1,12 +1,11 @@
 name: Sync Digital Bar source
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - .github/workflows/sync-digital-bar.yml
-  pull_request:
-    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -67,15 +66,16 @@ jobs:
           }
 
           function randomBase64Url'''
-          app, count = re.subn(
-              r"function normalizeDigitalId\(value\) \{.*?function randomBase64Url",
-              replacement,
-              app,
-              count=1,
-              flags=re.S,
-          )
-          if count != 1:
-              raise SystemExit("digital id client block was not found")
+          if "const CYRILLIC_DIGITAL_ID" not in app:
+              app, count = re.subn(
+                  r"function normalizeDigitalId\(value\) \{.*?function randomBase64Url",
+                  replacement,
+                  app,
+                  count=1,
+                  flags=re.S,
+              )
+              if count != 1:
+                  raise SystemExit("digital id client block was not found")
           app = app.replace(
               "введите цифровой ID в формате ABC — 123",
               "введите цифровой ID в формате АБВ — 123",

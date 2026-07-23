@@ -164,6 +164,19 @@
     });
   }
 
+  function scheduleMessageDelivery(chat, message) {
+    const start = () => enqueueMessage(chat, message);
+
+    // Visible pages get a real paint opportunity before network work starts.
+    // Hidden pages may throttle requestAnimationFrame indefinitely, and there
+    // is no visible interface to prioritize there, so use a timer instead.
+    if (document.visibilityState === "hidden") {
+      window.setTimeout(start, 0);
+      return;
+    }
+    requestAnimationFrame(() => window.setTimeout(start, 0));
+  }
+
   function clearComposer(form, transport, send) {
     transport.value = "";
     const nativeTextarea = form.querySelector("[data-native-ios-message-input]");
@@ -213,7 +226,7 @@
 
       renderOptimistic(chat, outgoing);
       clearComposer(form, transport, send);
-      requestAnimationFrame(() => window.setTimeout(() => enqueueMessage(chat, outgoing), 0));
+      scheduleMessageDelivery(chat, outgoing);
     }, true);
   }
 
