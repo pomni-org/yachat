@@ -137,3 +137,18 @@
   overflow: hidden;
   background-clip: padding-box;
 }
+
+img[data-avatar-modal-image] {
+  object-fit: contain !important;
+  object-position: center center !important;
+  transform: none !important;
+  image-rendering: auto;
+  -webkit-user-drag: none;
+}
+
+img[data-avatar-modal-image].is-yachat-positioned-avatar {
+  object-fit: cover !important;
+  object-position: var(--yachat-avatar-position-x, 50%) var(--yachat-avatar-position-y, 50%) !important;
+  transform: scale(var(--yachat-avatar-zoom, 1)) !important;
+  transform-origin: center center !important;
+}
