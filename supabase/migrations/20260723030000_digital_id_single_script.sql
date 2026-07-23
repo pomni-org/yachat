@@ -89,14 +89,43 @@ revoke all on function public.yachat_generate_digital_id() from public, anon, au
 revoke all on function public.yachat_generate_digital_id(text) from public, anon, authenticated;
 alter table public.public_users alter column digital_id set default public.yachat_generate_digital_id();
 
+do $$
+begin
+    if exists (
+        select 1
+        from pg_trigger
+        where tgrelid = 'public.public_users'::regclass
+          and tgname = 'public_users_digital_id_immutable'
+          and not tgisinternal
+    ) then
+        execute 'alter table public.public_users disable trigger public_users_digital_id_immutable';
+    end if;
+end;
+$$;
+
 update public.public_users
-set digital_id = public.yachat_generate_digital_id()
+set digital_id = public.yachat_generate_digital_id(),
+    updated_at = now()
 where digital_id is null
    or digital_id = ''
    or not (
        digital_id ~ '^([ABCDEFGHJKLMNPQRSTUVWXYZ]{2}[0-9]{4}|[ABCDEFGHJKLMNPQRSTUVWXYZ]{3}[0-9]{3})$'
        or digital_id ~ '^([АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}[0-9]{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}[0-9]{3})$'
    );
+
+do $$
+begin
+    if exists (
+        select 1
+        from pg_trigger
+        where tgrelid = 'public.public_users'::regclass
+          and tgname = 'public_users_digital_id_immutable'
+          and not tgisinternal
+    ) then
+        execute 'alter table public.public_users enable trigger public_users_digital_id_immutable';
+    end if;
+end;
+$$;
 
 alter table public.public_users
     drop constraint if exists public_users_digital_id_single_script_check;
