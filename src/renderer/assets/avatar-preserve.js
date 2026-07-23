@@ -4,6 +4,10 @@
   const SYSTEM_AVATAR_SELECTOR = ".digital-id-identity-card > img, .kotoslugi-row > img";
   const AVATAR_IMAGE_SELECTOR = `
     [data-avatar-view] > img,
+    [data-avatar-view] img,
+    [data-avatar-modal-image] > img,
+    [data-avatar-modal-image] img,
+    img[data-avatar-modal-image],
     .avatar-preview > img,
     .done-mark > img,
     .chat-avatar > img,
