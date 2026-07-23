@@ -10,6 +10,7 @@ on:
       - src/renderer/assets/frontend-first-runtime.js
       - src/renderer/assets/composer-delivery-stable.js
       - src/renderer/assets/composer-actions-stable.js
+      - src/renderer/assets/private-chat-presence.js
       - src/renderer/assets/settings-detail-layout.css
       - src/renderer/assets/settings-detail-navigation.js
       - src/renderer/assets/avatar-preserve.css
@@ -21,6 +22,7 @@ on:
       - tests/ios-native-formatting.mjs
       - tests/composer-ios-native-textarea.mjs
       - tests/frontend-first-delivery.mjs
+      - tests/private-chat-presence.mjs
       - tests/settings-detail-navigation.mjs
       - tests/avatar-preserve.mjs
       - tests/existing-profile-avatar.mjs
@@ -93,6 +95,18 @@ jobs:
           echo "$code" > profile-avatar-flow-test-exit-code.txt
           cat profile-avatar-flow-test-output.txt
           exit "$code"
+      - name: Verify private chat routing and read receipts
+        id: private-chat
+        continue-on-error: true
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: |
+          set +e
+          node tests/private-chat-presence.mjs > private-chat-test-output.txt 2>&1
+          code=$?
+          echo "$code" > private-chat-test-exit-code.txt
+          cat private-chat-test-output.txt
+          exit "$code"
       - name: Verify native textarea remains stable
         env:
           CHROME_BIN: /usr/bin/google-chrome
@@ -130,26 +144,30 @@ jobs:
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
           node --check src/renderer/assets/composer-actions-stable.js
+          node --check src/renderer/assets/private-chat-presence.js
           node --check src/renderer/assets/settings-detail-navigation.js
           node --check src/renderer/assets/avatar-preserve.js
           node --check tests/settings-detail-navigation.mjs
           node --check tests/avatar-preserve.mjs
           node --check tests/existing-profile-avatar.mjs
           node --check tests/existing-profile-avatar-flow.mjs
+          node --check tests/private-chat-presence.mjs
           node --check tests/frontend-first-delivery.mjs
           node --check scripts/build-vercel.cjs
           node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
           node -e "JSON.parse(require('fs').readFileSync('vercel.json', 'utf8'))"
       - name: Build Vercel bundle
         run: npm run build:vercel
-      - name: Verify v85 assets in bundle
+      - name: Verify v86 assets in bundle
         run: |
           test -f public/assets/avatar-preserve.css
           test -f public/assets/avatar-preserve.js
-          grep -Fq '/assets/composer-delivery-stable.js?v=85' public/index.html
-          grep -Fq '/assets/composer-actions-stable.js?v=85' public/index.html
-          grep -Fq '/assets/avatar-preserve.css?v=85' public/index.html
-          grep -Fq '/assets/avatar-preserve.js?v=85' public/index.html
+          test -f public/assets/private-chat-presence.js
+          grep -Fq '/assets/composer-delivery-stable.js?v=86' public/index.html
+          grep -Fq '/assets/composer-actions-stable.js?v=86' public/index.html
+          grep -Fq '/assets/private-chat-presence.js?v=86' public/index.html
+          grep -Fq '/assets/avatar-preserve.css?v=86' public/index.html
+          grep -Fq '/assets/avatar-preserve.js?v=86' public/index.html
       - name: Upload browser regression output
         if: always()
         uses: actions/upload-artifact@v4
@@ -162,6 +180,8 @@ jobs:
             profile-avatar-test-exit-code.txt
             profile-avatar-flow-test-output.txt
             profile-avatar-flow-test-exit-code.txt
+            private-chat-test-output.txt
+            private-chat-test-exit-code.txt
             formatting-test-output.txt
             formatting-test-exit-code.txt
             delivery-test-output.txt
@@ -174,11 +194,13 @@ jobs:
           avatar_code="$(cat avatar-test-exit-code.txt 2>/dev/null || echo 1)"
           profile_avatar_code="$(cat profile-avatar-test-exit-code.txt 2>/dev/null || echo 1)"
           profile_avatar_flow_code="$(cat profile-avatar-flow-test-exit-code.txt 2>/dev/null || echo 1)"
+          private_chat_code="$(cat private-chat-test-exit-code.txt 2>/dev/null || echo 1)"
           formatting_code="$(cat formatting-test-exit-code.txt 2>/dev/null || echo 1)"
           delivery_code="$(cat delivery-test-exit-code.txt 2>/dev/null || echo 1)"
           test "$avatar_code" = "0"
           test "$profile_avatar_code" = "0"
           test "$profile_avatar_flow_code" = "0"
+          test "$private_chat_code" = "0"
           test "$formatting_code" = "0"
           test "$delivery_code" = "0"
 
