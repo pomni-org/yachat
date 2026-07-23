@@ -13,12 +13,12 @@ page.on("console", (message) => {
 });
 
 const wideAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='100' viewBox='0 0 300 100'%3E%3Crect width='100' height='100' fill='%23f00'/%3E%3Crect x='100' width='100' height='100' fill='%230f0'/%3E%3Crect x='200' width='100' height='100' fill='%2300f'/%3E%3C/svg%3E";
+const positionedAvatar = `${wideAvatar}#yachat-avatar-position=1.0000,-1.0000,1.5000`;
 
 await page.setContent(`<!doctype html>
 <html>
   <head>
     <style>
-      .avatar-box,
       .chat-avatar,
       .profile-edit-avatar-preview,
       .avatar-modal-image {
@@ -30,7 +30,6 @@ await page.setContent(`<!doctype html>
         border: 0;
         border-radius: 50%;
       }
-      .avatar-box img,
       .chat-avatar img,
       .profile-edit-avatar-preview img,
       .avatar-modal-image img {
@@ -51,61 +50,59 @@ await page.setContent(`<!doctype html>
     </style>
   </head>
   <body>
-    <div class="chat-avatar"><img id="chat-avatar" src="${wideAvatar}" alt=""></div>
+    <div class="chat-avatar"><img id="plain-avatar" src="${wideAvatar}" alt=""></div>
+    <div class="chat-avatar"><img id="positioned-avatar" src="${positionedAvatar}" alt=""></div>
     <button class="profile-edit-avatar-preview"><img id="profile-avatar" src="${wideAvatar}" alt=""></button>
     <div class="avatar-modal-image" data-avatar-modal-image><img id="modal-avatar" src="${wideAvatar}" alt=""></div>
-    <div class="avatar-box" data-avatar-view><img id="data-avatar" src="${wideAvatar}" alt=""></div>
     <section class="digital-id-identity-card"><img id="digital-brand" src="/assets/yachat-brand-180.png?v=81" alt=""></section>
     <div class="attachment-preview-media"><img id="attachment" src="${wideAvatar}" alt=""></div>
   </body>
 </html>`);
 
 await page.evaluate(() => {
-  globalThis.destructiveAvatarReaderCalled = false;
-  globalThis.readImageFile = async (file) => `original:${file.name}:${file.size}:${file.type}`;
-  globalThis.readAvatarFile = async () => {
-    globalThis.destructiveAvatarReaderCalled = true;
-    return "cropped";
-  };
+  globalThis.state = { language: "ru" };
+  globalThis.cropToDataUrl = () => "destructive-square-webp";
+  globalThis.createLocalDigitalId = () => "BROKEN";
+  globalThis.formatLocalDigitalId = () => "BROKEN";
 });
 
 await page.addStyleTag({ path: "src/renderer/assets/avatar-preserve.css" });
 await page.addScriptTag({ path: "src/renderer/assets/avatar-preserve.js" });
-await page.waitForFunction(() => document.querySelector("#digital-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=82");
+await page.waitForFunction(() => document.querySelector("#digital-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=83");
+await page.waitForFunction(() => document.querySelector("#positioned-avatar")?.classList.contains("is-yachat-positioned-avatar"));
 
-const uploadReader = await page.evaluate(async () => {
-  const file = new File(["abc"], "wide-avatar.png", { type: "image/png" });
-  return {
-    result: await readAvatarFile(file),
-    destructiveReaderCalled: globalThis.destructiveAvatarReaderCalled,
-    mode: document.documentElement.dataset.yachatAvatarUpload || ""
-  };
-});
+const cropResult = await page.evaluate((source) => ({
+  encoded: cropToDataUrl(source, { x: 0.4, y: -0.2, zoom: 1.7 }),
+  mode: document.documentElement.dataset.yachatAvatarUpload || ""
+}), wideAvatar);
 
-assert.equal(uploadReader.result, "original:wide-avatar.png:3:image/png", "avatar upload must keep the original file data");
-assert.equal(uploadReader.destructiveReaderCalled, false, "the square crop/re-encode reader must not run");
-assert.equal(uploadReader.mode, "original-file-v1");
+assert.equal(cropResult.encoded, `${wideAvatar}#yachat-avatar-position=0.4000,-0.2000,1.7000`);
+assert.ok(cropResult.encoded.startsWith(wideAvatar), "positioning must retain the complete original source");
+assert.equal(cropResult.mode, "positioned-original-v2");
 
-const initial = await page.evaluate(() => {
+const avatarState = await page.evaluate(() => {
   const snapshot = (selector) => {
     const image = document.querySelector(selector);
     const style = getComputedStyle(image);
     return {
+      src: image.getAttribute("src"),
       objectFit: style.objectFit,
       objectPosition: style.objectPosition,
       transform: style.transform,
+      inlinePositionX: image.style.getPropertyValue("--yachat-avatar-position-x"),
+      inlinePositionY: image.style.getPropertyValue("--yachat-avatar-position-y"),
+      inlineZoom: image.style.getPropertyValue("--yachat-avatar-zoom"),
       width: image.getBoundingClientRect().width,
       height: image.getBoundingClientRect().height,
       naturalWidth: image.naturalWidth,
       naturalHeight: image.naturalHeight
     };
   };
-
   return {
-    chat: snapshot("#chat-avatar"),
+    plain: snapshot("#plain-avatar"),
+    positioned: snapshot("#positioned-avatar"),
     profile: snapshot("#profile-avatar"),
     modal: snapshot("#modal-avatar"),
-    dataAvatar: snapshot("#data-avatar"),
     attachmentFit: getComputedStyle(document.querySelector("#attachment")).objectFit,
     digitalSource: document.querySelector("#digital-brand").getAttribute("src"),
     digitalWidth: document.querySelector("#digital-brand").getBoundingClientRect().width,
@@ -114,24 +111,54 @@ const initial = await page.evaluate(() => {
 });
 
 for (const [name, avatar] of Object.entries({
-  chat: initial.chat,
-  profile: initial.profile,
-  modal: initial.modal,
-  dataAvatar: initial.dataAvatar
+  plain: avatarState.plain,
+  profile: avatarState.profile,
+  modal: avatarState.modal
 })) {
-  assert.equal(avatar.objectFit, "contain", `${name} must preserve the complete image`);
-  assert.equal(avatar.objectPosition, "50% 50%", `${name} must stay centered`);
-  assert.equal(avatar.transform, "none", `${name} must not be enlarged or shifted`);
+  assert.equal(avatar.objectFit, "contain", `${name} must preserve the complete image by default`);
+  assert.equal(avatar.objectPosition, "50% 50%", `${name} must stay centered by default`);
+  assert.equal(avatar.transform, "none", `${name} must not be enlarged without saved positioning`);
   assert.equal(avatar.width, 120, `${name} must use the container width`);
   assert.equal(avatar.height, 120, `${name} must use the container height`);
   assert.equal(avatar.naturalWidth, 300, `${name} must retain the source width`);
   assert.equal(avatar.naturalHeight, 100, `${name} must retain the source height`);
 }
 
-assert.notEqual(initial.attachmentFit, "contain", "ordinary attachment previews must not be changed by avatar rules");
-assert.equal(initial.digitalSource, "/assets/yachat-brand-512.png?v=82");
-assert.equal(initial.digitalWidth, 92, "high-resolution replacement must not change the designed box size");
-assert.equal(initial.digitalHeight, 92, "high-resolution replacement must not change the designed box size");
+assert.equal(avatarState.positioned.src, wideAvatar, "the browser must load the untouched original source");
+assert.equal(avatarState.positioned.objectFit, "cover", "saved positioning may visually fill the avatar frame");
+assert.equal(avatarState.positioned.inlinePositionX, "100%");
+assert.equal(avatarState.positioned.inlinePositionY, "0%");
+assert.equal(avatarState.positioned.inlineZoom, "1.5");
+assert.notEqual(avatarState.positioned.transform, "none", "saved zoom must be rendered visually");
+assert.equal(avatarState.positioned.naturalWidth, 300);
+assert.equal(avatarState.positioned.naturalHeight, 100);
+
+assert.notEqual(avatarState.attachmentFit, "contain", "ordinary attachment previews must not be changed by avatar rules");
+assert.equal(avatarState.digitalSource, "/assets/yachat-brand-512.png?v=83");
+assert.equal(avatarState.digitalWidth, 92);
+assert.equal(avatarState.digitalHeight, 92);
+
+const digitalIds = await page.evaluate(() => {
+  const latin = Array.from({ length: 400 }, () => window.yachatDigitalId.generate("latin"));
+  const cyrillic = Array.from({ length: 400 }, () => window.yachatDigitalId.generate("cyrillic"));
+  return {
+    latin,
+    cyrillic,
+    formattedLatin: window.yachatDigitalId.format("RKH399"),
+    formattedCyrillic: window.yachatDigitalId.format("РКН399"),
+    mixed: window.yachatDigitalId.format("RКН399"),
+    localRu: createLocalDigitalId(),
+    mode: document.documentElement.dataset.yachatDigitalId || ""
+  };
+});
+
+assert.ok(digitalIds.latin.every((value) => /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ]{2}\d{4}|[ABCDEFGHJKLMNPQRSTUVWXYZ]{3}\d{3})$/.test(value)));
+assert.ok(digitalIds.cyrillic.every((value) => /^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}\d{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}\d{3})$/.test(value)));
+assert.equal(digitalIds.formattedLatin, "RKH — 399");
+assert.equal(digitalIds.formattedCyrillic, "РКН — 399");
+assert.equal(digitalIds.mixed, "", "mixed scripts must never be accepted as one Digital ID");
+assert.match(digitalIds.localRu, /^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}\d{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}\d{3})$/);
+assert.equal(digitalIds.mode, "single-script-v1");
 
 await page.evaluate(() => {
   const card = document.createElement("section");
@@ -139,13 +166,10 @@ await page.evaluate(() => {
   card.innerHTML = '<img id="dynamic-brand" src="/assets/yachat-brand-64.png?v=50" alt="">';
   document.body.append(card);
 });
-
-await page.waitForFunction(() => document.querySelector("#dynamic-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=82");
-const dynamicSource = await page.locator("#dynamic-brand").getAttribute("src");
-assert.equal(dynamicSource, "/assets/yachat-brand-512.png?v=82", "dynamically rendered settings must also use the full-resolution asset");
+await page.waitForFunction(() => document.querySelector("#dynamic-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=83");
 
 assert.deepEqual(pageErrors, [], `page errors:\n${pageErrors.join("\n")}`);
 assert.deepEqual(consoleErrors, [], `console errors:\n${consoleErrors.join("\n")}`);
 
 await browser.close();
-console.log("avatar preservation suite passed");
+console.log("avatar positioning and digital id suite passed");
