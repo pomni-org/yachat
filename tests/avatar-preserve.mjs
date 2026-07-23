@@ -21,7 +21,8 @@ await page.setContent(`<!doctype html>
     <style>
       .chat-avatar,
       .profile-edit-avatar-preview,
-      .avatar-modal-image {
+      .avatar-modal-image,
+      [data-avatar-view] {
         box-sizing: border-box;
         width: 120px;
         height: 120px;
@@ -30,9 +31,16 @@ await page.setContent(`<!doctype html>
         border: 0;
         border-radius: 50%;
       }
+      img[data-avatar-modal-image] {
+        display: block;
+        width: 240px;
+        height: 240px;
+      }
       .chat-avatar img,
       .profile-edit-avatar-preview img,
-      .avatar-modal-image img {
+      .avatar-modal-image img,
+      [data-avatar-view] img,
+      img[data-avatar-modal-image] {
         width: 100%;
         height: 100%;
         object-fit: cover;
@@ -54,6 +62,8 @@ await page.setContent(`<!doctype html>
     <div class="chat-avatar"><img id="positioned-avatar" src="${positionedAvatar}" alt=""></div>
     <button class="profile-edit-avatar-preview"><img id="profile-avatar" src="${wideAvatar}" alt=""></button>
     <div class="avatar-modal-image" data-avatar-modal-image><img id="modal-avatar" src="${wideAvatar}" alt=""></div>
+    <div data-avatar-view><img id="viewer-avatar" src="${positionedAvatar}" alt=""></div>
+    <img id="fullscreen-avatar" data-avatar-modal-image src="${positionedAvatar}" alt="">
     <section class="digital-id-identity-card"><img id="digital-brand" src="/assets/yachat-brand-180.png?v=81" alt=""></section>
     <div class="attachment-preview-media"><img id="attachment" src="${wideAvatar}" alt=""></div>
   </body>
@@ -62,6 +72,7 @@ await page.setContent(`<!doctype html>
 await page.evaluate(() => {
   globalThis.state = { language: "ru" };
   globalThis.cropToDataUrl = () => "destructive-square-webp";
+  globalThis.readAvatarFile = () => "reader-preserved";
   globalThis.createLocalDigitalId = () => "BROKEN";
   globalThis.formatLocalDigitalId = () => "BROKEN";
 });
@@ -70,14 +81,17 @@ await page.addStyleTag({ path: "src/renderer/assets/avatar-preserve.css" });
 await page.addScriptTag({ path: "src/renderer/assets/avatar-preserve.js" });
 await page.waitForFunction(() => document.querySelector("#digital-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=83");
 await page.waitForFunction(() => document.querySelector("#positioned-avatar")?.classList.contains("is-yachat-positioned-avatar"));
+await page.waitForFunction(() => document.querySelector("#fullscreen-avatar")?.classList.contains("is-yachat-positioned-avatar"));
 
 const cropResult = await page.evaluate((source) => ({
   encoded: cropToDataUrl(source, { x: 0.4, y: -0.2, zoom: 1.7 }),
+  reader: readAvatarFile(),
   mode: document.documentElement.dataset.yachatAvatarUpload || ""
 }), wideAvatar);
 
 assert.equal(cropResult.encoded, `${wideAvatar}#yachat-avatar-position=0.4000,-0.2000,1.7000`);
 assert.ok(cropResult.encoded.startsWith(wideAvatar), "positioning must retain the complete original source");
+assert.equal(cropResult.reader, "reader-preserved", "the crop UI reader must remain available");
 assert.equal(cropResult.mode, "positioned-original-v2");
 
 const avatarState = await page.evaluate(() => {
@@ -103,6 +117,8 @@ const avatarState = await page.evaluate(() => {
     positioned: snapshot("#positioned-avatar"),
     profile: snapshot("#profile-avatar"),
     modal: snapshot("#modal-avatar"),
+    viewer: snapshot("#viewer-avatar"),
+    fullscreen: snapshot("#fullscreen-avatar"),
     attachmentFit: getComputedStyle(document.querySelector("#attachment")).objectFit,
     digitalSource: document.querySelector("#digital-brand").getAttribute("src"),
     digitalWidth: document.querySelector("#digital-brand").getBoundingClientRect().width,
@@ -118,21 +134,29 @@ for (const [name, avatar] of Object.entries({
   assert.equal(avatar.objectFit, "contain", `${name} must preserve the complete image by default`);
   assert.equal(avatar.objectPosition, "50% 50%", `${name} must stay centered by default`);
   assert.equal(avatar.transform, "none", `${name} must not be enlarged without saved positioning`);
-  assert.equal(avatar.width, 120, `${name} must use the container width`);
-  assert.equal(avatar.height, 120, `${name} must use the container height`);
   assert.equal(avatar.naturalWidth, 300, `${name} must retain the source width`);
   assert.equal(avatar.naturalHeight, 100, `${name} must retain the source height`);
 }
 
-assert.equal(avatarState.positioned.src, wideAvatar, "the browser must load the untouched original source");
-assert.equal(avatarState.positioned.objectFit, "cover", "saved positioning may visually fill the avatar frame");
-assert.equal(avatarState.positioned.inlinePositionX, "100%");
-assert.equal(avatarState.positioned.inlinePositionY, "0%");
-assert.equal(avatarState.positioned.inlineZoom, "1.5");
-assert.notEqual(avatarState.positioned.transform, "none", "saved zoom must be rendered visually");
-assert.equal(avatarState.positioned.naturalWidth, 300);
-assert.equal(avatarState.positioned.naturalHeight, 100);
+for (const [name, avatar] of Object.entries({
+  positioned: avatarState.positioned,
+  viewer: avatarState.viewer,
+  fullscreen: avatarState.fullscreen
+})) {
+  assert.equal(avatar.src, wideAvatar, `${name} must load the untouched original source`);
+  assert.equal(avatar.objectFit, "cover", `${name} must render the saved position in its frame`);
+  assert.equal(avatar.inlinePositionX, "100%");
+  assert.equal(avatar.inlinePositionY, "0%");
+  assert.equal(avatar.inlineZoom, "1.5");
+  assert.notEqual(avatar.transform, "none", `${name} must render saved zoom visually`);
+  assert.equal(avatar.naturalWidth, 300);
+  assert.equal(avatar.naturalHeight, 100);
+}
 
+assert.equal(avatarState.plain.width, 120);
+assert.equal(avatarState.plain.height, 120);
+assert.equal(avatarState.fullscreen.width, 240);
+assert.equal(avatarState.fullscreen.height, 240);
 assert.notEqual(avatarState.attachmentFit, "contain", "ordinary attachment previews must not be changed by avatar rules");
 assert.equal(avatarState.digitalSource, "/assets/yachat-brand-512.png?v=83");
 assert.equal(avatarState.digitalWidth, 92);
@@ -146,6 +170,7 @@ const digitalIds = await page.evaluate(() => {
     cyrillic,
     formattedLatin: window.yachatDigitalId.format("RKH399"),
     formattedCyrillic: window.yachatDigitalId.format("РКН399"),
+    formattedCyrillicExtended: window.yachatDigitalId.format("ЩЮЯ399"),
     mixed: window.yachatDigitalId.format("RКН399"),
     localRu: createLocalDigitalId(),
     mode: document.documentElement.dataset.yachatDigitalId || ""
@@ -156,6 +181,7 @@ assert.ok(digitalIds.latin.every((value) => /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ]{2}\d
 assert.ok(digitalIds.cyrillic.every((value) => /^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}\d{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}\d{3})$/.test(value)));
 assert.equal(digitalIds.formattedLatin, "RKH — 399");
 assert.equal(digitalIds.formattedCyrillic, "РКН — 399");
+assert.equal(digitalIds.formattedCyrillicExtended, "ЩЮЯ — 399");
 assert.equal(digitalIds.mixed, "", "mixed scripts must never be accepted as one Digital ID");
 assert.match(digitalIds.localRu, /^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}\d{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}\d{3})$/);
 assert.equal(digitalIds.mode, "single-script-v1");
