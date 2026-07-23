@@ -5,19 +5,25 @@
   const LOW_RES_BRAND_PATTERN = /\/assets\/yachat-brand-(?:64|180)\.png$/;
   const HIGH_RES_BRAND_SOURCE = "/assets/yachat-brand-512.png?v=82";
 
+  function sourcePath(image) {
+    const source = String(image?.getAttribute("src") || "").trim();
+    if (!source) {
+      return "";
+    }
+
+    try {
+      return new URL(source, window.location.href).pathname;
+    } catch {
+      return source.split(/[?#]/, 1)[0];
+    }
+  }
+
   function normalizeSystemAvatar(image) {
     if (!(image instanceof HTMLImageElement)) {
       return;
     }
 
-    let path = "";
-    try {
-      path = new URL(image.getAttribute("src") || "", window.location.href).pathname;
-    } catch {
-      path = "";
-    }
-
-    if (LOW_RES_BRAND_PATTERN.test(path)) {
+    if (LOW_RES_BRAND_PATTERN.test(sourcePath(image))) {
       image.src = HIGH_RES_BRAND_SOURCE;
     }
 
