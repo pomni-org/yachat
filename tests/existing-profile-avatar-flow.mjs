@@ -114,8 +114,8 @@ const server = http.createServer(async (request, response) => {
     response.writeHead(200, { "content-type": contentType, "cache-control": "no-store" });
     response.end(content);
   } catch {
-    response.writeHead(404);
-    response.end("not found");
+    response.writeHead(204, { "cache-control": "no-store" });
+    response.end();
   }
 });
 
