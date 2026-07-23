@@ -12,32 +12,7 @@ page.on("console", (message) => {
   if (message.type() === "error") consoleErrors.push(message.text());
 });
 
-const transparentPng = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z0X8AAAAASUVORK5CYII=",
-  "base64"
-);
-
-await page.route("https://yachat.test/**", async (route) => {
-  const url = new URL(route.request().url());
-  if (url.pathname.endsWith(".png")) {
-    await route.fulfill({
-      status: 200,
-      contentType: "image/png",
-      body: transparentPng
-    });
-    return;
-  }
-
-  await route.fulfill({
-    status: 200,
-    contentType: "text/html",
-    body: "<!doctype html><html><body></body></html>"
-  });
-});
-
-await page.goto("https://yachat.test/");
-
-const wideAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='100' viewBox='0 0 300 100'%3E%3Crect width='300' height='100' fill='%23555'/%3E%3C/svg%3E";
+const wideAvatar = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='100' viewBox='0 0 300 100'%3E%3Crect width='100' height='100' fill='%23f00'/%3E%3Crect x='100' width='100' height='100' fill='%230f0'/%3E%3Crect x='200' width='100' height='100' fill='%2300f'/%3E%3C/svg%3E";
 
 await page.setContent(`<!doctype html>
 <html>
@@ -84,7 +59,7 @@ await page.setContent(`<!doctype html>
 
 await page.addStyleTag({ path: "src/renderer/assets/avatar-preserve.css" });
 await page.addScriptTag({ path: "src/renderer/assets/avatar-preserve.js" });
-await page.waitForFunction(() => document.querySelector("#digital-brand")?.src.includes("yachat-brand-512.png?v=82"));
+await page.waitForFunction(() => document.querySelector("#digital-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=82");
 
 const initial = await page.evaluate(() => {
   const snapshot = (selector) => {
@@ -140,7 +115,7 @@ await page.evaluate(() => {
   document.body.append(card);
 });
 
-await page.waitForFunction(() => document.querySelector("#dynamic-brand")?.src.includes("yachat-brand-512.png?v=82"));
+await page.waitForFunction(() => document.querySelector("#dynamic-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=82");
 const dynamicSource = await page.locator("#dynamic-brand").getAttribute("src");
 assert.equal(dynamicSource, "/assets/yachat-brand-512.png?v=82", "dynamically rendered settings must also use the full-resolution asset");
 
