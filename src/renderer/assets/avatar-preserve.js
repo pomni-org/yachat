@@ -23,6 +23,10 @@
   const LOW_RES_BRAND_PATTERN = /\/assets\/yachat-brand-(?:64|180)\.png$/;
   const HIGH_RES_BRAND_SOURCE = "/assets/yachat-brand-512.png?v=83";
   const POSITION_MARKER = "#yachat-avatar-position=";
+  const LATIN_DIGITAL_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const CYRILLIC_DIGITAL_ID_ALPHABET = "АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ";
+  const LATIN_DIGITAL_ID = /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ]{2}[0-9]{4}|[ABCDEFGHJKLMNPQRSTUVWXYZ]{3}[0-9]{3})$/;
+  const CYRILLIC_DIGITAL_ID = /^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}[0-9]{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}[0-9]{3})$/;
 
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(Number(value) || 0, minimum), maximum);
@@ -69,9 +73,7 @@
   function normalizeSystemAvatar(image) {
     if (!(image instanceof HTMLImageElement)) return;
     const current = String(image.getAttribute("src") || "").trim();
-    if (LOW_RES_BRAND_PATTERN.test(sourcePath(current))) {
-      image.src = HIGH_RES_BRAND_SOURCE;
-    }
+    if (LOW_RES_BRAND_PATTERN.test(sourcePath(current))) image.src = HIGH_RES_BRAND_SOURCE;
     image.decoding = "async";
     image.draggable = false;
     image.dataset.yachatAvatarResolution = "full";
@@ -135,7 +137,52 @@
     }
   }
 
+  function digitalIdScript(value) {
+    const compact = String(value || "").replace(/[\s—–-]+/g, "").toUpperCase();
+    if (LATIN_DIGITAL_ID.test(compact)) return "latin";
+    if (CYRILLIC_DIGITAL_ID.test(compact)) return "cyrillic";
+    return "";
+  }
+
+  function generateSingleScriptDigitalId(script = "") {
+    const chosen = script === "latin" || script === "cyrillic"
+      ? script
+      : (() => {
+          try { return state?.language === "ru" ? "cyrillic" : "latin"; } catch { return "latin"; }
+        })();
+    const alphabet = chosen === "cyrillic" ? CYRILLIC_DIGITAL_ID_ALPHABET : LATIN_DIGITAL_ID_ALPHABET;
+    const letterCount = Math.random() < 0.5 ? 2 : 3;
+    let value = "";
+    for (let index = 0; index < letterCount; index += 1) {
+      value += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    while (value.length < 6) value += Math.floor(Math.random() * 10);
+    return value;
+  }
+
+  function formatSingleScriptDigitalId(value) {
+    const compact = String(value || "").replace(/[\s—–-]+/g, "").toUpperCase();
+    if (!digitalIdScript(compact)) return "";
+    return `${compact.slice(0, 3)} — ${compact.slice(3)}`;
+  }
+
+  function installDigitalIdGuard() {
+    try {
+      if (typeof createLocalDigitalId === "function") createLocalDigitalId = generateSingleScriptDigitalId;
+      if (typeof formatLocalDigitalId === "function") formatLocalDigitalId = formatSingleScriptDigitalId;
+      window.yachatDigitalId = Object.freeze({
+        generate: generateSingleScriptDigitalId,
+        format: formatSingleScriptDigitalId,
+        script: digitalIdScript
+      });
+      document.documentElement.dataset.yachatDigitalId = "single-script-v1";
+    } catch {
+      // Static pages do not expose the account helpers.
+    }
+  }
+
   installNonDestructivePositioner();
+  installDigitalIdGuard();
   scan();
 
   const observer = new MutationObserver((records) => {
