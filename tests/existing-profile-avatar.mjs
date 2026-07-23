@@ -105,7 +105,7 @@ assert.equal(result.positioned, true);
 assert.equal(result.x, 0.4);
 assert.equal(result.y, -0.2);
 assert.equal(result.zoom, 1.7);
-assert.equal(result.storageMode, "safe-full-frame-v1");
+assert.equal(result.storageMode, "async-full-frame-v2");
 assert.equal(result.unchangedSmall, `${fixture.smallSource}#yachat-avatar-position=0.1000,0.2000,1.3000`, "small avatars must remain byte-for-byte untouched");
 assert.ok(rendered.naturalWidth > rendered.naturalHeight, "the complete landscape composition must remain landscape");
 assert.equal(rendered.objectFit, "cover");

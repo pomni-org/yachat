@@ -80,7 +80,7 @@ await page.evaluate(() => {
 
 await page.addStyleTag({ path: "src/renderer/assets/avatar-preserve.css" });
 await page.addScriptTag({ path: "src/renderer/assets/avatar-preserve.js" });
-await page.waitForFunction(() => document.querySelector("#digital-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=83");
+await page.waitForFunction(() => document.querySelector("#digital-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=85");
 await page.waitForFunction(() => document.querySelector("#positioned-avatar")?.classList.contains("is-yachat-positioned-avatar"));
 await page.waitForFunction(() => document.querySelector("#fullscreen-avatar")?.classList.contains("is-yachat-positioned-avatar"));
 
@@ -163,7 +163,7 @@ assert.equal(avatarState.fullscreen.layoutHeight, 240);
 assert.equal(avatarState.fullscreen.width, 360);
 assert.equal(avatarState.fullscreen.height, 360);
 assert.notEqual(avatarState.attachmentFit, "contain", "ordinary attachment previews must not be changed by avatar rules");
-assert.equal(avatarState.digitalSource, "/assets/yachat-brand-512.png?v=83");
+assert.equal(avatarState.digitalSource, "/assets/yachat-brand-512.png?v=85");
 assert.equal(avatarState.digitalWidth, 92);
 assert.equal(avatarState.digitalHeight, 92);
 
@@ -197,7 +197,7 @@ await page.evaluate(() => {
   card.innerHTML = '<img id="dynamic-brand" src="/assets/yachat-brand-64.png?v=50" alt="">';
   document.body.append(card);
 });
-await page.waitForFunction(() => document.querySelector("#dynamic-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=83");
+await page.waitForFunction(() => document.querySelector("#dynamic-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=85");
 
 assert.deepEqual(pageErrors, [], `page errors:\n${pageErrors.join("\n")}`);
 assert.deepEqual(consoleErrors, [], `console errors:\n${consoleErrors.join("\n")}`);

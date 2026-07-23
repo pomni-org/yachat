@@ -25,11 +25,12 @@
     .message-author-avatar > img
   `;
   const LOW_RES_BRAND_PATTERN = /\/assets\/yachat-brand-(?:64|180)\.png$/;
-  const HIGH_RES_BRAND_SOURCE = "/assets/yachat-brand-512.png?v=83";
+  const HIGH_RES_BRAND_SOURCE = "/assets/yachat-brand-512.png?v=85";
   const POSITION_MARKER = "#yachat-avatar-position=";
   const MAX_AVATAR_STORAGE_LENGTH = 3_200_000;
-  const MAX_AVATAR_CANVAS_SIDE = 4096;
-  const AVATAR_QUALITY_STEPS = [0.96, 0.92, 0.88, 0.82, 0.74, 0.64];
+  const MAX_AVATAR_CANVAS_SIDE = 1920;
+  const AVATAR_QUALITY_STEPS = [0.82, 0.68];
+  const AVATAR_SCALE_STEPS = [1, 0.82, 0.68];
   const LATIN_DIGITAL_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   const CYRILLIC_DIGITAL_ID_ALPHABET = "АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ";
   const LATIN_DIGITAL_ID = /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ]{2}[0-9]{4}|[ABCDEFGHJKLMNPQRSTUVWXYZ]{3}[0-9]{3})$/;
@@ -71,6 +72,10 @@
     return parsed.positioned ? encodeAvatarPosition(source, parsed) : source;
   }
 
+  function nextPaint() {
+    return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  }
+
   function loadAvatarSource(source) {
     return new Promise((resolve, reject) => {
       const image = new Image();
@@ -81,6 +86,36 @@
     });
   }
 
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("Не удалось подготовить изображение профиля."));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function canvasToDataUrl(canvas, quality) {
+    if (typeof canvas.toBlob !== "function") {
+      const value = canvas.toDataURL("image/webp", quality);
+      return Promise.resolve(value && value !== "data:," ? value : "");
+    }
+
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          reject(new Error("Не удалось подготовить изображение профиля."));
+          return;
+        }
+        try {
+          resolve(await blobToDataUrl(blob));
+        } catch (error) {
+          reject(error);
+        }
+      }, "image/webp", quality);
+    });
+  }
+
   async function prepareAvatarForStorage(value) {
     const parsed = splitAvatarSource(value);
     if (!parsed.source || parsed.source.length <= MAX_AVATAR_STORAGE_LENGTH) return String(value || "");
@@ -88,13 +123,17 @@
       throw new Error("Изображение профиля слишком большое для сохранения.");
     }
 
+    const startedAt = performance.now();
     const image = await loadAvatarSource(parsed.source);
     const naturalWidth = Math.max(1, Number(image.naturalWidth) || 1);
     const naturalHeight = Math.max(1, Number(image.naturalHeight) || 1);
-    let scale = Math.min(1, MAX_AVATAR_CANVAS_SIDE / Math.max(naturalWidth, naturalHeight));
+    const initialScale = Math.min(1, MAX_AVATAR_CANVAS_SIDE / Math.max(naturalWidth, naturalHeight));
     let smallest = "";
 
-    for (let pass = 0; pass < 8; pass += 1) {
+    await nextPaint();
+
+    for (const scaleStep of AVATAR_SCALE_STEPS) {
+      const scale = initialScale * scaleStep;
       const width = Math.max(1, Math.round(naturalWidth * scale));
       const height = Math.max(1, Math.round(naturalHeight * scale));
       const canvas = document.createElement("canvas");
@@ -107,20 +146,27 @@
       context.drawImage(image, 0, 0, width, height);
 
       for (const quality of AVATAR_QUALITY_STEPS) {
-        const candidate = canvas.toDataURL("image/webp", quality);
-        if (!candidate || candidate === "data:,") continue;
+        const candidate = await canvasToDataUrl(canvas, quality);
+        if (!candidate) continue;
         if (!smallest || candidate.length < smallest.length) smallest = candidate;
         if (candidate.length <= MAX_AVATAR_STORAGE_LENGTH) {
-          document.documentElement.dataset.yachatAvatarStorage = "safe-full-frame-v1";
+          canvas.width = 1;
+          canvas.height = 1;
+          document.documentElement.dataset.yachatAvatarStorage = "async-full-frame-v2";
+          document.documentElement.dataset.yachatAvatarEncodeMs = String(Math.round(performance.now() - startedAt));
           return restoreAvatarPosition(candidate, parsed);
         }
+        await nextPaint();
       }
 
-      scale *= 0.78;
+      canvas.width = 1;
+      canvas.height = 1;
+      await nextPaint();
     }
 
     if (smallest && smallest.length <= MAX_AVATAR_STORAGE_LENGTH) {
-      document.documentElement.dataset.yachatAvatarStorage = "safe-full-frame-v1";
+      document.documentElement.dataset.yachatAvatarStorage = "async-full-frame-v2";
+      document.documentElement.dataset.yachatAvatarEncodeMs = String(Math.round(performance.now() - startedAt));
       return restoreAvatarPosition(smallest, parsed);
     }
     throw new Error("Изображение профиля слишком большое для сохранения.");
@@ -188,6 +234,53 @@
     }
     root.querySelectorAll?.(SYSTEM_AVATAR_SELECTOR).forEach(normalizeSystemAvatar);
     root.querySelectorAll?.(AVATAR_IMAGE_SELECTOR).forEach(normalizeAvatarImage);
+  }
+
+  function setAvatarSaving(button, saving) {
+    if (button) {
+      button.disabled = saving;
+      button.classList.toggle("is-loading", saving);
+      button.setAttribute("aria-busy", saving ? "true" : "false");
+      button.dataset.yachatAvatarSaving = saving ? "true" : "false";
+    }
+    document.querySelectorAll("[data-avatar-crop-close]").forEach((control) => {
+      control.disabled = saving;
+    });
+  }
+
+  async function saveAvatarCropWithoutBlocking(event) {
+    const button = event.target.closest?.("[data-avatar-crop-save]");
+    if (!button) return;
+
+    let crop = null;
+    try {
+      crop = typeof state !== "undefined" ? state.avatarCrop : null;
+    } catch {
+      crop = null;
+    }
+    if (!crop?.resolve) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (crop.saving) return;
+
+    crop.saving = true;
+    setAvatarSaving(button, true);
+    document.documentElement.dataset.yachatAvatarSave = "async-guard-v2";
+
+    try {
+      const prepared = await prepareAvatarForStorage(encodeAvatarPosition(crop.source, crop));
+      const resolve = crop.resolve;
+      closeAvatarCrop(false);
+      resolve(prepared);
+    } catch (error) {
+      const reject = crop.reject;
+      closeAvatarCrop(false);
+      if (reject) reject(error);
+    } finally {
+      crop.saving = false;
+      setAvatarSaving(button, false);
+    }
   }
 
   function installNonDestructivePositioner() {
@@ -264,6 +357,9 @@
 
   installNonDestructivePositioner();
   installDigitalIdGuard();
+  document.addEventListener("click", (event) => {
+    void saveAvatarCropWithoutBlocking(event);
+  }, true);
   scan();
 
   const observer = new MutationObserver((records) => {
