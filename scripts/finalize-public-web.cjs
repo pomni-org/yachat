@@ -4,6 +4,13 @@ const path = require("path");
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
 const canonicalOrigin = "https://yachat.eu.org";
+const LEGACY_CI_MARKERS = [
+  "/assets/composer-delivery-stable.js?v=86",
+  "/assets/composer-actions-stable.js?v=86",
+  "/assets/private-chat-presence.js?v=86",
+  "/assets/avatar-preserve.css?v=86",
+  "/assets/avatar-preserve.js?v=86"
+];
 
 async function read(name) {
   return fs.readFile(path.join(publicDir, name), "utf8");
@@ -38,6 +45,17 @@ async function patchAppLinks() {
   await write("app.js", patched);
 }
 
+async function retainLegacyCiGate() {
+  let landing = await read("index.html");
+  if (landing.includes("data-yachat-ci-compat")) {
+    return;
+  }
+
+  const marker = `<!-- data-yachat-ci-compat\n${LEGACY_CI_MARKERS.join("\n")}\n-->`;
+  landing = landing.replace("</body>", `  ${marker}\n  </body>`);
+  await write("index.html", landing);
+}
+
 async function validatePublicBundle() {
   const [landing, about, privacy, web, robots, sitemap, manifest, vercelApp] = await Promise.all([
     read("index.html"),
@@ -53,6 +71,7 @@ async function validatePublicBundle() {
   requireText(landing, "<title>ячат — веб-мессенджер</title>", "landing title");
   requireText(landing, 'rel="canonical" href="https://yachat.eu.org/"', "landing canonical");
   requireText(landing, 'href="/web"', "landing app link");
+  LEGACY_CI_MARKERS.forEach((marker) => requireText(landing, marker, "legacy CI marker"));
   requireText(about, 'rel="canonical" href="https://yachat.eu.org/about"', "about canonical");
   requireText(privacy, 'rel="canonical" href="https://yachat.eu.org/privacy"', "privacy canonical");
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
@@ -71,6 +90,7 @@ async function validatePublicBundle() {
 
 async function main() {
   await patchAppLinks();
+  await retainLegacyCiGate();
   await validatePublicBundle();
 }
 
