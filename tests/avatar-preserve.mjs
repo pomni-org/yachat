@@ -60,9 +60,31 @@ await page.setContent(`<!doctype html>
   </body>
 </html>`);
 
+await page.evaluate(() => {
+  globalThis.destructiveAvatarReaderCalled = false;
+  globalThis.readImageFile = async (file) => `original:${file.name}:${file.size}:${file.type}`;
+  globalThis.readAvatarFile = async () => {
+    globalThis.destructiveAvatarReaderCalled = true;
+    return "cropped";
+  };
+});
+
 await page.addStyleTag({ path: "src/renderer/assets/avatar-preserve.css" });
 await page.addScriptTag({ path: "src/renderer/assets/avatar-preserve.js" });
 await page.waitForFunction(() => document.querySelector("#digital-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=82");
+
+const uploadReader = await page.evaluate(async () => {
+  const file = new File(["abc"], "wide-avatar.png", { type: "image/png" });
+  return {
+    result: await readAvatarFile(file),
+    destructiveReaderCalled: globalThis.destructiveAvatarReaderCalled,
+    mode: document.documentElement.dataset.yachatAvatarUpload || ""
+  };
+});
+
+assert.equal(uploadReader.result, "original:wide-avatar.png:3:image/png", "avatar upload must keep the original file data");
+assert.equal(uploadReader.destructiveReaderCalled, false, "the square crop/re-encode reader must not run");
+assert.equal(uploadReader.mode, "original-file-v1");
 
 const initial = await page.evaluate(() => {
   const snapshot = (selector) => {
