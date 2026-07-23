@@ -150,9 +150,14 @@
   send.addEventListener("touchstart", updateSendState, { capture: true, passive: true });
   send.addEventListener("click", submitFromFirstTap, true);
 
-  // Older modules still assign send.disabled. Neutralize those assignments so
-  // a stale hidden input can never turn the first tap into a no-op.
-  new MutationObserver(queueAvailabilityUpdate).observe(send, {
+  // Older modules still assign send.disabled. Remove that stale native state
+  // without re-entering their synchronizer. Re-running updateSendState here
+  // would call the old module again and create an endless disabled on/off loop.
+  new MutationObserver(() => {
+    if (!send.disabled) return;
+    send.disabled = false;
+    setLogicalAvailability(submissionAvailable(visibleText()));
+  }).observe(send, {
     attributes: true,
     attributeFilter: ["disabled"]
   });
