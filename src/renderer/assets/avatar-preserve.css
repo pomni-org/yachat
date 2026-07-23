@@ -1,5 +1,16 @@
 /* ЯЧат: аватар задаётся размером контейнера, само изображение не режется. */
 
+/* Кнопка-рамка не должна тайно съедать место внутренними отступами. */
+:where(
+  .avatar-preview,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar
+) {
+  box-sizing: border-box;
+  padding: 0 !important;
+}
+
 :where(
   [data-avatar-view],
   [data-avatar-modal-image],
