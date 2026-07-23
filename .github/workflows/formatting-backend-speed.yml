@@ -56,9 +56,17 @@ jobs:
           CHROME_BIN: /usr/bin/google-chrome
         run: node tests/settings-detail-navigation.mjs
       - name: Verify lossless avatar positioning and Digital IDs
+        id: avatar
+        continue-on-error: true
         env:
           CHROME_BIN: /usr/bin/google-chrome
-        run: node tests/avatar-preserve.mjs
+        run: |
+          set +e
+          node tests/avatar-preserve.mjs > avatar-test-output.txt 2>&1
+          code=$?
+          echo "$code" > avatar-test-exit-code.txt
+          cat avatar-test-output.txt
+          exit "$code"
       - name: Verify native textarea remains stable
         env:
           CHROME_BIN: /usr/bin/google-chrome
@@ -118,8 +126,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: formatting-delivery-test-output
+          name: avatar-formatting-delivery-test-output
           path: |
+            avatar-test-output.txt
+            avatar-test-exit-code.txt
             formatting-test-output.txt
             formatting-test-exit-code.txt
             delivery-test-output.txt
@@ -129,8 +139,10 @@ jobs:
       - name: Fail when a browser regression failed
         if: always()
         run: |
+          avatar_code="$(cat avatar-test-exit-code.txt 2>/dev/null || echo 1)"
           formatting_code="$(cat formatting-test-exit-code.txt 2>/dev/null || echo 1)"
           delivery_code="$(cat delivery-test-exit-code.txt 2>/dev/null || echo 1)"
+          test "$avatar_code" = "0"
           test "$formatting_code" = "0"
           test "$delivery_code" = "0"
 
