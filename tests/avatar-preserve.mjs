@@ -109,6 +109,8 @@ const avatarState = await page.evaluate(() => {
       inlineZoom: image.style.getPropertyValue("--yachat-avatar-zoom"),
       width: image.getBoundingClientRect().width,
       height: image.getBoundingClientRect().height,
+      layoutWidth: image.offsetWidth,
+      layoutHeight: image.offsetHeight,
       naturalWidth: image.naturalWidth,
       naturalHeight: image.naturalHeight
     };
@@ -156,8 +158,10 @@ for (const [name, avatar] of Object.entries({
 
 assert.equal(avatarState.plain.width, 120);
 assert.equal(avatarState.plain.height, 120);
-assert.equal(avatarState.fullscreen.width, 240);
-assert.equal(avatarState.fullscreen.height, 240);
+assert.equal(avatarState.fullscreen.layoutWidth, 240);
+assert.equal(avatarState.fullscreen.layoutHeight, 240);
+assert.equal(avatarState.fullscreen.width, 360);
+assert.equal(avatarState.fullscreen.height, 360);
 assert.notEqual(avatarState.attachmentFit, "contain", "ordinary attachment previews must not be changed by avatar rules");
 assert.equal(avatarState.digitalSource, "/assets/yachat-brand-512.png?v=83");
 assert.equal(avatarState.digitalWidth, 92);
