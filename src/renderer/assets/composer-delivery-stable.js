@@ -140,15 +140,17 @@
   }
 
   async function sendQueuedMessage(sourceChat, message) {
-    if (inFlight.has(message.id)) return;
+    if (inFlight.has(message.id)) return false;
     inFlight.add(message.id);
     try {
       const targetChat = await resolveTargetChat(sourceChat);
       moveTransient(sourceChat, targetChat, message);
       const delivered = await deliverTransientMessage(targetChat, message);
       if (delivered) outboxChats.delete(message.id);
+      return Boolean(delivered);
     } catch (error) {
       markCreateChatFailed(sourceChat, message, error);
+      return false;
     } finally {
       inFlight.delete(message.id);
     }
@@ -162,19 +164,14 @@
     queued.finally(() => {
       if (sendChains.get(key) === queued) sendChains.delete(key);
     });
+    return queued;
   }
 
   function scheduleMessageDelivery(chat, message) {
-    const start = () => enqueueMessage(chat, message);
-
-    // Visible pages get a real paint opportunity before network work starts.
-    // Hidden pages may throttle requestAnimationFrame indefinitely, and there
-    // is no visible interface to prioritize there, so use a timer instead.
-    if (document.visibilityState === "hidden") {
-      window.setTimeout(start, 0);
-      return;
-    }
-    requestAnimationFrame(() => window.setTimeout(start, 0));
+    // DOM updates above are synchronous; starting fetch immediately does not
+    // block the next paint. The old rAF + timer chain made the first attempt
+    // dependent on WebKit scheduling and occasionally left it in limbo.
+    void enqueueMessage(chat, message);
   }
 
   function clearComposer(form, transport, send) {
@@ -190,7 +187,8 @@
     state.replyToMessage = null;
     renderAttachmentTray();
     renderComposerContext();
-    send.disabled = true;
+    send.setAttribute("aria-disabled", "true");
+    send.classList.add("is-disabled");
   }
 
   function installOptimisticSubmit() {
@@ -199,7 +197,7 @@
     const transport = form?.querySelector("[data-message-input]");
     if (!form || !send || !transport || form.dataset.yachatOptimisticSubmit) return;
 
-    form.dataset.yachatOptimisticSubmit = "true";
+    form.dataset.yachatOptimisticSubmit = "immediate-v2";
     form.classList.add("is-composer-reliable");
 
     send.addEventListener("pointerdown", () => {
@@ -239,7 +237,7 @@
           const chat = outboxChats.get(message.id)
             || state.chats.find((item) => item.id === message.chatId)
             || (state.pendingSearchChat?.id === message.chatId ? state.pendingSearchChat : null);
-          if (chat) enqueueMessage(chat, message);
+          if (chat) void enqueueMessage(chat, message);
         }
       }
     });
