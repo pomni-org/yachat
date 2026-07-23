@@ -3,6 +3,7 @@
 
   const SYSTEM_AVATAR_SELECTOR = ".digital-id-identity-card > img, .kotoslugi-row > img";
   const AVATAR_IMAGE_SELECTOR = `
+    img[data-avatar-modal-image],
     [data-avatar-view] > img,
     [data-avatar-view] img,
     [data-avatar-modal-image] > img,
@@ -166,7 +167,9 @@
   function formatSingleScriptDigitalId(value) {
     const compact = String(value || "").replace(/[\s—–-]+/g, "").toUpperCase();
     if (!digitalIdScript(compact)) return "";
-    return `${compact.slice(0, 3)} — ${compact.slice(3)}`;
+    const digitIndex = compact.search(/[0-9]/);
+    if (digitIndex < 0) return "";
+    return `${compact.slice(0, digitIndex)} — ${compact.slice(digitIndex)}`;
   }
 
   function installDigitalIdGuard() {
