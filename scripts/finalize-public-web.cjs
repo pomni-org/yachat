@@ -7,8 +7,8 @@ const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
 const canonicalOrigin = "https://yachat.eu.org";
-const AUTH_ENTRY_CSS = "/assets/auth-entry-fix.css?v=1";
-const AUTH_ENTRY_JS = "/assets/auth-entry-fix.js?v=1";
+const AUTH_ENTRY_CSS = "/assets/auth-entry-fix.css?v=2";
+const AUTH_ENTRY_JS = "/assets/auth-entry-fix.js?v=2";
 const LEGACY_CI_MARKERS = [
   "/assets/composer-delivery-stable.js?v=86",
   "/assets/composer-actions-stable.js?v=86",
@@ -86,6 +86,7 @@ async function injectAuthEntryFix() {
   requireText(css, ".device-code-field", "plain device code field CSS");
   requireText(script, "normalizeDeviceCode", "device code normalizer");
   requireText(script, "repairCountryRows", "country row repair runtime");
+  requireText(script, "repairProgrammaticDeviceFocus", "iOS device code focus repair");
   await execFileAsync(process.execPath, ["--check", path.join(publicDir, "assets", "auth-entry-fix.js")]);
 }
 

@@ -32,7 +32,7 @@
 .country-choice-row {
   position: static !important;
   display: grid !important;
-  grid-template-columns: 42px minmax(0, 1fr) max-content !important;
+  grid-template-columns: 48px minmax(0, 1fr) minmax(52px, max-content) !important;
   align-items: center !important;
   gap: 10px !important;
   flex: 0 0 46px;
@@ -44,6 +44,7 @@
   padding: 0 12px !important;
   overflow: hidden;
   line-height: 1.2 !important;
+  text-align: left !important;
   transform: none !important;
 }
 
@@ -65,22 +66,27 @@
 }
 
 .country-choice-row > span {
+  justify-self: start;
   color: var(--text);
   font-size: 14px !important;
   font-weight: 600 !important;
 }
 
 .country-choice-row > strong {
+  justify-self: stretch;
   color: var(--text);
   font-size: 14px !important;
   font-weight: 500 !important;
+  text-align: left !important;
 }
 
 .country-choice-row > small {
   justify-self: end;
   color: var(--muted);
   font-size: 13px !important;
+  font-variant-numeric: tabular-nums;
   font-weight: 500 !important;
+  text-align: right !important;
 }
 
 .device-code-login-form {
@@ -89,20 +95,30 @@
 }
 
 .device-code-field {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 8px;
   width: 100%;
+  cursor: text;
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .device-code-field > span {
   color: var(--muted);
   font-size: 13px;
   font-weight: 500;
+  pointer-events: none;
 }
 
 .device-code-field > input[data-device-code-input] {
-  display: block;
-  width: 100%;
+  position: relative;
+  z-index: 2;
+  display: block !important;
+  width: 100% !important;
   min-width: 0;
   height: 58px;
   margin: 0;
@@ -115,14 +131,20 @@
   background: var(--field);
   color: var(--field-text);
   caret-color: var(--yachat-comet);
+  cursor: text;
   font-family: var(--font-main);
   font-size: 23px;
   font-weight: 600;
-  line-height: 58px;
+  line-height: normal;
   letter-spacing: 0.08em;
-  text-align: left;
+  text-align: left !important;
   text-transform: uppercase;
   box-shadow: none;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  -webkit-user-select: text !important;
+  user-select: text !important;
 }
 
 .device-code-field > input[data-device-code-input]::placeholder {
@@ -190,6 +212,5 @@
     height: 56px;
     border-radius: 16px;
     font-size: 21px;
-    line-height: 56px;
   }
 }
