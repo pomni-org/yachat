@@ -3,7 +3,7 @@ import { chromium } from "playwright-core";
 
 const executablePath = process.env.CHROME_BIN || "/usr/bin/google-chrome";
 const browser = await chromium.launch({ headless: true, executablePath });
-const page = await browser.newPage();
+const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 const pageErrors = [];
 const consoleErrors = [];
 
@@ -18,8 +18,11 @@ await page.setContent(`<!doctype html>
     <form class="composer" data-form="message">
       <div data-composer-context hidden></div>
       <div data-attachment-tray hidden></div>
-      <input data-message-input name="message" placeholder="Сообщение">
-      <button class="send-button" type="submit">send</button>
+      <button type="button" data-action="attach-file">attach</button>
+      <div data-rich-message-editor hidden></div>
+      <textarea data-native-ios-message-input placeholder="Сообщение"></textarea>
+      <input type="hidden" data-message-input name="message" value="">
+      <button class="send-button" type="submit" disabled>send</button>
     </form>
     <div data-message-list></div>
   </body>
@@ -82,9 +85,7 @@ await page.evaluate(() => {
   globalThis.deleteMessages = async () => {};
 
   globalThis.setTransientMessage = (chatId, message) => {
-    if (!state.transientMessagesByChat.has(chatId)) {
-      state.transientMessagesByChat.set(chatId, new Map());
-    }
+    if (!state.transientMessagesByChat.has(chatId)) state.transientMessagesByChat.set(chatId, new Map());
     state.transientMessagesByChat.get(chatId).set(message.id, message);
   };
   globalThis.removeTransientMessage = (chatId, messageId) => {
@@ -131,34 +132,58 @@ await page.evaluate(() => {
       deleteMessage: async () => ({ ok: true })
     }
   };
+
+  const form = document.querySelector('[data-form="message"]');
+  const visible = form.querySelector('[data-native-ios-message-input]');
+  const transport = form.querySelector('[data-message-input]');
+  form.__yachatSyncRichEditor = () => {
+    transport.value = visible.value.replace(/\r/g, "");
+    return transport.value;
+  };
 });
 
 for (const path of [
   "src/renderer/assets/composer-delivery-stable.js",
+  "src/renderer/assets/composer-actions-stable.js",
   "src/renderer/assets/frontend-first-runtime.js"
 ]) {
   await page.addScriptTag({ path });
 }
 
 await page.evaluate(() => {
-  const input = document.querySelector('[data-message-input]');
-  input.value = "быстро";
-  document.querySelector('[data-form="message"]').requestSubmit();
+  const visible = document.querySelector('[data-native-ios-message-input]');
+  const transport = document.querySelector('[data-message-input]');
+  const send = document.querySelector('.send-button');
+  visible.value = "быстро";
+  transport.value = "";
+  // Reproduce the stale state left by the old hidden-input listener.
+  send.disabled = true;
 });
 
+await page.locator('.send-button').click();
+await page.waitForFunction(() => sentPayloads.length === 1);
+
 const optimistic = await page.evaluate(() => ({
-  input: document.querySelector('[data-message-input]').value,
+  visible: document.querySelector('[data-native-ios-message-input]').value,
+  transport: document.querySelector('[data-message-input]').value,
+  sendDisabled: document.querySelector('.send-button').disabled,
+  sendAvailable: document.querySelector('.send-button').dataset.yachatSendAvailable,
   transient: transientMessagesForChat("chat-1").map((message) => ({
     id: message.id,
     text: message.text,
     status: message.deliveryStatus
   })),
   persisted: state.messages.length,
-  chatPreview: state.chats[0].lastMessage,
+  payloads: sentPayloads.map((payload) => ({ ...payload })),
   eventOrder: [...eventOrder]
 }));
 
-assert.equal(optimistic.input, "", "composer must clear before the network response");
+assert.equal(optimistic.visible, "", "visible composer must clear on the first tap");
+assert.equal(optimistic.transport, "", "hidden transport must clear on the first tap");
+assert.equal(optimistic.sendDisabled, false, "ordinary validation must never natively disable the send control");
+assert.equal(optimistic.payloads.length, 1, "one tap must create exactly one request");
+assert.equal(optimistic.payloads[0].text, "быстро", "the request must read the visible field, not stale transport");
+assert.equal(optimistic.payloads[0].formattedHtml, "<strong>быстро</strong>");
 assert.deepEqual(optimistic.transient, [{
   id: "11111111-1111-4111-8111-111111111111",
   text: "быстро",
@@ -166,24 +191,16 @@ assert.deepEqual(optimistic.transient, [{
 }]);
 assert.equal(optimistic.persisted, 0);
 
-await page.waitForFunction(() => sentPayloads.length === 1);
-const requestState = await page.evaluate(() => ({
-  payload: sentPayloads[0],
-  eventOrder: [...eventOrder]
-}));
-assert.equal(requestState.payload.text, "быстро");
-assert.equal(requestState.payload.formattedHtml, "<strong>быстро</strong>");
-
 const firstRender = Math.min(
   ...["render-messages", "render-chats"]
-    .map((name) => requestState.eventOrder.indexOf(name))
+    .map((name) => optimistic.eventOrder.indexOf(name))
     .filter((index) => index >= 0)
 );
-const firstFrame = requestState.eventOrder.indexOf("frame");
-const firstNetwork = requestState.eventOrder.indexOf("network");
-assert.ok(firstRender >= 0, `optimistic render missing: ${requestState.eventOrder.join(", ")}`);
-assert.ok(firstFrame > firstRender, `network frame was not scheduled after rendering: ${requestState.eventOrder.join(", ")}`);
-assert.ok(firstNetwork > firstFrame, `network started before the render frame: ${requestState.eventOrder.join(", ")}`);
+const firstFrame = optimistic.eventOrder.indexOf("frame");
+const firstNetwork = optimistic.eventOrder.indexOf("network");
+assert.ok(firstRender >= 0, `optimistic render missing: ${optimistic.eventOrder.join(", ")}`);
+assert.ok(firstNetwork > firstRender, `network must start after synchronous optimistic rendering: ${optimistic.eventOrder.join(", ")}`);
+assert.ok(firstFrame < 0 || firstNetwork < firstFrame, `network must not wait for requestAnimationFrame: ${optimistic.eventOrder.join(", ")}`);
 
 await page.evaluate(() => pendingResolvers.shift()?.());
 await page.waitForFunction(() => state.messages.length === 1 && transientMessagesForChat("chat-1").length === 0);
@@ -217,4 +234,4 @@ assert.deepEqual(pageErrors, [], `page errors:\n${pageErrors.join("\n")}`);
 assert.deepEqual(consoleErrors, [], `console errors:\n${consoleErrors.join("\n")}`);
 
 await browser.close();
-console.log("frontend-first delivery suite passed");
+console.log("first-tap frontend delivery suite passed");
