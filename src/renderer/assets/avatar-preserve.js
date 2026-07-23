@@ -27,6 +27,9 @@
   const LOW_RES_BRAND_PATTERN = /\/assets\/yachat-brand-(?:64|180)\.png$/;
   const HIGH_RES_BRAND_SOURCE = "/assets/yachat-brand-512.png?v=83";
   const POSITION_MARKER = "#yachat-avatar-position=";
+  const MAX_AVATAR_STORAGE_LENGTH = 3_200_000;
+  const MAX_AVATAR_CANVAS_SIDE = 4096;
+  const AVATAR_QUALITY_STEPS = [0.96, 0.92, 0.88, 0.82, 0.74, 0.64];
   const LATIN_DIGITAL_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
   const CYRILLIC_DIGITAL_ID_ALPHABET = "АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ";
   const LATIN_DIGITAL_ID = /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ]{2}[0-9]{4}|[ABCDEFGHJKLMNPQRSTUVWXYZ]{3}[0-9]{3})$/;
@@ -62,6 +65,65 @@
     const y = clamp(crop.y, -1, 1).toFixed(4);
     const zoom = clamp(crop.zoom || 1, 1, 3).toFixed(4);
     return `${base}${POSITION_MARKER}${x},${y},${zoom}`;
+  }
+
+  function restoreAvatarPosition(source, parsed) {
+    return parsed.positioned ? encodeAvatarPosition(source, parsed) : source;
+  }
+
+  function loadAvatarSource(source) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.decoding = "async";
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Не удалось подготовить изображение профиля."));
+      image.src = source;
+    });
+  }
+
+  async function prepareAvatarForStorage(value) {
+    const parsed = splitAvatarSource(value);
+    if (!parsed.source || parsed.source.length <= MAX_AVATAR_STORAGE_LENGTH) return String(value || "");
+    if (!parsed.source.startsWith("data:image/")) {
+      throw new Error("Изображение профиля слишком большое для сохранения.");
+    }
+
+    const image = await loadAvatarSource(parsed.source);
+    const naturalWidth = Math.max(1, Number(image.naturalWidth) || 1);
+    const naturalHeight = Math.max(1, Number(image.naturalHeight) || 1);
+    let scale = Math.min(1, MAX_AVATAR_CANVAS_SIDE / Math.max(naturalWidth, naturalHeight));
+    let smallest = "";
+
+    for (let pass = 0; pass < 8; pass += 1) {
+      const width = Math.max(1, Math.round(naturalWidth * scale));
+      const height = Math.max(1, Math.round(naturalHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { alpha: true });
+      if (!context) throw new Error("Не удалось подготовить изображение профиля.");
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(image, 0, 0, width, height);
+
+      for (const quality of AVATAR_QUALITY_STEPS) {
+        const candidate = canvas.toDataURL("image/webp", quality);
+        if (!candidate || candidate === "data:,") continue;
+        if (!smallest || candidate.length < smallest.length) smallest = candidate;
+        if (candidate.length <= MAX_AVATAR_STORAGE_LENGTH) {
+          document.documentElement.dataset.yachatAvatarStorage = "safe-full-frame-v1";
+          return restoreAvatarPosition(candidate, parsed);
+        }
+      }
+
+      scale *= 0.78;
+    }
+
+    if (smallest && smallest.length <= MAX_AVATAR_STORAGE_LENGTH) {
+      document.documentElement.dataset.yachatAvatarStorage = "safe-full-frame-v1";
+      return restoreAvatarPosition(smallest, parsed);
+    }
+    throw new Error("Изображение профиля слишком большое для сохранения.");
   }
 
   function sourcePath(value) {
@@ -130,12 +192,27 @@
 
   function installNonDestructivePositioner() {
     try {
-      if (typeof cropToDataUrl !== "function") return;
-      cropToDataUrl = function preserveAvatarSource(source, crop = {}) {
-        return encodeAvatarPosition(source, crop);
-      };
+      if (typeof cropToDataUrl === "function") {
+        cropToDataUrl = function preserveAvatarSource(source, crop = {}) {
+          return encodeAvatarPosition(source, crop);
+        };
+      }
+      if (typeof readAvatarFile === "function" && !readAvatarFile.__yachatSafeStorage) {
+        const originalReadAvatarFile = readAvatarFile;
+        const wrappedReadAvatarFile = async function readAvatarFileForSafeStorage() {
+          const positionedSource = await originalReadAvatarFile.apply(this, arguments);
+          return prepareAvatarForStorage(positionedSource);
+        };
+        Object.defineProperty(wrappedReadAvatarFile, "__yachatSafeStorage", { value: true });
+        readAvatarFile = wrappedReadAvatarFile;
+      }
       document.documentElement.dataset.yachatAvatarUpload = "positioned-original-v2";
-      window.yachatAvatarPosition = Object.freeze({ split: splitAvatarSource, encode: encodeAvatarPosition });
+      window.yachatAvatarPosition = Object.freeze({
+        split: splitAvatarSource,
+        encode: encodeAvatarPosition,
+        prepare: prepareAvatarForStorage,
+        maxStorageLength: MAX_AVATAR_STORAGE_LENGTH
+      });
     } catch {
       // Standalone shells without the main cropper keep their own reader.
     }
