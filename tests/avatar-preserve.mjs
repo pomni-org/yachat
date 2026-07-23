@@ -35,12 +35,13 @@ await page.setContent(`<!doctype html>
         display: block;
         width: 240px;
         height: 240px;
+        object-fit: cover;
+        transform: scale(1.4);
       }
       .chat-avatar img,
       .profile-edit-avatar-preview img,
       .avatar-modal-image img,
-      [data-avatar-view] img,
-      img[data-avatar-modal-image] {
+      [data-avatar-view] img {
         width: 100%;
         height: 100%;
         object-fit: cover;
