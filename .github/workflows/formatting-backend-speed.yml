@@ -9,12 +9,15 @@ on:
       - src/renderer/assets/composer-enter-stable.js
       - src/renderer/assets/frontend-first-runtime.js
       - src/renderer/assets/composer-delivery-stable.js
+      - src/renderer/assets/settings-detail-layout.css
+      - src/renderer/assets/settings-detail-navigation.js
       - api/message.py
       - api/chat_poll.py
       - server/database.py
       - tests/ios-native-formatting.mjs
       - tests/composer-ios-native-textarea.mjs
       - tests/frontend-first-delivery.mjs
+      - tests/settings-detail-navigation.mjs
       - tests/test_message_performance.py
       - tests/test_chat_poll_queries.py
       - scripts/build-vercel.cjs
@@ -40,6 +43,10 @@ jobs:
         run: |
           test -x /usr/bin/google-chrome
           /usr/bin/google-chrome --version
+      - name: Verify settings detail header and navigation
+        env:
+          CHROME_BIN: /usr/bin/google-chrome
+        run: node tests/settings-detail-navigation.mjs
       - name: Verify native textarea remains stable
         env:
           CHROME_BIN: /usr/bin/google-chrome
@@ -76,6 +83,8 @@ jobs:
           node --check src/renderer/assets/composer-enter-stable.js
           node --check src/renderer/assets/frontend-first-runtime.js
           node --check src/renderer/assets/composer-delivery-stable.js
+          node --check src/renderer/assets/settings-detail-navigation.js
+          node --check tests/settings-detail-navigation.mjs
           node --check scripts/build-vercel.cjs
           node -e "JSON.parse(require('fs').readFileSync('vercel.json', 'utf8'))"
       - name: Upload browser regression output
