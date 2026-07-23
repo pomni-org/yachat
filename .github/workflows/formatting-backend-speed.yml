@@ -24,6 +24,7 @@ on:
       - tests/avatar-preserve.mjs
       - tests/test_message_performance.py
       - tests/test_chat_poll_queries.py
+      - tests/test_digital_id_migration.py
       - scripts/build-vercel.cjs
       - scripts/build-vercel-v83.cjs
       - package.json
@@ -147,8 +148,10 @@ jobs:
       - name: Verify Python syntax
         run: |
           python -m py_compile api/message.py api/chat_poll.py server/database.py
-          python -m py_compile tests/test_message_performance.py tests/test_chat_poll_queries.py
+          python -m py_compile tests/test_message_performance.py tests/test_chat_poll_queries.py tests/test_digital_id_migration.py
       - name: Test compact writes and physical deletion
         run: python -m unittest tests.test_message_performance -v
       - name: Test combined chat polling query
         run: python -m unittest tests.test_chat_poll_queries -v
+      - name: Test single-script Digital ID migration
+        run: python -m unittest tests.test_digital_id_migration -v
