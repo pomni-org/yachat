@@ -1,0 +1,85 @@
+/* ЯЧат: аватар задаётся размером контейнера, само изображение не режется. */
+
+:where(
+  [data-avatar-view],
+  [data-avatar-modal-image],
+  .avatar-preview,
+  .done-mark,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .group-member-avatar,
+  .mention-avatar,
+  .message-author-avatar
+) > img,
+:where(
+  [data-avatar-view],
+  [data-avatar-modal-image],
+  .avatar-preview,
+  .done-mark,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .group-member-avatar,
+  .mention-avatar,
+  .message-author-avatar
+) img {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+  transform: none !important;
+  image-rendering: auto;
+  -webkit-user-drag: none;
+}
+
+/* Системные логотипы тоже вписываются целиком, но сохраняют собственный размер. */
+.digital-id-identity-card > img,
+.kotoslugi-row > img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain !important;
+  object-position: center center !important;
+  transform: none !important;
+  image-rendering: auto;
+  -webkit-user-drag: none;
+}
+
+/* Пустое место вокруг неквадратной авы принадлежит рамке, а не обрезается. */
+:where(
+  [data-avatar-view],
+  [data-avatar-modal-image],
+  .avatar-preview,
+  .done-mark,
+  .chat-avatar,
+  .dialog-avatar,
+  .dialog-intro-avatar,
+  .panel-avatar,
+  .panel-row-avatar,
+  .profile-edit-avatar-preview,
+  .create-chat-avatar-preview,
+  .settings-profile-avatar,
+  .settings-folder-avatar,
+  .chat-profile-avatar,
+  .group-member-avatar,
+  .mention-avatar,
+  .message-author-avatar
+) {
+  background-clip: padding-box;
+}
