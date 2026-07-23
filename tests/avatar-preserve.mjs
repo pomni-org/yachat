@@ -84,9 +84,9 @@ await page.waitForFunction(() => document.querySelector("#digital-brand")?.getAt
 await page.waitForFunction(() => document.querySelector("#positioned-avatar")?.classList.contains("is-yachat-positioned-avatar"));
 await page.waitForFunction(() => document.querySelector("#fullscreen-avatar")?.classList.contains("is-yachat-positioned-avatar"));
 
-const cropResult = await page.evaluate((source) => ({
+const cropResult = await page.evaluate(async (source) => ({
   encoded: cropToDataUrl(source, { x: 0.4, y: -0.2, zoom: 1.7 }),
-  reader: readAvatarFile(),
+  reader: await readAvatarFile(),
   mode: document.documentElement.dataset.yachatAvatarUpload || ""
 }), wideAvatar);
 
