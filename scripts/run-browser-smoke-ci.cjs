@@ -4,7 +4,7 @@ const { spawn } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const reportPath = path.join(root, "runtime-smoke-report.json");
-const child = spawn(process.execPath, [path.join(__dirname, "runtime-browser-smoke.cjs")], {
+const child = spawn(process.execPath, [path.join(__dirname, "runtime-browser-cdp-smoke.cjs")], {
   cwd: root,
   stdio: ["ignore", "pipe", "pipe"]
 });
