@@ -83,9 +83,13 @@ async function validatePublicBundle() {
   LEGACY_CI_MARKERS.forEach((marker) => requireText(landing, marker, "legacy CI marker"));
   requireText(about, 'rel="canonical" href="https://yachat.eu.org/about"', "about canonical");
   requireText(privacy, 'rel="canonical" href="https://yachat.eu.org/privacy"', "privacy canonical");
+  requireText(privacy, "Vercel Web Analytics", "analytics privacy disclosure");
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
-  requireText(web, "/assets/private-chat-presence.js?v=87", "v87 private chat runtime");
-  requireText(web, "/assets/yachat-brand-256.png?v=87", "absolute web brand asset");
+  requireText(web, "/assets/private-chat-presence.js?v=88", "v88 private chat runtime");
+  requireText(web, "/assets/yachat-brand-256.png?v=88", "absolute web brand asset");
+  requireText(web, "/assets/privacy-safe-analytics.js?v=88", "privacy-safe analytics sanitizer");
+  requireText(web, "/_vercel/insights/script.js", "Vercel analytics script");
+  requireText(web, 'name="referrer" content="origin"', "privacy-safe referrer policy");
   forbidText(web, "./assets/", "relative web asset path");
   requireText(robots, "Disallow: /web", "robots web exclusion");
   requireText(robots, "Disallow: /api/", "robots API exclusion");
