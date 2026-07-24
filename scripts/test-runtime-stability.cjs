@@ -12,19 +12,26 @@ function assert(condition, message) {
 }
 
 const uiStability = read("src/renderer/assets/ui-stability.js");
+const interactionStable = read("src/renderer/assets/interaction-stable.js");
+const messageStateRepair = read("src/renderer/assets/message-state-repair.js");
+const avatarPreserve = read("src/renderer/assets/avatar-preserve.js");
+const mobileChatStable = read("src/renderer/assets/mobile-chat-stable.js");
 const backgroundSync = read("src/renderer/assets/background-sync.js");
 const privatePresence = read("src/renderer/assets/private-chat-presence.js");
 const chatOptimization = read("src/renderer/assets/chat-load-optimization.js");
 const buildScript = read("scripts/build-vercel.cjs");
 
-assert(
-  !uiStability.includes("observer.observe(document.documentElement"),
-  "ui-stability must not observe the entire document element"
-);
-assert(
-  !uiStability.includes("subtree: true"),
-  "ui-stability must not register a subtree-wide MutationObserver"
-);
+const broadObserverPattern = /observe\(\s*document\.(?:documentElement|body)\s*,\s*\{[\s\S]{0,240}?subtree\s*:\s*true/;
+for (const [name, source] of [
+  ["ui-stability", uiStability],
+  ["interaction-stable", interactionStable],
+  ["message-state-repair", messageStateRepair],
+  ["avatar-preserve", avatarPreserve],
+  ["mobile-chat-stable", mobileChatStable]
+]) {
+  assert(!broadObserverPattern.test(source), `${name} must not observe the entire app subtree`);
+}
+
 assert(
   uiStability.includes("bodyObserver.observe(document.body"),
   "ui-stability must use the targeted body observer"
@@ -36,6 +43,18 @@ assert(
 assert(
   uiStability.includes("refreshMessengerFromServer = optimizedRefresh"),
   "optimized refresh must be restored after enhancement scripts load"
+);
+assert(
+  interactionStable.includes("wrapVisualRenderers"),
+  "interaction repairs must be attached to render functions"
+);
+assert(
+  messageStateRepair.includes("window.setTimeout(installAll, 250)"),
+  "message state hooks must settle after runtime scripts load"
+);
+assert(
+  avatarPreserve.includes("wrapAvatarRenderers"),
+  "avatar normalization must be render-scoped"
 );
 
 assert(
@@ -71,7 +90,8 @@ const orderedAssets = [
   "chat-load-optimization.js",
   "ui-stability.js",
   "background-sync.js",
-  "private-chat-presence.js"
+  "private-chat-presence.js",
+  "avatar-preserve.js"
 ];
 let previousIndex = -1;
 for (const asset of orderedAssets) {
@@ -81,4 +101,4 @@ for (const asset of orderedAssets) {
   previousIndex = index;
 }
 
-console.log("[runtime-stability] PASS: optimized polling owns refresh, observers are targeted, cadence is browser-safe.");
+console.log("[runtime-stability] PASS: polling is incremental, observers are render-scoped, cadence is browser-safe.");
