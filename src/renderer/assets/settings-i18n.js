@@ -87,6 +87,8 @@
   const originalText = new WeakMap();
   const originalAttributes = new WeakMap();
   let applying = false;
+  let observingBody = false;
+  let observer = null;
 
   function isEnglish() {
     return state.language === "en" || document.documentElement.lang.toLowerCase().startsWith("en");
@@ -144,20 +146,18 @@
       originalText.set(node, node.nodeValue);
     }
     const source = originalText.get(node) || "";
-    if (!isEnglish()) {
-      if (node.nodeValue !== source) {
-        node.nodeValue = source;
+    let target = source;
+
+    if (isEnglish()) {
+      const match = source.match(/^(\s*)(.*?)(\s*)$/s);
+      if (!match || !match[2].trim()) {
+        return;
       }
-      return;
+      target = `${match[1]}${dynamic(match[2])}${match[3]}`;
     }
 
-    const match = source.match(/^(\s*)(.*?)(\s*)$/s);
-    if (!match || !match[2].trim()) {
-      return;
-    }
-    const translated = dynamic(match[2]);
-    if (translated !== match[2].trim()) {
-      node.nodeValue = `${match[1]}${translated}${match[3]}`;
+    if (node.nodeValue !== target) {
+      node.nodeValue = target;
     }
   }
 
@@ -175,7 +175,21 @@
       stored.set(name, value);
     }
     const source = stored.get(name);
-    element.setAttribute(name, isEnglish() ? dynamic(source) : source);
+    const target = isEnglish() ? dynamic(source) : source;
+    if (value !== target) {
+      element.setAttribute(name, target);
+    }
+  }
+
+  function observeBody() {
+    if (!observer || !document.body) {
+      return;
+    }
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    observingBody = true;
   }
 
   function apply(root = document) {
@@ -183,6 +197,10 @@
       return;
     }
     applying = true;
+    if (observingBody) {
+      observer.disconnect();
+      observingBody = false;
+    }
     try {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node = walker.nextNode();
@@ -203,32 +221,25 @@
       });
     } finally {
       applying = false;
+      if (observer) {
+        observeBody();
+      }
     }
   }
 
-  const observer = new MutationObserver((mutations) => {
+  observer = new MutationObserver((mutations) => {
     if (applying) {
       return;
     }
     mutations.forEach((mutation) => {
-      if (mutation.type === "childList") {
-        mutation.addedNodes.forEach((node) => {
-          if (node.nodeType === Node.TEXT_NODE) {
-            translateTextNode(node);
-          } else if (node.nodeType === Node.ELEMENT_NODE) {
-            apply(node);
-          }
-        });
-      } else if (mutation.type === "characterData") {
-        translateTextNode(mutation.target);
-      }
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          translateTextNode(node);
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          apply(node);
+        }
+      });
     });
-  });
-
-  observer.observe(document.body, {
-    childList: true,
-    characterData: true,
-    subtree: true
   });
 
   const htmlObserver = new MutationObserver(() => apply(document.body));
