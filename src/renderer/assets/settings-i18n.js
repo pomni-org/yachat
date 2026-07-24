@@ -5,6 +5,11 @@
     return;
   }
 
+  const translationRoot = document.querySelector("[data-side-panel]");
+  if (!translationRoot) {
+    return;
+  }
+
   const exact = new Map(Object.entries({
     "Настройки": "Settings",
     "Поделиться профилем": "Share profile",
@@ -87,7 +92,7 @@
   const originalText = new WeakMap();
   const originalAttributes = new WeakMap();
   let applying = false;
-  let observingBody = false;
+  let observingRoot = false;
   let observer = null;
 
   function isEnglish() {
@@ -181,25 +186,25 @@
     }
   }
 
-  function observeBody() {
-    if (!observer || !document.body) {
+  function observeRoot() {
+    if (!observer || !translationRoot.isConnected) {
       return;
     }
-    observer.observe(document.body, {
+    observer.observe(translationRoot, {
       childList: true,
       subtree: true
     });
-    observingBody = true;
+    observingRoot = true;
   }
 
-  function apply(root = document) {
-    if (applying || !root) {
+  function apply(root = translationRoot) {
+    if (applying || !root || !translationRoot.contains(root) && root !== translationRoot) {
       return;
     }
     applying = true;
-    if (observingBody) {
+    if (observingRoot) {
       observer.disconnect();
-      observingBody = false;
+      observingRoot = false;
     }
     try {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -222,7 +227,7 @@
     } finally {
       applying = false;
       if (observer) {
-        observeBody();
+        observeRoot();
       }
     }
   }
@@ -242,7 +247,7 @@
     });
   });
 
-  const htmlObserver = new MutationObserver(() => apply(document.body));
+  const htmlObserver = new MutationObserver(() => apply(translationRoot));
   htmlObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ["lang", "data-language"]
@@ -256,5 +261,5 @@
     };
   }
 
-  apply(document.body);
+  apply(translationRoot);
 })();
