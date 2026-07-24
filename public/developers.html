@@ -35,6 +35,8 @@
       .api-footer { padding: 34px 4px; color: #8f899d; }
       @media (max-width: 700px) { .api-grid { grid-template-columns: 1fr; } .api-hero { padding-top: 52px; } }
     </style>
+      <meta name="referrer" content="origin" />
+    <script type="module" src="/assets/analytics-init.mjs?v=88"></script>
   </head>
   <body>
     <main class="api-shell">
@@ -47,7 +49,7 @@
       </nav>
 
       <header class="api-hero">
-        <span class="api-kicker">Digital ID API · v1</span>
+        <span class="api-kicker">Digital ID API · v1.1</span>
         <h1>Подтверждённый пользователь ЯЧата в вашем сервисе</h1>
         <p class="api-lead">Пользователь вводит цифровой ID и подтверждает вход кодом в ЯЧате. После подтверждения ваш сервер получает результат проверки, который можно связать с заказом или другой операцией.</p>
         <div class="api-warning"><strong>Важно:</strong> цифровой ID не является паролем. Доверяйте только подтверждённому ответу API, полученному вашим сервером. Секретный ключ нельзя размещать в браузере или мобильном клиенте.</div>
@@ -58,6 +60,18 @@
         <article class="api-card"><b>Проверка на сервере</b><p>Итоговая проверка выполняется только между сервером разработчика и ЯЧатом.</p></article>
         <article class="api-card"><b>Отдельный идентификатор</b><p>Интеграция получает идентификатор, предназначенный именно для своего клиента.</p></article>
         <article class="api-card"><b>Минимум данных</b><p>API возвращает только данные, необходимые для подтверждения операции.</p></article>
+      </section>
+
+      <section class="api-section">
+        <h2>Формат цифрового ID</h2>
+        <p>Новые русскоязычные аккаунты получают ID с кириллическими буквами, например <code>АБВ — 123</code>. API также продолжает принимать ранее выданные латинские ID, например <code>ABC — 123</code>.</p>
+        <ul>
+          <li>после нормализации ID всегда содержит ровно 6 символов: 2 буквы и 4 цифры либо 3 буквы и 3 цифры;</li>
+          <li>буквы одного ID должны принадлежать одному алфавиту: русскому или латинскому;</li>
+          <li>пробелы, обычный дефис и длинное тире при проверке игнорируются;</li>
+          <li><code>Ё</code> нормализуется в <code>Е</code>;</li>
+          <li>не транслитерируйте кириллицу и не применяйте проверку, ограниченную диапазоном <code>A-Z</code>.</li>
+        </ul>
       </section>
 
       <section class="api-section">
@@ -76,7 +90,7 @@
         <h3><span class="api-method">POST</span><code>/api/developer/v1/identity/initiate</code></h3>
         <pre>{
   "clientId": "your-client-id",
-  "digitalId": "ABC — 123",
+  "digitalId": "АБВ — 123",
   "purpose": "Подтверждение заказа",
   "externalReference": "order-draft-7f30c4",
   "codeChallenge": "BASE64URL_SHA256_VERIFIER",
@@ -130,7 +144,7 @@ await createOrder({ yachat: proof.identity, proofId: proof.transactionId });</pr
   "identity": {
     "subject": "yachat_a1b2…",
     "displayName": "Имя пользователя",
-    "digitalId": "ABC — 123"
+    "digitalId": "АБВ — 123"
   }
 }</pre>
       </section>
@@ -138,6 +152,7 @@ await createOrder({ yachat: proof.identity, proofId: proof.transactionId });</pr
       <section class="api-section">
         <h2>Обработка ошибок</h2>
         <ul>
+          <li><code>400</code> — цифровой ID имеет неверный формат или параметры запроса неполны.</li>
           <li><code>401</code> — запрос не подтверждён или не авторизован.</li>
           <li><code>403</code> — клиенту не разрешено выполнить операцию.</li>
           <li><code>409</code> — операция уже завершена или конфликтует с другой проверкой.</li>
