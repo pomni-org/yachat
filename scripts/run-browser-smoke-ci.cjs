@@ -4,7 +4,7 @@ const { spawn } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const reportPath = path.join(root, "runtime-smoke-report.json");
-const runnerPath = path.join(__dirname, "runtime-browser-unread-bisect.cjs");
+const runnerPath = path.join(__dirname, "runtime-browser-final.cjs");
 
 let child = null;
 let attempts = 0;
@@ -45,7 +45,7 @@ function spawnAttempt() {
     stdout += text;
     process.stdout.write(text);
 
-    if (text.includes("[runtime-bisect] PASS:")) {
+    if (text.includes("[browser-final] PASS ")) {
       passSeen = true;
       setTimeout(() => {
         stopChild();
@@ -78,7 +78,7 @@ function spawnAttempt() {
 
     const startupFailure = code !== 0 && /DevToolsActivePort/i.test(attemptStderr);
     if (startupFailure && attempts < 2) {
-      const retryNotice = "\n[browser-wrapper] Chrome startup failed; retrying unread bisection once.\n";
+      const retryNotice = "\n[browser-wrapper] Chrome startup failed; retrying the final smoke once.\n";
       stdout += retryNotice;
       process.stdout.write(retryNotice);
       child = null;
@@ -90,7 +90,7 @@ function spawnAttempt() {
       passed: code === 0,
       exitCode: code,
       signal: signal || null,
-      error: startupFailure ? "Chrome failed to start on both unread-bisection attempts." : ""
+      error: startupFailure ? "Chrome failed to start on both final-smoke attempts." : ""
     });
   });
 }
@@ -100,8 +100,8 @@ hardTimeout = setTimeout(() => {
   finish({
     passed: false,
     signal: "SIGKILL",
-    error: "Unread runtime bisection exceeded 300 seconds."
+    error: "Final desktop/mobile browser smoke exceeded 240 seconds."
   });
-}, 300000);
+}, 240000);
 
 spawnAttempt();
