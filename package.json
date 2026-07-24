@@ -13,6 +13,6 @@
     "build:vercel": "npm run preflight:vercel && node scripts/build-vercel.cjs && node scripts/finalize-public-web.cjs",
     "start": "npm run brand && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-electron.ps1",
     "launch": "npm run brand && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/launch-yachat.ps1",
-    "check": "node --check scripts/vercel-preflight.cjs && node --check scripts/generate-brand-assets.cjs && node --check scripts/build-vercel.cjs && node --check scripts/finalize-public-web.cjs && node --check scripts/test-runtime-stability.cjs && node --check scripts/runtime-browser-bisect.cjs && node --check scripts/runtime-browser-smoke.cjs && node --check scripts/run-browser-smoke-ci.cjs && node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js && node --check src/renderer/sw.js && npm run test:runtime && npm run preflight:vercel"
+    "check": "node --check scripts/vercel-preflight.cjs && node --check scripts/generate-brand-assets.cjs && node --check scripts/build-vercel.cjs && node --check scripts/finalize-public-web.cjs && node --check scripts/test-runtime-stability.cjs && node --check scripts/runtime-browser-final.cjs && node --check scripts/runtime-browser-bisect.cjs && node --check scripts/runtime-browser-smoke.cjs && node --check scripts/run-browser-smoke-ci.cjs && node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js && node --check src/renderer/sw.js && npm run test:runtime && npm run preflight:vercel"
   }
 }
