@@ -1,6 +1,9 @@
 (() => {
   "use strict";
 
+  if (window.__yachatAuthEntryFixInstalled) return;
+  window.__yachatAuthEntryFixInstalled = true;
+
   const countryChoice = document.querySelector("[data-country-choice]");
   const countryList = document.querySelector("[data-country-list]");
   const deviceCodeScreen = document.querySelector('[data-screen="qr"]');
@@ -50,6 +53,10 @@
     };
   }
 
+  function setTextIfChanged(element, value) {
+    if (element && element.textContent !== value) element.textContent = value;
+  }
+
   function prepareDeviceCodeField(input = document.querySelector("[data-device-code-input]")) {
     if (!(input instanceof HTMLInputElement)) {
       return null;
@@ -81,16 +88,16 @@
         label.dataset.deviceCodeLabel = "";
         shell.prepend(label);
       }
-      label.textContent = text.label;
+      setTextIfChanged(label, text.label);
     }
 
     const screen = input.closest('[data-screen="qr"]');
     const title = screen?.querySelector(".screen-copy h1");
     const description = screen?.querySelector(".screen-copy p");
     const location = screen?.querySelector(".device-code-location");
-    if (title) title.textContent = text.title;
-    if (description) description.textContent = text.description;
-    if (location) location.textContent = text.location;
+    setTextIfChanged(title, text.title);
+    setTextIfChanged(description, text.description);
+    setTextIfChanged(location, text.location);
 
     return input;
   }
