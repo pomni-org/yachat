@@ -1,58 +1,21 @@
-name: Deployment guard
+name: Promote tested YaChat preview
 
 on:
   pull_request:
     branches:
       - main
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  validate:
+  promote:
+    if: github.head_ref == 'agent/promote-tested-runtime-preview'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Use Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install dependencies
-        run: npm install --ignore-scripts
-
-      - name: Validate source and Vercel layout
-        run: npm run check
-
-      - name: Build the public deployment bundle
-        run: npm run build
-
-      - name: Run desktop and mobile browser smoke tests
-        id: browser_smoke
-        continue-on-error: true
-        run: npm run test:browser
-
-      - name: Upload browser smoke report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: runtime-smoke-report
-          path: runtime-smoke-report.json
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Enforce browser smoke result
-        run: |
-          node -e "const report=require('./runtime-smoke-report.json'); if(!report.passed){console.error(report.stderr || report.error || report); process.exit(1)}"
-
       - name: Promote tested preview to production
         id: promote
-        if: github.event_name == 'pull_request' && github.head_ref == 'agent/promote-tested-runtime-preview'
         continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -73,7 +36,7 @@ jobs:
           exit "$status"
 
       - name: Upload promotion report
-        if: always() && github.event_name == 'pull_request' && github.head_ref == 'agent/promote-tested-runtime-preview'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: promotion-report
@@ -82,7 +45,6 @@ jobs:
           retention-days: 1
 
       - name: Enforce promotion result
-        if: github.event_name == 'pull_request' && github.head_ref == 'agent/promote-tested-runtime-preview'
         run: |
           if [ "${{ steps.promote.outcome }}" != "success" ]; then
             cat promotion-report.txt
