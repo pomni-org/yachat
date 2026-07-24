@@ -91,10 +91,21 @@
       toggleRow(row);
     }, true);
 
-    const observer = new MutationObserver((records) => {
-      if (records.some((record) => record.addedNodes.length)) decorateRows();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (typeof renderPanel === "function" && !renderPanel.__yachatIosToggleRows) {
+      const originalRenderPanel = renderPanel;
+      renderPanel = function renderPanelWithIosToggleRows(...args) {
+        const result = originalRenderPanel.apply(this, args);
+        queueMicrotask(() => decorateRows(typeof panelBody !== "undefined" ? panelBody : document));
+        return result;
+      };
+      Object.defineProperty(renderPanel, "__yachatIosToggleRows", { value: true });
+    }
+
+    document.addEventListener("click", (event) => {
+      if (event.target.closest?.('[data-rail="settings"], [data-panel-action]')) {
+        queueMicrotask(() => decorateRows(typeof panelBody !== "undefined" ? panelBody : document));
+      }
+    }, true);
     decorateRows();
   }
 
