@@ -31,10 +31,6 @@
       "destination": "/api/chat_poll.py"
     },
     {
-      "source": "/api/bootstrap_quick",
-      "destination": "/api/bootstrap_quick.py"
-    },
-    {
       "source": "/api/bootstrap",
       "destination": "/api/messenger_fast.py"
     },
@@ -248,9 +244,6 @@
   ],
   "functions": {
     "api/index.py": {
-      "maxDuration": 10
-    },
-    "api/bootstrap_quick.py": {
       "maxDuration": 10
     },
     "api/messenger_fast.py": {
