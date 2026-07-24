@@ -7,8 +7,11 @@ const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
 const canonicalOrigin = "https://yachat.eu.org";
+const WEB_ASSET_VERSION = "88";
 const AUTH_ENTRY_CSS = "/assets/auth-entry-fix.css?v=2";
 const AUTH_ENTRY_JS = "/assets/auth-entry-fix.js?v=2";
+const BOOT_RECOVERY_CSS = `/assets/boot-recovery.css?v=${WEB_ASSET_VERSION}`;
+const BOOT_RECOVERY_JS = `/assets/boot-recovery.js?v=${WEB_ASSET_VERSION}`;
 const LEGACY_CI_MARKERS = [
   "/assets/composer-delivery-stable.js?v=86",
   "/assets/composer-actions-stable.js?v=86",
@@ -16,6 +19,96 @@ const LEGACY_CI_MARKERS = [
   "/assets/avatar-preserve.css?v=86",
   "/assets/avatar-preserve.js?v=86"
 ];
+
+const SAFE_STORAGE_PRELUDE = `
+function createSafeWebStorage(storageName) {
+  const fallback = new Map();
+
+  function nativeStorage() {
+    try {
+      return window[storageName] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  return Object.freeze({
+    getItem(key) {
+      const normalizedKey = String(key);
+      try {
+        const value = nativeStorage()?.getItem(normalizedKey);
+        return value === null || value === undefined
+          ? (fallback.has(normalizedKey) ? fallback.get(normalizedKey) : null)
+          : value;
+      } catch {
+        return fallback.has(normalizedKey) ? fallback.get(normalizedKey) : null;
+      }
+    },
+    setItem(key, value) {
+      const normalizedKey = String(key);
+      const normalizedValue = String(value);
+      fallback.set(normalizedKey, normalizedValue);
+      try {
+        nativeStorage()?.setItem(normalizedKey, normalizedValue);
+      } catch {
+        // The in-memory fallback keeps the current session usable.
+      }
+    },
+    removeItem(key) {
+      const normalizedKey = String(key);
+      fallback.delete(normalizedKey);
+      try {
+        nativeStorage()?.removeItem(normalizedKey);
+      } catch {
+        // The in-memory fallback is already cleared.
+      }
+    },
+    clear() {
+      fallback.clear();
+      try {
+        nativeStorage()?.clear();
+      } catch {
+        // The in-memory fallback is already cleared.
+      }
+    },
+    key(index) {
+      try {
+        return nativeStorage()?.key(index) ?? [...fallback.keys()][index] ?? null;
+      } catch {
+        return [...fallback.keys()][index] ?? null;
+      }
+    },
+    get length() {
+      try {
+        return nativeStorage()?.length ?? fallback.size;
+      } catch {
+        return fallback.size;
+      }
+    }
+  });
+}
+
+const yachatStorage = createSafeWebStorage("localStorage");
+const yachatSessionStorage = createSafeWebStorage("sessionStorage");
+globalThis.__YACHAT_APP_SCRIPT_STARTED__ = true;
+`.trim();
+
+const ORIGINAL_BOOT_MARKUP = `      <section class="boot-screen" data-boot-screen aria-label="ЯЧат загружается">
+        <div class="boot-mark" aria-hidden="true"></div>
+      </section>`;
+
+const RECOVERABLE_BOOT_MARKUP = `      <section class="boot-screen" data-boot-screen aria-label="ЯЧат загружается">
+        <div class="boot-recovery-stack">
+          <div class="boot-mark" aria-hidden="true">
+            <img data-boot-recovery-logo src="/assets/yachat-brand-256.png?v=${WEB_ASSET_VERSION}" alt="" />
+          </div>
+          <p class="boot-recovery-status" data-boot-recovery-status>Запускаем ЯЧат…</p>
+          <div class="boot-recovery-actions" data-boot-recovery-actions hidden>
+            <button type="button" data-boot-retry>Перезагрузить</button>
+            <button type="button" data-boot-refresh>Обновить без кэша</button>
+          </div>
+        </div>
+      </section>`;
 
 async function read(name) {
   return fs.readFile(path.join(publicDir, name), "utf8");
@@ -77,6 +170,30 @@ function validateLegalDocument(content, documentName) {
   requireText(article, `Документ содержит ${sectionCount} раздела и ${sentenceCount} предложений.`, `${documentName} legal document summary`);
 }
 
+function patchStorageAccess(appSource) {
+  const patched = appSource
+    .replaceAll("window.localStorage.", "yachatStorage.")
+    .replaceAll("localStorage.", "yachatStorage.")
+    .replaceAll("window.sessionStorage.", "yachatSessionStorage.")
+    .replaceAll("sessionStorage.", "yachatSessionStorage.");
+
+  return `${SAFE_STORAGE_PRELUDE}\n\n${patched}`;
+}
+
+function injectBootRecovery(webSource) {
+  requireText(webSource, ORIGINAL_BOOT_MARKUP, "original boot markup");
+  let web = webSource.replace(ORIGINAL_BOOT_MARKUP, RECOVERABLE_BOOT_MARKUP);
+
+  if (!web.includes(BOOT_RECOVERY_CSS)) {
+    web = web.replace(
+      "</head>",
+      `    <link rel="stylesheet" href="${BOOT_RECOVERY_CSS}" />\n    <script src="${BOOT_RECOVERY_JS}"></script>\n  </head>`
+    );
+  }
+
+  return web;
+}
+
 async function patchWebApp() {
   const [appSource, webSource] = await Promise.all([
     read("app.js"),
@@ -84,13 +201,18 @@ async function patchWebApp() {
   ]);
   requireText(appSource, "function appRoutePath", "web route base patch");
 
-  const app = appSource
+  const app = patchStorageAccess(appSource)
     .replaceAll("https://yachat.vercel.app/", `${canonicalOrigin}/web/`)
-    .replaceAll("./assets/", "/assets/");
-  const web = webSource.replaceAll("./assets/", "/assets/");
+    .replaceAll("./assets/", "/assets/")
+    .replaceAll("?v=87", `?v=${WEB_ASSET_VERSION}`);
+  const web = injectBootRecovery(webSource
+    .replaceAll("./assets/", "/assets/")
+    .replaceAll("?v=87", `?v=${WEB_ASSET_VERSION}`));
 
   forbidText(app, "https://yachat.vercel.app/", "legacy profile URL");
   forbidText(app, "./assets/", "relative app asset path");
+  forbidText(app, "localStorage.", "unsafe direct local storage access");
+  forbidText(app, "sessionStorage.", "unsafe direct session storage access");
   forbidText(web, "./assets/", "relative web shell asset path");
 
   await Promise.all([
@@ -142,7 +264,19 @@ async function retainLegacyCiGate() {
 }
 
 async function validatePublicBundle() {
-  const [landing, about, privacy, terms, web, robots, sitemap, manifest, vercelApp] = await Promise.all([
+  const [
+    landing,
+    about,
+    privacy,
+    terms,
+    web,
+    robots,
+    sitemap,
+    manifest,
+    vercelApp,
+    bootRecoveryCss,
+    bootRecoveryScript
+  ] = await Promise.all([
     read("index.html"),
     read("about.html"),
     read("privacy.html"),
@@ -151,7 +285,9 @@ async function validatePublicBundle() {
     read("robots.txt"),
     read("sitemap.xml"),
     read("manifest.webmanifest"),
-    read("app.js")
+    read("app.js"),
+    read("assets/boot-recovery.css"),
+    read("assets/boot-recovery.js")
   ]);
 
   requireText(landing, "<title>ячат — веб-мессенджер</title>", "landing title");
@@ -168,11 +304,23 @@ async function validatePublicBundle() {
   validateLegalDocument(privacy, "privacy policy");
   validateLegalDocument(terms, "terms of use");
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
-  requireText(web, "/assets/private-chat-presence.js?v=87", "v87 private chat runtime");
-  requireText(web, "/assets/yachat-brand-256.png?v=87", "absolute web brand asset");
+  requireText(web, `/assets/private-chat-presence.js?v=${WEB_ASSET_VERSION}`, "current private chat runtime");
+  requireText(web, `/assets/yachat-brand-256.png?v=${WEB_ASSET_VERSION}`, "current web brand asset");
+  requireText(web, BOOT_RECOVERY_CSS, "boot recovery stylesheet");
+  requireText(web, BOOT_RECOVERY_JS, "early boot recovery runtime");
+  requireText(web, "data-boot-recovery-logo", "native boot logo");
+  requireText(web, "data-boot-refresh", "fresh reload action");
   requireText(web, AUTH_ENTRY_CSS, "auth entry repair stylesheet");
   requireText(web, AUTH_ENTRY_JS, "auth entry repair runtime");
   forbidText(web, "./assets/", "relative web asset path");
+  requireText(vercelApp, "const yachatStorage = createSafeWebStorage", "safe local storage adapter");
+  requireText(vercelApp, "globalThis.__YACHAT_APP_SCRIPT_STARTED__ = true", "app startup marker");
+  forbidText(vercelApp, "localStorage.", "unsafe direct local storage access");
+  forbidText(vercelApp, "sessionStorage.", "unsafe direct session storage access");
+  requireText(bootRecoveryCss, ".boot-recovery-stack", "boot recovery layout");
+  requireText(bootRecoveryCss, ".is-logo-fallback", "boot logo fallback");
+  requireText(bootRecoveryScript, "BOOT_TIMEOUT_MS = 8000", "boot watchdog timeout");
+  requireText(bootRecoveryScript, "clearRuntimeCaches", "boot cache recovery");
   requireText(robots, "Disallow: /web", "robots web exclusion");
   requireText(robots, "Disallow: /api/", "robots API exclusion");
   requireText(robots, "Sitemap: https://yachat.eu.org/sitemap.xml", "robots sitemap declaration");
@@ -185,6 +333,9 @@ async function validatePublicBundle() {
   requireText(manifest, '"scope": "/web"', "manifest scope");
   requireText(vercelApp, `${canonicalOrigin}/web/`, "canonical shared profile URL");
   forbidText(vercelApp, "./assets/", "relative app asset path");
+
+  await execFileAsync(process.execPath, ["--check", path.join(publicDir, "assets", "boot-recovery.js")]);
+  await execFileAsync(process.execPath, ["--check", path.join(publicDir, "app.js")]);
 }
 
 async function main() {

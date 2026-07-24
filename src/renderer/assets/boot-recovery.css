@@ -1,0 +1,104 @@
+[hidden] {
+  display: none !important;
+}
+
+.boot-recovery-stack {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  width: min(420px, calc(100vw - 40px));
+  color: var(--text, #ffffff);
+  text-align: center;
+}
+
+.boot-recovery-stack .boot-mark {
+  display: grid;
+  place-items: center;
+  width: 94px;
+  height: 94px;
+  background: none !important;
+}
+
+.boot-recovery-stack .boot-mark > img {
+  display: block;
+  width: 94px;
+  height: 94px;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 30px var(--boot-logo-shadow, rgba(71, 26, 255, 0.34)));
+}
+
+.boot-recovery-stack .boot-mark.is-logo-fallback::before {
+  content: "я";
+  display: grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  border-radius: 24px;
+  background: linear-gradient(145deg, #00bfff, #471aff 54%, #9500ff);
+  color: #ffffff;
+  font: 700 54px/1 Arial, sans-serif;
+  text-transform: lowercase;
+  box-shadow: 0 14px 30px rgba(71, 26, 255, 0.28);
+}
+
+.boot-recovery-status {
+  max-width: 360px;
+  margin: 0;
+  color: var(--muted, rgba(255, 255, 255, 0.78));
+  font: 500 14px/1.45 Arial, sans-serif;
+}
+
+.boot-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.boot-recovery-actions button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.11);
+  color: inherit;
+  cursor: pointer;
+  font: 600 14px/1 Arial, sans-serif;
+}
+
+.boot-recovery-actions button:first-child {
+  background: #471aff;
+  color: #ffffff;
+}
+
+.boot-recovery-actions button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+body.boot-recovery-failed .boot-mark::after {
+  animation: none !important;
+  opacity: 0 !important;
+}
+
+body.boot-recovery-failed .boot-recovery-status {
+  color: var(--text, #ffffff);
+}
+
+:root[data-theme="light"] .boot-recovery-stack {
+  color: #060608;
+}
+
+:root[data-theme="light"] .boot-recovery-status {
+  color: rgba(6, 6, 8, 0.68);
+}
+
+:root[data-theme="light"] .boot-recovery-actions button {
+  background: rgba(15, 23, 42, 0.08);
+  color: #060608;
+}
+
+:root[data-theme="light"] .boot-recovery-actions button:first-child {
+  background: #471aff;
+  color: #ffffff;
+}
