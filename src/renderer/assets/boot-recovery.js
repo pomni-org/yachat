@@ -11,6 +11,16 @@
     return Boolean(document.body?.classList.contains("app-booting"));
   }
 
+  function messengerCanBeRevealed() {
+    const body = document.body;
+    const shell = document.querySelector("[data-messenger]");
+    return Boolean(
+      body?.classList.contains("messenger-mode")
+      && shell
+      && shell.hidden === false
+    );
+  }
+
   function stopWatching() {
     window.clearTimeout(timeoutId);
     timeoutId = 0;
@@ -18,7 +28,37 @@
     observer = null;
   }
 
+  function revealMessengerIfReady() {
+    if (!bodyIsBooting() || !messengerCanBeRevealed()) {
+      return false;
+    }
+
+    const body = document.body;
+    const bootScreen = document.querySelector("[data-boot-screen]");
+    const authCard = document.querySelector("[data-auth-card]");
+    const shell = document.querySelector("[data-messenger]");
+
+    body.classList.remove("app-booting", FAILURE_CLASS);
+    if (bootScreen) {
+      bootScreen.hidden = true;
+    }
+    if (authCard) {
+      authCard.hidden = true;
+    }
+    if (shell) {
+      shell.hidden = false;
+    }
+
+    failureShown = false;
+    stopWatching();
+    console.info("[yachat-boot] messenger shell revealed before background hydration finished");
+    return true;
+  }
+
   function markReadyIfFinished() {
+    if (revealMessengerIfReady()) {
+      return true;
+    }
     if (!bodyIsBooting()) {
       stopWatching();
       return true;
@@ -96,9 +136,16 @@
     }
 
     observer = new MutationObserver(markReadyIfFinished);
-    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+      childList: true,
+      subtree: true
+    });
     timeoutId = window.setTimeout(() => {
-      showFailure("ЯЧат слишком долго остаётся на экране загрузки.");
+      if (!revealMessengerIfReady()) {
+        showFailure("ЯЧат слишком долго остаётся на экране загрузки.");
+      }
     }, BOOT_TIMEOUT_MS);
   }
 
@@ -107,7 +154,11 @@
       return;
     }
     const message = event?.error?.message || event?.message || "Ошибка запуска JavaScript.";
-    window.setTimeout(() => showFailure(`Ошибка запуска: ${message}`), 250);
+    window.setTimeout(() => {
+      if (!revealMessengerIfReady()) {
+        showFailure(`Ошибка запуска: ${message}`);
+      }
+    }, 250);
   }, true);
 
   window.addEventListener("unhandledrejection", (event) => {
@@ -116,7 +167,11 @@
     }
     const reason = event?.reason;
     const message = reason?.message || String(reason || "Необработанная ошибка запуска.");
-    window.setTimeout(() => showFailure(`Ошибка запуска: ${message}`), 250);
+    window.setTimeout(() => {
+      if (!revealMessengerIfReady()) {
+        showFailure(`Ошибка запуска: ${message}`);
+      }
+    }, 250);
   });
 
   if (document.readyState === "loading") {
@@ -127,6 +182,7 @@
 
   window.__YACHAT_BOOT_RECOVERY__ = Object.freeze({
     fail: showFailure,
+    revealMessengerIfReady,
     clearRuntimeCaches
   });
 })();
