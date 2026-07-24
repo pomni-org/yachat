@@ -1,0 +1,316 @@
+/* Полноэкранный просмотр фото, видео и аватаров с безопасным pinch-to-zoom. */
+.avatar-fullscreen-viewer {
+position: fixed;
+z-index: 500;
+top: var(--yachat-viewer-top, 0px);
+left: var(--yachat-viewer-left, 0px);
+right: auto;
+bottom: auto;
+display: grid;
+grid-template-rows: auto minmax(0, 1fr);
+width: var(--yachat-viewer-width, 100vw);
+height: var(--yachat-viewer-height, 100dvh);
+min-width: 0;
+min-height: 0;
+max-width: none;
+max-height: none;
+overflow: hidden;
+box-sizing: border-box;
+background: #000;
+color: #fff;
+opacity: 0;
+visibility: hidden;
+transition: opacity 150ms ease, visibility 150ms ease;
+overscroll-behavior: none;
+touch-action: none;
+contain: strict;
+}
+.avatar-fullscreen-viewer[hidden] {
+display: none !important;
+}
+.avatar-fullscreen-viewer.is-visible {
+opacity: 1;
+visibility: visible;
+}
+.avatar-fullscreen-head {
+position: relative;
+z-index: 4;
+display: grid;
+min-height: calc(68px + env(safe-area-inset-top));
+padding: env(safe-area-inset-top) 16px 0;
+grid-template-columns: 52px minmax(0, 1fr) 52px;
+align-items: center;
+box-sizing: border-box;
+border: 0;
+background: #000;
+}
+.avatar-fullscreen-close,
+.avatar-fullscreen-download {
+display: grid;
+width: 48px;
+height: 48px;
+padding: 0;
+place-items: center;
+border: 0;
+border-radius: 50%;
+background: transparent;
+color: #fff;
+appearance: none;
+-webkit-appearance: none;
+cursor: pointer;
+touch-action: manipulation;
+}
+.avatar-fullscreen-close:hover,
+.avatar-fullscreen-download:hover,
+.avatar-fullscreen-close:focus-visible,
+.avatar-fullscreen-download:focus-visible {
+background: rgba(255, 255, 255, 0.12);
+outline: 0;
+}
+.avatar-fullscreen-close svg,
+.avatar-fullscreen-download svg {
+display: block;
+width: 32px !important;
+height: 32px !important;
+max-width: 32px !important;
+max-height: 32px !important;
+fill: none;
+stroke: currentColor;
+stroke-width: 1.8;
+stroke-linecap: round;
+stroke-linejoin: round;
+vector-effect: non-scaling-stroke;
+}
+.avatar-fullscreen-download svg {
+width: 27px !important;
+height: 27px !important;
+}
+.avatar-fullscreen-download[hidden],
+.avatar-fullscreen-head-spacer[hidden] {
+display: none !important;
+}
+.avatar-fullscreen-count {
+color: #fff;
+font-size: 22px;
+font-weight: 700;
+line-height: 1;
+text-align: center;
+}
+.avatar-fullscreen-head-spacer {
+width: 48px;
+height: 48px;
+}
+.avatar-fullscreen-stage {
+position: relative;
+display: grid;
+min-width: 0;
+min-height: 0;
+padding: 0;
+place-items: center;
+overflow: hidden;
+box-sizing: border-box;
+background: #000;
+touch-action: none;
+overscroll-behavior: none;
+user-select: none;
+-webkit-user-select: none;
+}
+.avatar-fullscreen-image,
+.avatar-fullscreen-video {
+grid-area: 1 / 1;
+display: block;
+width: 100%;
+height: 100%;
+min-width: 0;
+min-height: 0;
+max-width: 100%;
+max-height: 100%;
+margin: 0;
+padding: 0;
+border: 0;
+border-radius: 0 !important;
+clip-path: none !important;
+box-shadow: none !important;
+object-fit: contain;
+object-position: 50% 50%;
+opacity: 0;
+transform: translate3d(0, 0, 0) scale(1);
+transform-origin: 50% 50%;
+transition: opacity 120ms ease;
+user-select: none;
+-webkit-user-drag: none;
+will-change: transform;
+}
+.avatar-fullscreen-video {
+background: #000;
+}
+.avatar-fullscreen-image[hidden],
+.avatar-fullscreen-video[hidden] {
+display: none !important;
+}
+.avatar-fullscreen-viewer.is-media-ready .avatar-fullscreen-image:not([hidden]),
+.avatar-fullscreen-viewer.is-media-ready .avatar-fullscreen-video:not([hidden]) {
+opacity: 1;
+}
+.avatar-fullscreen-hint {
+position: absolute;
+z-index: 3;
+left: 50%;
+bottom: max(20px, env(safe-area-inset-bottom));
+max-width: calc(100% - 32px);
+margin: 0;
+padding: 8px 12px;
+border-radius: 999px;
+background: rgba(20, 20, 24, 0.72);
+color: rgba(255, 255, 255, 0.9);
+box-shadow: 0 7px 24px rgba(0, 0, 0, 0.3);
+font-size: 13px;
+font-weight: 600;
+text-align: center;
+pointer-events: none;
+transform: translateX(-50%);
+opacity: 1;
+transition: opacity 180ms ease;
+backdrop-filter: blur(12px);
+-webkit-backdrop-filter: blur(12px);
+}
+.avatar-fullscreen-hint.is-dismissed,
+.avatar-fullscreen-viewer.is-zoomed .avatar-fullscreen-hint {
+opacity: 0;
+}
+html.avatar-fullscreen-open,
+body.avatar-fullscreen-open {
+width: 100%;
+height: 100%;
+overflow: hidden !important;
+background: #000 !important;
+overscroll-behavior: none;
+}
+body.avatar-fullscreen-open {
+touch-action: none;
+}
+body.avatar-fullscreen-open [data-avatar-modal] {
+visibility: hidden !important;
+pointer-events: none !important;
+}
+.message-attachment.is-image[data-photo-view] {
+cursor: zoom-in;
+touch-action: manipulation;
+}
+.message-attachment.is-video {
+position: relative;
+overflow: hidden;
+}
+.message-attachment.is-video video {
+display: block;
+width: 100%;
+max-width: 100%;
+border-radius: inherit;
+background: #000;
+}
+.message-attachment-open {
+position: absolute;
+z-index: 3;
+top: 8px;
+right: 8px;
+display: grid;
+width: 38px;
+height: 38px;
+padding: 0;
+place-items: center;
+border: 1px solid rgba(255, 255, 255, 0.2);
+border-radius: 50%;
+background: rgba(16, 16, 20, 0.72);
+color: #fff;
+box-shadow: 0 5px 18px rgba(0, 0, 0, 0.28);
+appearance: none;
+-webkit-appearance: none;
+cursor: pointer;
+backdrop-filter: blur(12px);
+-webkit-backdrop-filter: blur(12px);
+}
+.message-attachment-open svg,
+.message-attachment-download svg,
+.message-attachment-file-icon svg {
+width: 21px;
+height: 21px;
+fill: none;
+stroke: currentColor;
+stroke-width: 1.9;
+stroke-linecap: round;
+stroke-linejoin: round;
+}
+.message-attachment.is-file {
+display: grid;
+grid-template-columns: auto minmax(0, 1fr) auto;
+gap: 10px;
+align-items: center;
+}
+.message-attachment-file-icon {
+display: grid;
+place-items: center;
+}
+.message-attachment-file-copy {
+display: grid;
+min-width: 0;
+}
+.message-attachment-file-copy strong,
+.message-attachment-file-copy small {
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+.message-attachment-download {
+display: grid;
+width: 38px;
+height: 38px;
+padding: 0;
+place-items: center;
+border: 0;
+border-radius: 50%;
+background: color-mix(in srgb, currentColor 10%, transparent);
+color: inherit;
+appearance: none;
+-webkit-appearance: none;
+cursor: pointer;
+touch-action: manipulation;
+}
+.message-attachment-download:hover,
+.message-attachment-download:focus-visible,
+.message-attachment-open:hover,
+.message-attachment-open:focus-visible {
+filter: brightness(1.15);
+outline: 2px solid color-mix(in srgb, currentColor 55%, transparent);
+outline-offset: 2px;
+}
+@media (max-width: 640px) {
+.avatar-fullscreen-head {
+min-height: calc(64px + env(safe-area-inset-top));
+padding-inline: 10px;
+grid-template-columns: 52px minmax(0, 1fr) 52px;
+}
+.avatar-fullscreen-count {
+font-size: 21px;
+}
+.avatar-fullscreen-hint {
+display: block;
+}
+.message-attachment-open,
+.message-attachment-download {
+width: 36px;
+height: 36px;
+}
+}
+@media (min-width: 641px) {
+.avatar-fullscreen-hint {
+display: none;
+}
+}
+@media (prefers-reduced-motion: reduce) {
+.avatar-fullscreen-viewer,
+.avatar-fullscreen-image,
+.avatar-fullscreen-video,
+.avatar-fullscreen-hint {
+transition: none !important;
+}
+}
