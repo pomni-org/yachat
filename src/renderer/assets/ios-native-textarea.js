@@ -1,13 +1,14 @@
 (() => {
   "use strict";
 
-  if (window.__yachatIosNativeTextareaInstalled) return;
+  if (window.__yachatMobileNativeTextareaInstalled) return;
 
   const ua = navigator.userAgent || "";
   const isIos = /iPad|iPhone|iPod/i.test(ua)
     || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
     || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1);
-  if (!isIos) return;
+  const isAndroidChrome = /Android/i.test(ua) && /Chrome\//i.test(ua) && !/EdgA|OPR\//i.test(ua);
+  if (!isIos && !isAndroidChrome) return;
 
   const form = document.querySelector('[data-form="message"]');
   const transport = form?.querySelector('[data-message-input]');
@@ -15,18 +16,18 @@
   const sendButtonElement = form?.querySelector('.send-button');
   if (!form || !transport || !richEditor) return;
 
+  window.__yachatMobileNativeTextareaInstalled = true;
   window.__yachatIosNativeTextareaInstalled = true;
-  form.dataset.yachatIosComposer = "native-textarea-v7";
-  form.classList.add("is-native-ios-textarea-composer");
+  form.dataset.yachatMobileComposer = isAndroidChrome ? "android-native-textarea-v1" : "ios-native-textarea-v8";
+  form.classList.add("is-native-ios-textarea-composer", "is-native-mobile-textarea-composer");
 
-  // Text inputs strip line breaks from their value. Keep the exact same node,
-  // because the application retains its reference, but use a hidden transport
-  // type whose value can contain the textarea's complete multiline text.
   transport.type = "hidden";
 
   const textarea = document.createElement("textarea");
-  textarea.className = "ios-native-message-input";
+  textarea.className = "ios-native-message-input mobile-native-message-input";
   textarea.dataset.nativeIosMessageInput = "";
+  textarea.dataset.nativeMobileMessageInput = "";
+  if (isAndroidChrome) textarea.dataset.nativeAndroidMessageInput = "";
   textarea.rows = 1;
   textarea.value = String(transport.value || richEditor.innerText || richEditor.textContent || "").replace(/\r/g, "");
   textarea.placeholder = transport.placeholder || "Сообщение";
