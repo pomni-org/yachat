@@ -5,7 +5,7 @@ const { spawn, spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const reportPath = path.join(root, "runtime-smoke-report.json");
-const runnerPath = path.join(__dirname, "runtime-browser-final.cjs");
+const runnerPath = path.join(__dirname, "runtime-browser-final-diagnostic.cjs");
 const wrapperDir = fs.mkdtempSync(path.join(os.tmpdir(), "yachat-chrome-wrapper-"));
 const wrapperPath = path.join(wrapperDir, "chrome-fixed-cdp.sh");
 
