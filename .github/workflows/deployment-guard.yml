@@ -51,12 +51,40 @@ jobs:
           node -e "const report=require('./runtime-smoke-report.json'); if(!report.passed){console.error(report.stderr || report.error || report); process.exit(1)}"
 
       - name: Promote tested preview to production
+        id: promote
         if: github.event_name == 'pull_request' && github.head_ref == 'agent/promote-tested-runtime-preview'
+        continue-on-error: true
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
+          : > promotion-report.txt
           if [ -z "$VERCEL_TOKEN" ]; then
-            echo "::error::VERCEL_TOKEN is not configured in GitHub Actions secrets."
+            echo "secret_present=false" >> promotion-report.txt
+            echo "result=VERCEL_TOKEN is not configured in GitHub Actions secrets." >> promotion-report.txt
             exit 1
           fi
-          npx --yes vercel@latest promote yachat-116f0hmas-yachat.vercel.app --scope yachat --token "$VERCEL_TOKEN" --yes
+          echo "secret_present=true" >> promotion-report.txt
+          set +e
+          npx --yes vercel@latest promote yachat-116f0hmas-yachat.vercel.app --scope yachat --token "$VERCEL_TOKEN" --yes > promotion-output.txt 2>&1
+          status=$?
+          set -e
+          sed -E 's/(token|Authorization|Bearer)[=: ]+[^ ]+/\1=[REDACTED]/Ig' promotion-output.txt >> promotion-report.txt
+          echo "exit_code=$status" >> promotion-report.txt
+          exit "$status"
+
+      - name: Upload promotion report
+        if: always() && github.event_name == 'pull_request' && github.head_ref == 'agent/promote-tested-runtime-preview'
+        uses: actions/upload-artifact@v4
+        with:
+          name: promotion-report
+          path: promotion-report.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce promotion result
+        if: github.event_name == 'pull_request' && github.head_ref == 'agent/promote-tested-runtime-preview'
+        run: |
+          if [ "${{ steps.promote.outcome }}" != "success" ]; then
+            cat promotion-report.txt
+            exit 1
+          fi
