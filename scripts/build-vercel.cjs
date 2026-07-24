@@ -28,8 +28,17 @@ const COPY_MAP = [
   ["help.html", "help.html"],
   ["developers.html", "developers.html"]
 ];
+const HTML_DOCUMENTS = [
+  "index.html",
+  "about.html",
+  "web.html",
+  "privacy.html",
+  "terms.html",
+  "help.html",
+  "developers.html"
+];
 
-const BRAND_VERSION = "87";
+const BRAND_VERSION = "88";
 const STYLE_ASSETS = [
   "web-runtime-fix.css",
   "chat-presence.css",
@@ -132,6 +141,7 @@ async function copyRendererFile(sourceName, outputName = sourceName) {
 async function validateRuntimeScripts() {
   const requiredScripts = [
     "language-runtime.js",
+    "privacy-safe-analytics.js",
     "db-resilience.js",
     "chat-load-optimization.js",
     "ui-stability.js",
@@ -181,6 +191,28 @@ function assetTags(kind, names) {
     ? `    <link rel="stylesheet" href="/assets/${name}?v=${BRAND_VERSION}" />`
     : `    <script src="/assets/${name}?v=${BRAND_VERSION}"></script>`
   ).join("\n");
+}
+
+function analyticsTags() {
+  return [
+    '    <meta name="referrer" content="origin" />',
+    `    <script src="/assets/privacy-safe-analytics.js?v=${BRAND_VERSION}"></script>`,
+    '    <script defer src="/_vercel/insights/script.js"></script>'
+  ].join("\n");
+}
+
+async function injectPrivacySafeAnalytics() {
+  await Promise.all(HTML_DOCUMENTS.map(async (name) => {
+    const filePath = path.join(outputDir, name);
+    let html = await fs.readFile(filePath, "utf8");
+
+    if (!html.includes("</head>")) {
+      throw new Error(`Unable to inject privacy-safe analytics into ${name}.`);
+    }
+
+    html = html.replace("</head>", `${analyticsTags()}\n  </head>`);
+    await fs.writeFile(filePath, html, "utf8");
+  }));
 }
 
 async function prepareWebDocument() {
@@ -282,13 +314,7 @@ async function build() {
   });
 
   await Promise.all([
-    "index.html",
-    "about.html",
-    "web.html",
-    "privacy.html",
-    "terms.html",
-    "help.html",
-    "developers.html",
+    ...HTML_DOCUMENTS,
     "styles.css",
     "page.css",
     "landing.css"
@@ -297,6 +323,7 @@ async function build() {
   await rewriteBrandReferences("sw.js");
   await prepareWebDocument();
   await injectEnhancementAssets();
+  await injectPrivacySafeAnalytics();
   await patchWebRouteBase();
   await normalizeWebAssetPaths();
 }
