@@ -37,11 +37,10 @@ child.stdout.on("data", (chunk) => {
 
   if (text.includes("[runtime-bisect] PASS:")) {
     passSeen = true;
-    window.setTimeout?.(() => {}, 0);
     setTimeout(() => {
       stopChild();
       finish({ passed: true, exitCode: 0, signal: "SIGKILL_AFTER_PASS" });
-    }, 500).unref?.();
+    }, 500);
   }
 });
 
