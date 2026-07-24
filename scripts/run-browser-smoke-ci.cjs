@@ -4,7 +4,7 @@ const { spawn } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const reportPath = path.join(root, "runtime-smoke-report.json");
-const runnerPath = path.join(__dirname, "runtime-browser-final.cjs");
+const runnerPath = path.join(__dirname, "runtime-browser-unread-bisect.cjs");
 
 let child = null;
 let attempts = 0;
@@ -33,7 +33,6 @@ function stopChild() {
 function spawnAttempt() {
   attempts += 1;
   passSeen = false;
-  let attemptStdout = "";
   let attemptStderr = "";
 
   child = spawn(process.execPath, [runnerPath], {
@@ -43,11 +42,10 @@ function spawnAttempt() {
 
   child.stdout.on("data", (chunk) => {
     const text = String(chunk);
-    attemptStdout += text;
     stdout += text;
     process.stdout.write(text);
 
-    if (text.includes("[browser-final] PASS ")) {
+    if (text.includes("[runtime-bisect] PASS:")) {
       passSeen = true;
       setTimeout(() => {
         stopChild();
@@ -78,13 +76,9 @@ function spawnAttempt() {
       return;
     }
 
-    const startupFailure = code !== 0 && (
-      /DevToolsActivePort/i.test(attemptStderr)
-      || /Timed out waiting for[^\n]*DevToolsActivePort/i.test(attemptStderr)
-    );
-
+    const startupFailure = code !== 0 && /DevToolsActivePort/i.test(attemptStderr);
     if (startupFailure && attempts < 2) {
-      const retryNotice = `\n[browser-wrapper] Chrome did not create DevToolsActivePort; retrying once after a clean shutdown.\n`;
+      const retryNotice = "\n[browser-wrapper] Chrome startup failed; retrying unread bisection once.\n";
       stdout += retryNotice;
       process.stdout.write(retryNotice);
       child = null;
@@ -96,7 +90,7 @@ function spawnAttempt() {
       passed: code === 0,
       exitCode: code,
       signal: signal || null,
-      error: startupFailure ? "Chrome failed to create DevToolsActivePort on both attempts." : ""
+      error: startupFailure ? "Chrome failed to start on both unread-bisection attempts." : ""
     });
   });
 }
@@ -106,8 +100,8 @@ hardTimeout = setTimeout(() => {
   finish({
     passed: false,
     signal: "SIGKILL",
-    error: "Final desktop/mobile browser smoke exceeded 240 seconds. The page or test harness remained unresponsive."
+    error: "Unread runtime bisection exceeded 300 seconds."
   });
-}, 240000);
+}, 300000);
 
 spawnAttempt();
