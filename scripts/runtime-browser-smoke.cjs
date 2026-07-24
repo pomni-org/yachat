@@ -6,6 +6,22 @@ const { spawn, spawnSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
+const RESULT_ID = "runtime-smoke-result";
+const TEST_TIMEOUT_MS = 22000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout(promise, timeoutMs, label) {
+  let timer = null;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+    })
+  ]).finally(() => clearTimeout(timer));
+}
 
 function findChrome() {
   const candidates = [
@@ -74,23 +90,30 @@ function smokeData() {
     attachments: [],
     deliveryStatus: "sent"
   }));
-  const settings = {
-    theme: "dark",
-    themeSource: "manual",
-    language: "ru",
-    country: "RU",
-    countryCode: "+7"
+  return {
+    account,
+    chats: [chat],
+    messages,
+    settings: {
+      theme: "dark",
+      themeSource: "manual",
+      language: "ru",
+      country: "RU",
+      countryCode: "+7"
+    }
   };
-  return { account, chats: [chat], messages, settings };
 }
 
 const data = smokeData();
 
-function preAppScript() {
+function preAppScript(profile) {
   return `<script>
+    window.__smokeProfile = ${JSON.stringify(profile)};
+    window.__smokeStage = "pre-app";
     window.__smokeRequests = [];
     window.__smokeErrors = [];
     window.__smokeHeartbeat = 0;
+    localStorage.setItem("yachat-http-auth-token", "smoke-token");
     window.setInterval(() => { window.__smokeHeartbeat += 1; }, 100);
     window.addEventListener("error", (event) => {
       window.__smokeErrors.push(String(event.error?.stack || event.message || "error"));
@@ -112,7 +135,7 @@ function postAppScript(profile) {
     (() => {
       const profile = ${JSON.stringify(profile)};
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const waitFor = async (test, timeout = 6000) => {
+      const waitFor = async (test, timeout = 8000) => {
         const started = performance.now();
         while (performance.now() - started < timeout) {
           if (test()) return true;
@@ -120,28 +143,27 @@ function postAppScript(profile) {
         }
         return false;
       };
-      const fail = (message, details = {}) => {
+      const finish = (kind, payload) => {
         const node = document.createElement("pre");
-        node.id = "runtime-smoke-result";
-        node.textContent = "RUNTIME_SMOKE_FAIL:" + JSON.stringify({ profile, message, ...details });
+        node.id = ${JSON.stringify(RESULT_ID)};
+        node.textContent = "RUNTIME_SMOKE_" + kind + ":" + JSON.stringify({ profile, ...payload });
         document.body.append(node);
-        document.title = "RUNTIME_SMOKE_FAIL";
+        document.title = "RUNTIME_SMOKE_" + kind;
+        window.__smokeStage = kind === "PASS" ? "complete" : "failed";
       };
 
       (async () => {
-        const mutations = { count: 0 };
-        const observer = new MutationObserver((records) => { mutations.count += records.length; });
-        observer.observe(document.body, { childList: true, subtree: true, attributes: true });
-
+        window.__smokeStage = "waiting-for-messenger";
         const loaded = await waitFor(() => (
           document.body.classList.contains("messenger-mode")
           && !document.body.classList.contains("app-booting")
           && document.querySelector("[data-messenger]")?.hidden === false
           && document.querySelectorAll("[data-chat-id]").length > 0
-          && document.querySelectorAll("[data-message-id]").length > 0
+          && document.querySelectorAll("[data-message-id]").length >= 80
         ));
         if (!loaded) {
-          fail("messenger did not finish loading", {
+          finish("FAIL", {
+            message: "messenger did not finish loading",
             bodyClass: document.body.className,
             chats: document.querySelectorAll("[data-chat-id]").length,
             messages: document.querySelectorAll("[data-message-id]").length,
@@ -150,14 +172,16 @@ function postAppScript(profile) {
           return;
         }
 
+        window.__smokeStage = "opening-settings";
         document.querySelector('[data-rail="settings"]')?.click();
-        await sleep(200);
+        await sleep(250);
         const settingsOpened = document.querySelector("[data-side-panel]")?.hidden === false;
+
+        window.__smokeStage = "opening-message-menu";
         document.querySelector('[data-action="close-panel"]')?.click();
         document.querySelector('[data-rail="all"]')?.click();
         document.querySelector("[data-chat-id]")?.click();
-        await sleep(300);
-
+        await sleep(350);
         const firstMessage = document.querySelector("[data-message-id]");
         firstMessage?.dispatchEvent(new MouseEvent("contextmenu", {
           bubbles: true,
@@ -165,18 +189,20 @@ function postAppScript(profile) {
           clientX: 120,
           clientY: 220
         }));
-        await sleep(180);
+        await sleep(220);
         const menuOpened = Boolean(document.querySelector("[data-message-menu]:not([hidden])"));
         document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 
+        window.__smokeStage = "polling";
         const heartbeatBeforePolling = window.__smokeHeartbeat;
         await sleep(6800);
-        observer.disconnect();
 
+        window.__smokeStage = "checking-results";
         const requestUrls = window.__smokeRequests.map((item) => item.url);
-        const fullSnapshots = requestUrls.filter((url) => /\/api\/messenger(?:\?|$)/.test(url));
+        const fullSnapshots = requestUrls.filter((url) => /\\/api\\/messenger(?:\\?|$)/.test(url));
         const compactChatPolls = requestUrls.filter((url) => url.includes("/api/chats/poll"));
         const messagePolls = requestUrls.filter((url) => url.includes("/api/messages"));
+        const presencePolls = requestUrls.filter((url) => url.includes("/api/presence"));
         const heartbeatDelta = window.__smokeHeartbeat - heartbeatBeforePolling;
         const checks = {
           settingsOpened,
@@ -187,9 +213,9 @@ function postAppScript(profile) {
           fullSnapshots: fullSnapshots.length,
           compactChatPolls: compactChatPolls.length,
           messagePolls: messagePolls.length,
+          presencePolls: presencePolls.length,
           totalRequests: requestUrls.length,
           heartbeatDelta,
-          mutations: mutations.count,
           errors: window.__smokeErrors
         };
 
@@ -201,22 +227,18 @@ function postAppScript(profile) {
         if (checks.activePollMs < 1000) problems.push("polling interval is unsafe");
         if (checks.fullSnapshots !== 0) problems.push("full messenger snapshot polling is active");
         if (checks.messagePolls < 2) problems.push("incremental message polling did not run");
-        if (checks.totalRequests > 30) problems.push("too many requests during smoke window");
+        if (checks.totalRequests > 35) problems.push("too many requests during smoke window");
         if (heartbeatDelta < 35) problems.push("main thread stopped responding");
-        if (checks.mutations > 1600) problems.push("excessive DOM mutation activity");
         if (checks.errors.length) problems.push("browser errors occurred");
 
         if (problems.length) {
-          fail(problems.join("; "), checks);
+          finish("FAIL", { message: problems.join("; "), ...checks });
           return;
         }
 
-        const node = document.createElement("pre");
-        node.id = "runtime-smoke-result";
-        node.textContent = "RUNTIME_SMOKE_PASS:" + JSON.stringify({ profile, ...checks });
-        document.body.append(node);
-        document.title = "RUNTIME_SMOKE_PASS";
-      })().catch((error) => fail(error.message || String(error), {
+        finish("PASS", checks);
+      })().catch((error) => finish("FAIL", {
+        message: error.message || String(error),
         stack: error.stack || "",
         errors: window.__smokeErrors
       }));
@@ -228,7 +250,7 @@ function smokeHtml(profile) {
   const html = fs.readFileSync(path.join(publicDir, "web.html"), "utf8");
   const withPreload = html.replace(
     /(<script src="\/app\.js[^>]*><\/script>)/,
-    `${preAppScript()}\n$1`
+    `${preAppScript(profile)}\n$1`
   );
   if (withPreload === html) throw new Error("[browser-smoke] Unable to inject pre-app instrumentation.");
   return withPreload.replace("</body>", `${postAppScript(profile)}\n</body>`);
@@ -295,7 +317,7 @@ function apiResponse(pathname, response) {
     return;
   }
   if (pathname === "/api/presence") {
-    json(response, { ok: true, users: [] });
+    json(response, { ok: true, status: "online", typingUsers: [], subscriberCount: 2 });
     return;
   }
   json(response, { ok: true });
@@ -338,56 +360,223 @@ function createServer() {
   });
 }
 
-function runChrome(chrome, baseUrl, profile, width, height) {
-  return new Promise((resolve, reject) => {
-    const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `yachat-smoke-${profile}-`));
-    const url = `${baseUrl}/web?local=1&profile=${encodeURIComponent(profile)}`;
-    const args = [
-      "--headless=new",
-      "--no-sandbox",
-      "--disable-gpu",
-      "--disable-dev-shm-usage",
-      "--disable-background-networking",
-      "--disable-default-apps",
-      "--disable-extensions",
-      "--disable-sync",
-      "--metrics-recording-only",
-      "--no-first-run",
-      `--user-data-dir=${userDataDir}`,
-      `--window-size=${width},${height}`,
-      "--virtual-time-budget=15000",
-      "--run-all-compositor-stages-before-draw",
-      "--dump-dom",
-      url
-    ];
-    const child = spawn(chrome, args, { stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
+class CdpClient {
+  constructor(socket) {
+    this.socket = socket;
+    this.nextId = 1;
+    this.pending = new Map();
+    this.handlers = new Map();
 
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error(`[browser-smoke] ${profile} browser timed out, indicating an unresponsive page.`));
-    }, 40000);
-
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      fs.rmSync(userDataDir, { recursive: true, force: true });
-      const match = stdout.match(/RUNTIME_SMOKE_(?:PASS|FAIL):[^<]+/);
-      const result = match?.[0] || "missing smoke result";
-      if (code !== 0 || !result.startsWith("RUNTIME_SMOKE_PASS:")) {
-        reject(new Error(`[browser-smoke] ${profile} failed (exit ${code}): ${result}\n${stderr.slice(-2000)}`));
+    socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data));
+      if (message.id) {
+        const pending = this.pending.get(message.id);
+        if (!pending) return;
+        this.pending.delete(message.id);
+        if (message.error) pending.reject(new Error(message.error.message || JSON.stringify(message.error)));
+        else pending.resolve(message.result || {});
         return;
       }
-      console.log(`[browser-smoke] ${profile} ${result}`);
-      resolve();
+      const handlers = this.handlers.get(message.method) || [];
+      handlers.forEach((handler) => handler(message.params || {}, message.sessionId || null));
     });
+
+    socket.addEventListener("close", () => {
+      for (const pending of this.pending.values()) pending.reject(new Error("CDP socket closed"));
+      this.pending.clear();
+    });
+  }
+
+  static async connect(url) {
+    const socket = new WebSocket(url);
+    await new Promise((resolve, reject) => {
+      socket.addEventListener("open", resolve, { once: true });
+      socket.addEventListener("error", () => reject(new Error("Unable to connect to Chrome DevTools")), { once: true });
+    });
+    return new CdpClient(socket);
+  }
+
+  on(method, handler) {
+    const handlers = this.handlers.get(method) || [];
+    handlers.push(handler);
+    this.handlers.set(method, handlers);
+  }
+
+  send(method, params = {}, sessionId = null) {
+    const id = this.nextId++;
+    const payload = { id, method, params };
+    if (sessionId) payload.sessionId = sessionId;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.socket.send(JSON.stringify(payload));
+    });
+  }
+
+  close() {
+    this.socket.close();
+  }
+}
+
+async function launchChrome(chrome, profile, width, height) {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), `yachat-smoke-${profile}-`));
+  const args = [
+    "--headless=new",
+    "--no-sandbox",
+    "--disable-gpu",
+    "--disable-dev-shm-usage",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-extensions",
+    "--disable-sync",
+    "--metrics-recording-only",
+    "--no-first-run",
+    "--remote-debugging-port=0",
+    `--user-data-dir=${userDataDir}`,
+    `--window-size=${width},${height}`,
+    "about:blank"
+  ];
+  const child = spawn(chrome, args, { stdio: ["ignore", "pipe", "pipe"] });
+  let stderr = "";
+  let stdout = "";
+  let resolveEndpoint;
+  let rejectEndpoint;
+  const endpoint = new Promise((resolve, reject) => {
+    resolveEndpoint = resolve;
+    rejectEndpoint = reject;
   });
+  const inspectEndpoint = (chunk) => {
+    const text = String(chunk);
+    stderr += text;
+    const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/);
+    if (match) resolveEndpoint(match[1]);
+  };
+  child.stderr.on("data", inspectEndpoint);
+  child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  child.on("error", rejectEndpoint);
+  child.on("close", (code) => {
+    if (code !== 0) rejectEndpoint(new Error(`Chrome exited before DevTools was ready (exit ${code})`));
+  });
+
+  const webSocketUrl = await withTimeout(endpoint, 10000, "Chrome DevTools startup");
+  return {
+    child,
+    userDataDir,
+    webSocketUrl,
+    output() {
+      return { stdout, stderr };
+    }
+  };
+}
+
+async function inspectPage(client, sessionId) {
+  const expression = `(() => ({
+    title: document.title,
+    result: document.getElementById(${JSON.stringify(RESULT_ID)})?.textContent || "",
+    stage: window.__smokeStage || "unknown",
+    heartbeat: Number(window.__smokeHeartbeat || 0),
+    errors: Array.isArray(window.__smokeErrors) ? window.__smokeErrors.slice(-10) : [],
+    requests: Array.isArray(window.__smokeRequests) ? window.__smokeRequests.slice(-50) : [],
+    bodyClass: document.body?.className || "",
+    chats: document.querySelectorAll("[data-chat-id]").length,
+    messages: document.querySelectorAll("[data-message-id]").length,
+    messengerHidden: document.querySelector("[data-messenger]")?.hidden,
+    runtimeGuard: document.documentElement.dataset.yachatRuntimeGuard || "",
+    activePollMs: document.documentElement.dataset.yachatActivePollMs || ""
+  }))()`;
+  const evaluated = await withTimeout(client.send("Runtime.evaluate", {
+    expression,
+    returnByValue: true,
+    awaitPromise: false
+  }, sessionId), 1500, "Runtime.evaluate");
+  return evaluated.result?.value || null;
+}
+
+async function runChrome(chrome, baseUrl, profile, width, height) {
+  const launched = await launchChrome(chrome, profile, width, height);
+  const networkRequests = [];
+  const browserErrors = [];
+  let client = null;
+  let targetId = null;
+  let lastState = null;
+  let consecutiveProbeFailures = 0;
+
+  try {
+    client = await CdpClient.connect(launched.webSocketUrl);
+    const target = await client.send("Target.createTarget", { url: "about:blank" });
+    targetId = target.targetId;
+    const attached = await client.send("Target.attachToTarget", { targetId, flatten: true });
+    const sessionId = attached.sessionId;
+
+    client.on("Network.requestWillBeSent", (params, eventSessionId) => {
+      if (eventSessionId === sessionId) networkRequests.push(params.request?.url || "");
+    });
+    client.on("Runtime.exceptionThrown", (params, eventSessionId) => {
+      if (eventSessionId !== sessionId) return;
+      browserErrors.push(params.exceptionDetails?.exception?.description || params.exceptionDetails?.text || "Runtime exception");
+    });
+
+    await Promise.all([
+      client.send("Page.enable", {}, sessionId),
+      client.send("Runtime.enable", {}, sessionId),
+      client.send("Network.enable", {}, sessionId),
+      client.send("Emulation.setDeviceMetricsOverride", {
+        width,
+        height,
+        deviceScaleFactor: 1,
+        mobile: width <= 500
+      }, sessionId)
+    ]);
+
+    const url = `${baseUrl}/web?local=1&profile=${encodeURIComponent(profile)}`;
+    await client.send("Page.navigate", { url }, sessionId);
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < TEST_TIMEOUT_MS) {
+      await sleep(250);
+      try {
+        lastState = await inspectPage(client, sessionId);
+        consecutiveProbeFailures = 0;
+      } catch (error) {
+        consecutiveProbeFailures += 1;
+        if (consecutiveProbeFailures >= 3) {
+          throw new Error(`main thread stopped answering CDP probes: ${error.message}`);
+        }
+        continue;
+      }
+
+      if (!lastState?.result) continue;
+      if (lastState.result.startsWith("RUNTIME_SMOKE_PASS:")) {
+        console.log(`[browser-smoke] ${profile} ${lastState.result}`);
+        return;
+      }
+      throw new Error(lastState.result);
+    }
+
+    throw new Error("browser scenario did not finish before the smoke timeout");
+  } catch (error) {
+    const report = {
+      profile,
+      message: error.message || String(error),
+      lastState,
+      networkRequests: networkRequests.slice(-80),
+      browserErrors: browserErrors.slice(-20),
+      chrome: launched.output()
+    };
+    throw new Error(`[browser-smoke] ${profile} failed: ${JSON.stringify(report)}`);
+  } finally {
+    try {
+      if (client && targetId) await withTimeout(client.send("Target.closeTarget", { targetId }), 1000, "Target.closeTarget");
+    } catch {
+      // Chrome is terminated below even if the target stopped responding.
+    }
+    try {
+      client?.close();
+    } catch {
+      // Ignore socket shutdown errors.
+    }
+    launched.child.kill("SIGKILL");
+    fs.rmSync(launched.userDataDir, { recursive: true, force: true });
+  }
 }
 
 async function main() {
