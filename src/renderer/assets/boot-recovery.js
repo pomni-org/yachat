@@ -5,15 +5,20 @@
   const BOOT_TIMEOUT_MS = 8000;
   let failureShown = false;
   let timeoutId = 0;
-  let observer = null;
+  let bodyObserver = null;
+  let messengerObserver = null;
 
   function bodyIsBooting() {
     return Boolean(document.body?.classList.contains("app-booting"));
   }
 
+  function messengerShell() {
+    return document.querySelector("[data-messenger]");
+  }
+
   function messengerCanBeRevealed() {
     const body = document.body;
-    const shell = document.querySelector("[data-messenger]");
+    const shell = messengerShell();
     return Boolean(
       body?.classList.contains("messenger-mode")
       && shell
@@ -24,8 +29,10 @@
   function stopWatching() {
     window.clearTimeout(timeoutId);
     timeoutId = 0;
-    observer?.disconnect();
-    observer = null;
+    bodyObserver?.disconnect();
+    messengerObserver?.disconnect();
+    bodyObserver = null;
+    messengerObserver = null;
   }
 
   function revealMessengerIfReady() {
@@ -36,7 +43,7 @@
     const body = document.body;
     const bootScreen = document.querySelector("[data-boot-screen]");
     const authCard = document.querySelector("[data-auth-card]");
-    const shell = document.querySelector("[data-messenger]");
+    const shell = messengerShell();
 
     body.classList.remove("app-booting", FAILURE_CLASS);
     if (bootScreen) {
@@ -110,6 +117,24 @@
     window.location.replace(url.href);
   }
 
+  function startMinimalObservers() {
+    const shell = messengerShell();
+
+    bodyObserver = new MutationObserver(markReadyIfFinished);
+    bodyObserver.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"]
+    });
+
+    if (shell) {
+      messengerObserver = new MutationObserver(markReadyIfFinished);
+      messengerObserver.observe(shell, {
+        attributes: true,
+        attributeFilter: ["hidden"]
+      });
+    }
+  }
+
   function prepareRecoveryUi() {
     const logo = document.querySelector("[data-boot-recovery-logo]");
     logo?.addEventListener("error", () => {
@@ -135,13 +160,7 @@
       return;
     }
 
-    observer = new MutationObserver(markReadyIfFinished);
-    observer.observe(document.body, {
-      attributes: true,
-      attributeFilter: ["class"],
-      childList: true,
-      subtree: true
-    });
+    startMinimalObservers();
     timeoutId = window.setTimeout(() => {
       if (!revealMessengerIfReady()) {
         showFailure("ЯЧат слишком долго остаётся на экране загрузки.");
