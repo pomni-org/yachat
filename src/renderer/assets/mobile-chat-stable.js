@@ -134,6 +134,53 @@
     window.addEventListener("popstate", syncMobileNavigationState);
   }
 
+  function installMobileChatVisibilityGuard() {
+    if (typeof activeChatIsVisible !== "function" || activeChatIsVisible.__yachatMobileVisibilityGuard) {
+      return;
+    }
+
+    const originalActiveChatIsVisible = activeChatIsVisible;
+    const guarded = function activeChatVisibleWithMobileState() {
+      if (originalActiveChatIsVisible()) {
+        return true;
+      }
+
+      const mobileViewport = window.matchMedia?.("(max-width: 820px)")?.matches
+        || window.innerWidth <= 820;
+      if (!mobileViewport || document.visibilityState !== "visible") {
+        return false;
+      }
+
+      let mobileDialogOpen = false;
+      let activeChatId = "";
+      let account = null;
+      let activePanel = null;
+      try {
+        mobileDialogOpen = Boolean(state?.mobileDialogOpen);
+        activeChatId = String(state?.activeChatId || "");
+        account = state?.account || null;
+        activePanel = state?.activePanel || null;
+      } catch {
+        return false;
+      }
+
+      const shell = document.querySelector("[data-messenger]");
+      return Boolean(
+        account
+        && activeChatId
+        && mobileDialogOpen
+        && !activePanel
+        && shell
+        && !shell.hidden
+        && !document.body.classList.contains("app-booting")
+      );
+    };
+
+    Object.defineProperty(guarded, "__yachatMobileVisibilityGuard", { value: true });
+    activeChatIsVisible = guarded;
+  }
+
   installSettingsToggleRepair();
   installMobileNavigationSync();
+  installMobileChatVisibilityGuard();
 })();
