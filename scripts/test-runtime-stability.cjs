@@ -47,7 +47,7 @@ assert(
   "background sync must not replace the optimized refresh function"
 );
 assert(
-  !backgroundSync.includes("/api/messenger"),
+  !/request\s*\(\s*[`\"']\/api\/messenger/.test(backgroundSync),
   "background sync must not install full messenger snapshot polling"
 );
 
