@@ -1,4 +1,4 @@
-const YACHAT_SW_VERSION = "87";
+const YACHAT_SW_VERSION = "88";
 
 function normalizeAppTarget(value) {
   const source = String(value || "").trim();
