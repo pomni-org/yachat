@@ -44,6 +44,7 @@ function countMatches(content, pattern) {
 function decodeLegalText(content) {
   return content
     .replace(/<p class="meta">[\s\S]*?<\/p>/giu, " ")
+    .replace(/<h[1-6]\b[\s\S]*?<\/h[1-6]>/giu, " ")
     .replace(/<script\b[\s\S]*?<\/script>/giu, " ")
     .replace(/<style\b[\s\S]*?<\/style>/giu, " ")
     .replace(/<[^>]+>/gu, " ")
