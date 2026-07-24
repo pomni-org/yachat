@@ -78,6 +78,10 @@ const result = await page.evaluate(async ({ smallSource }) => {
   };
 }, fixture);
 
+// The production app scans avatar roots from its render hooks. This isolated fixture
+// has no renderer, so run the same lightweight scanner again after changing src.
+await page.addScriptTag({ path: "src/renderer/assets/avatar-preserve.js" });
+
 await page.waitForFunction(() => {
   const image = document.querySelector("#existing-profile-avatar");
   return image?.classList.contains("is-yachat-positioned-avatar") && image.naturalWidth > 0 && image.naturalHeight > 0;
