@@ -109,10 +109,15 @@
     decorateRows();
   }
 
+  function mobileDialogRenderedOpen() {
+    const classOpen = document.body.classList.contains("mobile-dialog-open");
+    let stateOpen = false;
+    try { stateOpen = Boolean(state?.mobileDialogOpen); } catch {}
+    return classOpen || stateOpen;
+  }
+
   function syncMobileNavigationState() {
-    let open = false;
-    try { open = Boolean(state?.mobileDialogOpen); } catch {}
-    document.body.classList.toggle("yachat-mobile-chat-view", open);
+    document.body.classList.toggle("yachat-mobile-chat-view", mobileDialogRenderedOpen());
   }
 
   function installMobileNavigationSync() {
@@ -140,7 +145,7 @@
     }
 
     const originalActiveChatIsVisible = activeChatIsVisible;
-    const guarded = function activeChatVisibleWithMobileState() {
+    const guarded = function activeChatVisibleWithRenderedMobileState() {
       if (originalActiveChatIsVisible()) {
         return true;
       }
@@ -151,27 +156,36 @@
         return false;
       }
 
-      let mobileDialogOpen = false;
       let activeChatId = "";
       let account = null;
-      let activePanel = null;
       try {
-        mobileDialogOpen = Boolean(state?.mobileDialogOpen);
         activeChatId = String(state?.activeChatId || "");
         account = state?.account || null;
-        activePanel = state?.activePanel || null;
       } catch {
         return false;
       }
 
       const shell = document.querySelector("[data-messenger]");
+      const panel = document.querySelector("[data-side-panel]");
+      const messages = document.querySelector("[data-message-list]");
+      const messageRect = messages?.getBoundingClientRect?.();
+      const messageStyle = messages ? getComputedStyle(messages) : null;
+      const panelClosed = !panel || panel.hidden || getComputedStyle(panel).display === "none";
+      const messageSurfaceVisible = Boolean(
+        messages
+        && messageStyle?.display !== "none"
+        && messageStyle?.visibility !== "hidden"
+        && (Number(messageRect?.width || 0) > 0 || Number(messageRect?.height || 0) > 0)
+      );
+
       return Boolean(
         account
         && activeChatId
-        && mobileDialogOpen
-        && !activePanel
+        && mobileDialogRenderedOpen()
+        && panelClosed
         && shell
         && !shell.hidden
+        && messageSurfaceVisible
         && !document.body.classList.contains("app-booting")
       );
     };
