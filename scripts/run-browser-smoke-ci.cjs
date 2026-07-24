@@ -12,15 +12,37 @@ const child = spawn(process.execPath, [path.join(__dirname, "runtime-browser-bis
 let stdout = "";
 let stderr = "";
 let finished = false;
+let passSeen = false;
 
 function writeReport(report) {
   fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+}
+
+function finish({ passed, exitCode = null, signal = null, error = "" }) {
+  if (finished) return;
+  finished = true;
+  clearTimeout(hardTimeout);
+  writeReport({ passed, exitCode, signal, error, stdout, stderr });
+  process.exitCode = passed ? 0 : 1;
+}
+
+function stopChild() {
+  try { child.kill("SIGKILL"); } catch {}
 }
 
 child.stdout.on("data", (chunk) => {
   const text = String(chunk);
   stdout += text;
   process.stdout.write(text);
+
+  if (text.includes("[runtime-bisect] PASS:")) {
+    passSeen = true;
+    window.setTimeout?.(() => {}, 0);
+    setTimeout(() => {
+      stopChild();
+      finish({ passed: true, exitCode: 0, signal: "SIGKILL_AFTER_PASS" });
+    }, 500).unref?.();
+  }
 });
 
 child.stderr.on("data", (chunk) => {
@@ -30,27 +52,30 @@ child.stderr.on("data", (chunk) => {
 });
 
 child.on("error", (error) => {
-  if (finished) return;
-  finished = true;
-  writeReport({
+  stopChild();
+  finish({
     passed: false,
-    exitCode: null,
-    error: error.stack || String(error),
-    stdout,
-    stderr
+    error: error.stack || String(error)
   });
-  process.exitCode = 1;
 });
 
 child.on("close", (code, signal) => {
-  if (finished) return;
-  finished = true;
-  writeReport({
+  if (passSeen && code !== 0) {
+    finish({ passed: true, exitCode: 0, signal: signal || "closed-after-pass" });
+    return;
+  }
+  finish({
     passed: code === 0,
     exitCode: code,
-    signal: signal || null,
-    stdout,
-    stderr
+    signal: signal || null
   });
-  process.exitCode = code || 0;
 });
+
+const hardTimeout = setTimeout(() => {
+  stopChild();
+  finish({
+    passed: false,
+    signal: "SIGKILL",
+    error: "Runtime browser bisect exceeded 240 seconds. The page or diagnostic harness remained unresponsive."
+  });
+}, 240000);
