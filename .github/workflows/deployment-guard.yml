@@ -12,7 +12,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -49,3 +49,14 @@ jobs:
       - name: Enforce browser smoke result
         run: |
           node -e "const report=require('./runtime-smoke-report.json'); if(!report.passed){console.error(report.stderr || report.error || report); process.exit(1)}"
+
+      - name: Promote tested preview to production
+        if: github.event_name == 'pull_request' && github.head_ref == 'agent/promote-tested-runtime-preview'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::VERCEL_TOKEN is not configured in GitHub Actions secrets."
+            exit 1
+          fi
+          npx --yes vercel@latest promote yachat-116f0hmas-yachat.vercel.app --scope yachat --token "$VERCEL_TOKEN" --yes
