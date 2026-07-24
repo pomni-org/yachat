@@ -33,4 +33,21 @@ jobs:
         run: npm run build
 
       - name: Run desktop and mobile browser smoke tests
+        id: browser_smoke
+        continue-on-error: true
         run: npm run test:browser
+
+      - name: Upload browser smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-smoke-report
+          path: runtime-smoke-report.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Enforce browser smoke result
+        if: steps.browser_smoke.outcome != 'success'
+        run: |
+          cat runtime-smoke-report.json
+          exit 1
