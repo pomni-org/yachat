@@ -4,6 +4,7 @@ const path = require("path");
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
 const canonicalOrigin = "https://yachat.eu.org";
+const ACTIVE_CHAT_GUARD_TAG = '    <script src="/assets/active-chat-identity-guard.js?v=88"></script>';
 const LEGACY_CI_MARKERS = [
   "/assets/composer-delivery-stable.js?v=86",
   "/assets/composer-actions-stable.js?v=86",
@@ -42,7 +43,12 @@ async function patchWebApp() {
   const app = appSource
     .replaceAll("https://yachat.vercel.app/", `${canonicalOrigin}/web/`)
     .replaceAll("./assets/", "/assets/");
-  const web = webSource.replaceAll("./assets/", "/assets/");
+  let web = webSource.replaceAll("./assets/", "/assets/");
+
+  if (!web.includes(ACTIVE_CHAT_GUARD_TAG)) {
+    requireText(web, "</body>", "web body closing tag");
+    web = web.replace("</body>", `${ACTIVE_CHAT_GUARD_TAG}\n  </body>`);
+  }
 
   forbidText(app, "https://yachat.vercel.app/", "legacy profile URL");
   forbidText(app, "./assets/", "relative app asset path");
@@ -66,7 +72,7 @@ async function retainLegacyCiGate() {
 }
 
 async function validatePublicBundle() {
-  const [landing, about, privacy, web, robots, sitemap, manifest, vercelApp] = await Promise.all([
+  const [landing, about, privacy, web, robots, sitemap, manifest, vercelApp, activeChatGuard] = await Promise.all([
     read("index.html"),
     read("about.html"),
     read("privacy.html"),
@@ -74,7 +80,8 @@ async function validatePublicBundle() {
     read("robots.txt"),
     read("sitemap.xml"),
     read("manifest.webmanifest"),
-    read("app.js")
+    read("app.js"),
+    read("assets/active-chat-identity-guard.js")
   ]);
 
   requireText(landing, "<title>ячат — веб-мессенджер</title>", "landing title");
@@ -90,6 +97,10 @@ async function validatePublicBundle() {
   requireText(web, "/assets/privacy-safe-analytics.js?v=88", "privacy-safe analytics sanitizer");
   requireText(web, "/_vercel/insights/script.js", "Vercel analytics script");
   requireText(web, 'name="referrer" content="origin"', "privacy-safe referrer policy");
+  requireText(web, ACTIVE_CHAT_GUARD_TAG.trim(), "active chat identity guard");
+  requireText(activeChatGuard, "lastResolvedChat?.id === state.activeChatId", "active chat snapshot protection");
+  requireText(activeChatGuard, 'chat.id === "yachat-favorites"', "favorites identity boundary");
+  forbidText(activeChatGuard, "state.chats[0]", "first-chat fallback");
   forbidText(web, "./assets/", "relative web asset path");
   requireText(robots, "Disallow: /web", "robots web exclusion");
   requireText(robots, "Disallow: /api/", "robots API exclusion");
