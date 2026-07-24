@@ -37,6 +37,46 @@ function forbidText(content, forbidden, label) {
   }
 }
 
+function countMatches(content, pattern) {
+  return [...content.matchAll(pattern)].length;
+}
+
+function decodeLegalText(content) {
+  return content
+    .replace(/<p class="meta">[\s\S]*?<\/p>/giu, " ")
+    .replace(/<h[1-6]\b[\s\S]*?<\/h[1-6]>/giu, " ")
+    .replace(/<script\b[\s\S]*?<\/script>/giu, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/giu, " ")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/&nbsp;|&#160;/giu, " ")
+    .replace(/&amp;/giu, "&")
+    .replace(/&quot;|&#34;/giu, '"')
+    .replace(/&#39;|&apos;/giu, "'")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+function validateLegalDocument(content, documentName) {
+  const article = content.match(/<article\b[\s\S]*?<\/article>/iu)?.[0] || "";
+  if (!article) {
+    throw new Error(`Missing ${documentName} legal article.`);
+  }
+
+  const sectionCount = countMatches(article, /<h2\b/giu);
+  if (sectionCount < 20) {
+    throw new Error(`${documentName} must contain at least 20 legal sections; received ${sectionCount}.`);
+  }
+
+  const sentenceCount = countMatches(decodeLegalText(article), /[.!?](?=\s|$)/gu);
+  if (sentenceCount < 50 || sentenceCount > 70) {
+    throw new Error(`${documentName} must contain 50-70 sentences; received ${sentenceCount}.`);
+  }
+
+  requireText(article, `Документ содержит ${sectionCount} раздела и ${sentenceCount} предложений.`, `${documentName} legal document summary`);
+}
+
 async function patchWebApp() {
   const [appSource, webSource] = await Promise.all([
     read("app.js"),
@@ -121,8 +161,12 @@ async function validatePublicBundle() {
   LEGACY_CI_MARKERS.forEach((marker) => requireText(landing, marker, "legacy CI marker"));
   requireText(about, 'rel="canonical" href="https://yachat.eu.org/about"', "about canonical");
   requireText(privacy, 'rel="canonical" href="https://yachat.eu.org/privacy"', "privacy canonical");
+  requireText(privacy, 'data-legal-document="privacy"', "privacy legal marker");
   requireText(terms, 'rel="canonical" href="https://yachat.eu.org/terms"', "terms canonical");
   requireText(terms, 'name="robots" content="index, follow, max-snippet:-1"', "terms robots meta");
+  requireText(terms, 'data-legal-document="terms"', "terms legal marker");
+  validateLegalDocument(privacy, "privacy policy");
+  validateLegalDocument(terms, "terms of use");
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
   requireText(web, "/assets/private-chat-presence.js?v=87", "v87 private chat runtime");
   requireText(web, "/assets/yachat-brand-256.png?v=87", "absolute web brand asset");
