@@ -4,7 +4,7 @@ const { spawn } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const reportPath = path.join(root, "runtime-smoke-report.json");
-const child = spawn(process.execPath, [path.join(__dirname, "runtime-browser-bisect.cjs")], {
+const child = spawn(process.execPath, [path.join(__dirname, "runtime-browser-final.cjs")], {
   cwd: root,
   stdio: ["ignore", "pipe", "pipe"]
 });
@@ -35,7 +35,7 @@ child.stdout.on("data", (chunk) => {
   stdout += text;
   process.stdout.write(text);
 
-  if (text.includes("[runtime-bisect] PASS:")) {
+  if (text.includes("[browser-final] PASS ")) {
     passSeen = true;
     setTimeout(() => {
       stopChild();
@@ -75,6 +75,6 @@ const hardTimeout = setTimeout(() => {
   finish({
     passed: false,
     signal: "SIGKILL",
-    error: "Runtime browser bisect exceeded 240 seconds. The page or diagnostic harness remained unresponsive."
+    error: "Final desktop/mobile browser smoke exceeded 180 seconds. The page or test harness remained unresponsive."
   });
-}, 240000);
+}, 180000);
