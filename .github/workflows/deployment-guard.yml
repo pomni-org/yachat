@@ -47,7 +47,5 @@ jobs:
           retention-days: 3
 
       - name: Enforce browser smoke result
-        if: steps.browser_smoke.outcome != 'success'
         run: |
-          cat runtime-smoke-report.json
-          exit 1
+          node -e "const report=require('./runtime-smoke-report.json'); if(!report.passed){console.error(report.stderr || report.error || report); process.exit(1)}"
