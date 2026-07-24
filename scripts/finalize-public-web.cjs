@@ -120,7 +120,8 @@ async function validatePublicBundle() {
     activeChatGuard,
     bootstrapBridge,
     instantChatLoading,
-    quickBootstrapApi
+    quickBootstrapApi,
+    presenceRuntime
   ] = await Promise.all([
     read("index.html"),
     read("about.html"),
@@ -133,7 +134,8 @@ async function validatePublicBundle() {
     read("assets/active-chat-identity-guard.js"),
     read("assets/bootstrap-quick-bridge.js"),
     read("assets/instant-chat-loading.js"),
-    readProject("api/bootstrap_quick.py")
+    readProject("api/bootstrap_quick.py"),
+    readProject("api/presence_runtime.py")
   ]);
 
   requireText(landing, "<title>ячат — веб-мессенджер</title>", "landing title");
@@ -157,15 +159,20 @@ async function validatePublicBundle() {
   requireText(activeChatGuard, "lastResolvedChat?.id === state.activeChatId", "active chat snapshot protection");
   requireText(activeChatGuard, 'chat.id === "yachat-favorites"', "favorites identity boundary");
   forbidText(activeChatGuard, "state.chats[0]", "first-chat fallback");
-  requireText(bootstrapBridge, 'url.pathname = "/api/bootstrap_quick"', "quick bootstrap request routing");
+  requireText(bootstrapBridge, 'quickUrl.pathname = "/api/bootstrap_quick"', "quick bootstrap request routing");
+  requireText(bootstrapBridge, "return originalFetch(input, init)", "full bootstrap fallback");
   requireText(bootstrapBridge, "__yachatQuickBootstrapUsed", "quick bootstrap runtime marker");
   requireText(instantChatLoading, "Promise.allSettled", "parallel message and read loading");
   requireText(instantChatLoading, "inFlightMessages", "message request deduplication");
   requireText(instantChatLoading, "messageCache", "per-chat message cache");
   requireText(instantChatLoading, "originalShowMessenger", "non-blocking initial shell patch");
+  requireText(instantChatLoading, "MIN_ACTIVE_POLL_MS = 1200", "balanced active polling interval");
   requireText(quickBootstrapApi, '"deferredMessages": True', "deferred messages bootstrap response");
   requireText(quickBootstrapApi, "list_user_chats_fast", "fast chat list query");
   forbidText(quickBootstrapApi, "get_messages_fast(", "blocking message query in quick bootstrap");
+  requireText(presenceRuntime, "yachat_user_presence", "database-backed online presence");
+  requireText(presenceRuntime, "yachat_typing", "database-backed typing presence");
+  forbidText(presenceRuntime, "from api import presence", "missing legacy presence module import");
   forbidText(web, "./assets/", "relative web asset path");
   requireText(robots, "Disallow: /web", "robots web exclusion");
   requireText(robots, "Disallow: /api/", "robots API exclusion");
