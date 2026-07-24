@@ -15,6 +15,7 @@
 
   const messageCache = new Map();
   const inFlightMessages = new Map();
+  const MIN_ACTIVE_POLL_MS = 1200;
   let selectionVersion = 0;
 
   function cacheMessages(chatId, messages) {
@@ -161,4 +162,14 @@
 
     return hydrateChat(id, version, { markRead: true });
   };
+
+  if (typeof messengerPollDelay === "function") {
+    const inheritedMessengerPollDelay = messengerPollDelay;
+    messengerPollDelay = function balancedMessengerPollDelay() {
+      const delay = Number(inheritedMessengerPollDelay()) || MIN_ACTIVE_POLL_MS;
+      return document.visibilityState === "visible"
+        ? Math.max(MIN_ACTIVE_POLL_MS, delay)
+        : delay;
+    };
+  }
 })();
