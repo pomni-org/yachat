@@ -45,16 +45,20 @@ function relativePosix(filePath) {
   return path.relative(root, filePath).split(path.sep).join("/");
 }
 
+function isPythonFunctionEntrypoint(filePath) {
+  return filePath.endsWith(".py") && path.basename(filePath) !== "__init__.py";
+}
+
 function validateFunctions(config) {
   const configuredFunctions = Object.keys(config.functions || {}).sort();
   const discoveredFunctions = listFiles(apiDirectory)
-    .filter((filePath) => filePath.endsWith(".py"))
+    .filter(isPythonFunctionEntrypoint)
     .map(relativePosix)
     .sort();
 
   if (discoveredFunctions.length > HOBBY_FUNCTION_LIMIT) {
     fail(
-      `The repository contains ${discoveredFunctions.length} Python Serverless Functions, but Vercel Hobby permits ${HOBBY_FUNCTION_LIMIT}. Merge new API routes into an existing function instead of adding another api/*.py file.`,
+      `The repository contains ${discoveredFunctions.length} Python Serverless Function entrypoints, but Vercel Hobby permits ${HOBBY_FUNCTION_LIMIT}. Merge new API routes into an existing function instead of adding another api/*.py entrypoint.`,
       discoveredFunctions
     );
   }
@@ -67,7 +71,7 @@ function validateFunctions(config) {
   const unconfiguredFiles = discoveredFunctions.filter((filePath) => !configuredFunctions.includes(filePath));
   if (unconfiguredFiles.length) {
     fail(
-      "Python files inside api/ are not listed in vercel.json functions. They still consume Serverless Function slots and can silently exceed the Hobby limit.",
+      "Python entrypoints inside api/ are not listed in vercel.json functions. They can still consume Serverless Function slots and silently exceed the Hobby limit.",
       unconfiguredFiles
     );
   }
