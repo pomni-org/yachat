@@ -8,6 +8,7 @@
   const FULL_QUALITY_CHAT_LOGO = `/assets/yachat-brand-1024.png?v=${RELEASE_VERSION}`;
   const LATIN_DIGITAL_ID = /^[ABCDEFGHJKLMNPQRSTUVWXYZ]{2,3}[0-9]{3,4}$/;
   const CYRILLIC_DIGITAL_ID = /^[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЭЮЯ]{2,3}[0-9]{3,4}$/;
+  let repairFrame = 0;
 
   function normalizeDigitalId(value) {
     const normalized = String(value || "")
@@ -207,6 +208,47 @@
     panel.append(backdrop);
   }
 
+  function scheduleVisualRepair() {
+    if (repairFrame) return;
+    repairFrame = requestAnimationFrame(() => {
+      repairFrame = 0;
+      repairMoreLayer();
+      repairChannelLogoImages(document.querySelector("[data-chat-list]") || document);
+      repairChannelLogoImages(document.querySelector("[data-side-panel]") || document);
+      repairChannelLogoImages(document.querySelector('[data-action="chat-card"]') || document);
+    });
+  }
+
+  function wrapVisualRenderers() {
+    if (typeof renderChatList === "function" && !renderChatList.__yachatVisualRepair) {
+      const original = renderChatList;
+      renderChatList = function renderChatListWithVisualRepair(...args) {
+        const result = original.apply(this, args);
+        scheduleVisualRepair();
+        return result;
+      };
+      Object.defineProperty(renderChatList, "__yachatVisualRepair", { value: true });
+    }
+    if (typeof renderActiveChat === "function" && !renderActiveChat.__yachatVisualRepair) {
+      const original = renderActiveChat;
+      renderActiveChat = function renderActiveChatWithVisualRepair(...args) {
+        const result = original.apply(this, args);
+        scheduleVisualRepair();
+        return result;
+      };
+      Object.defineProperty(renderActiveChat, "__yachatVisualRepair", { value: true });
+    }
+    if (typeof renderPanel === "function" && !renderPanel.__yachatVisualRepair) {
+      const original = renderPanel;
+      renderPanel = function renderPanelWithVisualRepair(...args) {
+        const result = original.apply(this, args);
+        scheduleVisualRepair();
+        return result;
+      };
+      Object.defineProperty(renderPanel, "__yachatVisualRepair", { value: true });
+    }
+  }
+
   installMessageTransportFix();
   installDirectorySearchFix();
   installDigitalIdSearchRules();
@@ -214,17 +256,9 @@
   installIosPickerFix();
   installIosSettingsSwitchFix();
   repairMoreLayer();
-
-  const layerObserver = new MutationObserver((records) => {
-    const relevant = records.some((record) => [...record.addedNodes].some((node) => (
-      node instanceof Element
-      && (node.matches("[data-chat-more-backdrop], .is-channel") || node.querySelector("[data-chat-more-backdrop], .is-channel"))
-    )));
-    if (!relevant) return;
-    repairMoreLayer();
-    repairChannelLogoImages();
-  });
-  layerObserver.observe(document.body, { childList: true, subtree: true });
+  wrapVisualRenderers();
+  window.setTimeout(wrapVisualRenderers, 0);
+  window.setTimeout(wrapVisualRenderers, 250);
 
   document.addEventListener("click", (event) => {
     if (!event.target.closest("[data-panel-action='chat-profile-more']")) return;
