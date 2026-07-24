@@ -1,6 +1,9 @@
 (() => {
   "use strict";
 
+  if (window.__yachatAuthEntryFixInstalled) return;
+  window.__yachatAuthEntryFixInstalled = true;
+
   const countryChoice = document.querySelector("[data-country-choice]");
   const countryList = document.querySelector("[data-country-list]");
   const deviceCodeScreen = document.querySelector('[data-screen="qr"]');
@@ -13,6 +16,15 @@
     ["BY", { country: "BY", name: "Беларусь", code: "+375" }],
     ["KZ", { country: "KZ", name: "Казахстан", code: "+7" }]
   ]);
+
+  function authUiActive() {
+    return !document.body.classList.contains("messenger-mode");
+  }
+
+  function deviceCodeInputFrom(target) {
+    const input = target?.closest?.("[data-device-code-input]") || null;
+    return input && deviceCodeScreen?.contains(input) ? input : null;
+  }
 
   function normalizeDeviceCode(value) {
     const compact = String(value || "")
@@ -50,8 +62,16 @@
     };
   }
 
-  function prepareDeviceCodeField(input = document.querySelector("[data-device-code-input]")) {
-    if (!(input instanceof HTMLInputElement)) {
+  function setTextIfChanged(element, value) {
+    if (element && element.textContent !== value) element.textContent = value;
+  }
+
+  function prepareDeviceCodeField(input = deviceCodeScreen?.querySelector("[data-device-code-input]")) {
+    if (
+      !authUiActive()
+      || !(input instanceof HTMLInputElement)
+      || !deviceCodeScreen?.contains(input)
+    ) {
       return null;
     }
 
@@ -81,21 +101,23 @@
         label.dataset.deviceCodeLabel = "";
         shell.prepend(label);
       }
-      label.textContent = text.label;
+      setTextIfChanged(label, text.label);
     }
 
-    const screen = input.closest('[data-screen="qr"]');
-    const title = screen?.querySelector(".screen-copy h1");
-    const description = screen?.querySelector(".screen-copy p");
-    const location = screen?.querySelector(".device-code-location");
-    if (title) title.textContent = text.title;
-    if (description) description.textContent = text.description;
-    if (location) location.textContent = text.location;
+    const title = deviceCodeScreen?.querySelector(".screen-copy h1");
+    const description = deviceCodeScreen?.querySelector(".screen-copy p");
+    const location = deviceCodeScreen?.querySelector(".device-code-location");
+    setTextIfChanged(title, text.title);
+    setTextIfChanged(description, text.description);
+    setTextIfChanged(location, text.location);
 
     return input;
   }
 
-  function syncDeviceCode(input = document.querySelector("[data-device-code-input]")) {
+  function syncDeviceCode(input = deviceCodeScreen?.querySelector("[data-device-code-input]")) {
+    if (!authUiActive()) {
+      return;
+    }
     input = prepareDeviceCodeField(input);
     if (!input) {
       return;
@@ -113,7 +135,10 @@
     }
 
     const valid = deviceCodeIsComplete(nextValue);
-    input.setAttribute("aria-invalid", nextValue && !valid ? "true" : "false");
+    const invalidValue = nextValue && !valid ? "true" : "false";
+    if (input.getAttribute("aria-invalid") !== invalidValue) {
+      input.setAttribute("aria-invalid", invalidValue);
+    }
     const submitButton = input.form?.querySelector('button[type="submit"]');
     if (submitButton && !submitButton.classList.contains("is-loading")) {
       submitButton.disabled = !valid;
@@ -152,7 +177,7 @@
 
   function repairCountryRows() {
     countryRepairQueued = false;
-    if (!countryList) {
+    if (!authUiActive() || !countryList) {
       return;
     }
 
@@ -172,6 +197,10 @@
   }
 
   function queueCountryRepair() {
+    if (!authUiActive()) {
+      countryRepairQueued = false;
+      return;
+    }
     if (countryRepairQueued) return;
     countryRepairQueued = true;
     queueMicrotask(repairCountryRows);
@@ -179,25 +208,34 @@
 
   function repairDeviceCodeScreen() {
     deviceRepairQueued = false;
+    if (!authUiActive()) {
+      return;
+    }
     const input = prepareDeviceCodeField();
     if (input) syncDeviceCode(input);
   }
 
   function queueDeviceRepair() {
+    if (!authUiActive()) {
+      deviceRepairQueued = false;
+      return;
+    }
     if (deviceRepairQueued) return;
     deviceRepairQueued = true;
     queueMicrotask(repairDeviceCodeScreen);
   }
 
   function markDirectDeviceInputGesture(event) {
-    const input = event.target.closest?.("[data-device-code-input]");
+    if (!authUiActive()) return;
+    const input = deviceCodeInputFrom(event.target);
     if (!input) return;
     directDeviceInputPointerAt = performance.now();
     prepareDeviceCodeField(input);
   }
 
   function repairProgrammaticDeviceFocus(event) {
-    const input = event.target.closest?.("[data-device-code-input]");
+    if (!authUiActive()) return;
+    const input = deviceCodeInputFrom(event.target);
     if (!input) return;
     prepareDeviceCodeField(input);
 
@@ -208,7 +246,8 @@
 
     window.setTimeout(() => {
       if (
-        document.activeElement === input
+        authUiActive()
+        && document.activeElement === input
         && performance.now() - directDeviceInputPointerAt > 700
       ) {
         input.blur();
@@ -221,13 +260,16 @@
   document.addEventListener("focusin", repairProgrammaticDeviceFocus, true);
 
   document.addEventListener("input", (event) => {
-    const input = event.target.closest?.("[data-device-code-input]");
+    if (!authUiActive()) return;
+    const input = deviceCodeInputFrom(event.target);
     if (input) syncDeviceCode(input);
   }, true);
 
   document.addEventListener("paste", (event) => {
-    if (!event.target.closest?.("[data-device-code-input]")) return;
-    queueMicrotask(() => syncDeviceCode(event.target));
+    if (!authUiActive()) return;
+    const input = deviceCodeInputFrom(event.target);
+    if (!input) return;
+    queueMicrotask(() => syncDeviceCode(input));
   }, true);
 
   if (countryList) {
@@ -241,7 +283,7 @@
 
   if (countryChoice) {
     new MutationObserver(() => {
-      if (!countryChoice.hidden) queueCountryRepair();
+      if (authUiActive() && !countryChoice.hidden) queueCountryRepair();
     }).observe(countryChoice, { attributes: true, attributeFilter: ["hidden"] });
   }
 

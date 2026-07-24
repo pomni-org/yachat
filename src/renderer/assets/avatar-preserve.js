@@ -35,6 +35,8 @@
   const CYRILLIC_DIGITAL_ID_ALPHABET = "АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ";
   const LATIN_DIGITAL_ID = /^(?:[ABCDEFGHJKLMNPQRSTUVWXYZ]{2}[0-9]{4}|[ABCDEFGHJKLMNPQRSTUVWXYZ]{3}[0-9]{3})$/;
   const CYRILLIC_DIGITAL_ID = /^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}[0-9]{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}[0-9]{3})$/;
+  let scanFrame = 0;
+  const pendingScanRoots = new Set();
 
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(Number(value) || 0, minimum), maximum);
@@ -228,12 +230,24 @@
   }
 
   function scan(root = document) {
+    if (!root) return;
     if (root instanceof HTMLImageElement) {
       if (root.matches(SYSTEM_AVATAR_SELECTOR)) normalizeSystemAvatar(root);
       if (root.matches(AVATAR_IMAGE_SELECTOR)) normalizeAvatarImage(root);
     }
     root.querySelectorAll?.(SYSTEM_AVATAR_SELECTOR).forEach(normalizeSystemAvatar);
     root.querySelectorAll?.(AVATAR_IMAGE_SELECTOR).forEach(normalizeAvatarImage);
+  }
+
+  function scheduleScan(root = document) {
+    if (root) pendingScanRoots.add(root);
+    if (scanFrame) return;
+    scanFrame = requestAnimationFrame(() => {
+      scanFrame = 0;
+      const roots = [...pendingScanRoots];
+      pendingScanRoots.clear();
+      roots.forEach(scan);
+    });
   }
 
   function setAvatarSaving(button, saving) {
@@ -355,29 +369,61 @@
     }
   }
 
+  function wrapAvatarRenderers() {
+    if (typeof renderChatList === "function" && !renderChatList.__yachatAvatarScan) {
+      const original = renderChatList;
+      renderChatList = function renderChatListWithAvatarScan(...args) {
+        const result = original.apply(this, args);
+        scheduleScan(typeof chatList !== "undefined" ? chatList : document.querySelector("[data-chat-list]"));
+        return result;
+      };
+      Object.defineProperty(renderChatList, "__yachatAvatarScan", { value: true });
+    }
+    if (typeof renderActiveChat === "function" && !renderActiveChat.__yachatAvatarScan) {
+      const original = renderActiveChat;
+      renderActiveChat = function renderActiveChatWithAvatarScan(...args) {
+        const result = original.apply(this, args);
+        scheduleScan(document.querySelector('[data-action="chat-card"]'));
+        return result;
+      };
+      Object.defineProperty(renderActiveChat, "__yachatAvatarScan", { value: true });
+    }
+    if (typeof renderMessages === "function" && !renderMessages.__yachatAvatarScan) {
+      const original = renderMessages;
+      renderMessages = function renderMessagesWithAvatarScan(...args) {
+        const result = original.apply(this, args);
+        scheduleScan(typeof messageList !== "undefined" ? messageList : document.querySelector("[data-message-list]"));
+        return result;
+      };
+      Object.defineProperty(renderMessages, "__yachatAvatarScan", { value: true });
+    }
+    if (typeof renderPanel === "function" && !renderPanel.__yachatAvatarScan) {
+      const original = renderPanel;
+      renderPanel = function renderPanelWithAvatarScan(...args) {
+        const result = original.apply(this, args);
+        scheduleScan(typeof sidePanel !== "undefined" ? sidePanel : document.querySelector("[data-side-panel]"));
+        return result;
+      };
+      Object.defineProperty(renderPanel, "__yachatAvatarScan", { value: true });
+    }
+    if (typeof openAvatarViewer === "function" && !openAvatarViewer.__yachatAvatarScan) {
+      const original = openAvatarViewer;
+      openAvatarViewer = function openAvatarViewerWithScan(...args) {
+        const result = original.apply(this, args);
+        scheduleScan(document.querySelector("[data-avatar-modal]"));
+        return result;
+      };
+      Object.defineProperty(openAvatarViewer, "__yachatAvatarScan", { value: true });
+    }
+  }
+
   installNonDestructivePositioner();
   installDigitalIdGuard();
   document.addEventListener("click", (event) => {
     void saveAvatarCropWithoutBlocking(event);
   }, true);
   scan();
-
-  const observer = new MutationObserver((records) => {
-    records.forEach((record) => {
-      record.addedNodes.forEach((node) => {
-        if (node instanceof Element) scan(node);
-      });
-      if (record.type === "attributes" && record.target instanceof HTMLImageElement) {
-        if (record.target.matches(SYSTEM_AVATAR_SELECTOR)) normalizeSystemAvatar(record.target);
-        if (record.target.matches(AVATAR_IMAGE_SELECTOR)) normalizeAvatarImage(record.target);
-      }
-    });
-  });
-
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["src"]
-  });
+  wrapAvatarRenderers();
+  window.setTimeout(wrapAvatarRenderers, 0);
+  window.setTimeout(wrapAvatarRenderers, 250);
 })();

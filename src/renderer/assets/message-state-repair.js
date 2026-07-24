@@ -19,7 +19,8 @@
   function syncDialogIntro() {
     const intro = document.querySelector("[data-dialog-intro]");
     if (!intro) return;
-    intro.hidden = activeMessageCount() > 0;
+    const shouldHide = activeMessageCount() > 0;
+    if (intro.hidden !== shouldHide) intro.hidden = shouldHide;
   }
 
   function isOwnMessage(message) {
@@ -111,10 +112,7 @@
   }
 
   installAll();
-
-  const observer = new MutationObserver(() => {
-    installAll();
-    syncDialogIntro();
-  });
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.setTimeout(installAll, 0);
+  window.setTimeout(installAll, 250);
+  window.addEventListener("pageshow", installAll);
 })();

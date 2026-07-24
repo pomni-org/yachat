@@ -197,6 +197,10 @@ await page.evaluate(() => {
   card.innerHTML = '<img id="dynamic-brand" src="/assets/yachat-brand-64.png?v=50" alt="">';
   document.body.append(card);
 });
+
+// Dynamic production surfaces are scanned by render hooks. This standalone DOM
+// fixture has no app renderer, so execute the same lightweight scanner once more.
+await page.addScriptTag({ path: "src/renderer/assets/avatar-preserve.js" });
 await page.waitForFunction(() => document.querySelector("#dynamic-brand")?.getAttribute("src") === "/assets/yachat-brand-512.png?v=85");
 
 assert.deepEqual(pageErrors, [], `page errors:\n${pageErrors.join("\n")}`);

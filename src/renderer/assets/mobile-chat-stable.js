@@ -91,17 +91,33 @@
       toggleRow(row);
     }, true);
 
-    const observer = new MutationObserver((records) => {
-      if (records.some((record) => record.addedNodes.length)) decorateRows();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    if (typeof renderPanel === "function" && !renderPanel.__yachatIosToggleRows) {
+      const originalRenderPanel = renderPanel;
+      renderPanel = function renderPanelWithIosToggleRows(...args) {
+        const result = originalRenderPanel.apply(this, args);
+        queueMicrotask(() => decorateRows(typeof panelBody !== "undefined" ? panelBody : document));
+        return result;
+      };
+      Object.defineProperty(renderPanel, "__yachatIosToggleRows", { value: true });
+    }
+
+    document.addEventListener("click", (event) => {
+      if (event.target.closest?.('[data-rail="settings"], [data-panel-action]')) {
+        queueMicrotask(() => decorateRows(typeof panelBody !== "undefined" ? panelBody : document));
+      }
+    }, true);
     decorateRows();
   }
 
+  function mobileDialogRenderedOpen() {
+    const classOpen = document.body.classList.contains("mobile-dialog-open");
+    let stateOpen = false;
+    try { stateOpen = Boolean(state?.mobileDialogOpen); } catch {}
+    return classOpen || stateOpen;
+  }
+
   function syncMobileNavigationState() {
-    let open = false;
-    try { open = Boolean(state?.mobileDialogOpen); } catch {}
-    document.body.classList.toggle("yachat-mobile-chat-view", open);
+    document.body.classList.toggle("yachat-mobile-chat-view", mobileDialogRenderedOpen());
   }
 
   function installMobileNavigationSync() {
@@ -123,6 +139,62 @@
     window.addEventListener("popstate", syncMobileNavigationState);
   }
 
+  function installMobileChatVisibilityGuard() {
+    if (typeof activeChatIsVisible !== "function" || activeChatIsVisible.__yachatMobileVisibilityGuard) {
+      return;
+    }
+
+    const originalActiveChatIsVisible = activeChatIsVisible;
+    const guarded = function activeChatVisibleWithRenderedMobileState() {
+      if (originalActiveChatIsVisible()) {
+        return true;
+      }
+
+      const mobileViewport = window.matchMedia?.("(max-width: 820px)")?.matches
+        || window.innerWidth <= 820;
+      if (!mobileViewport || document.visibilityState !== "visible") {
+        return false;
+      }
+
+      let activeChatId = "";
+      let account = null;
+      try {
+        activeChatId = String(state?.activeChatId || "");
+        account = state?.account || null;
+      } catch {
+        return false;
+      }
+
+      const shell = document.querySelector("[data-messenger]");
+      const panel = document.querySelector("[data-side-panel]");
+      const messages = document.querySelector("[data-message-list]");
+      const messageRect = messages?.getBoundingClientRect?.();
+      const messageStyle = messages ? getComputedStyle(messages) : null;
+      const panelClosed = !panel || panel.hidden || getComputedStyle(panel).display === "none";
+      const messageSurfaceVisible = Boolean(
+        messages
+        && messageStyle?.display !== "none"
+        && messageStyle?.visibility !== "hidden"
+        && (Number(messageRect?.width || 0) > 0 || Number(messageRect?.height || 0) > 0)
+      );
+
+      return Boolean(
+        account
+        && activeChatId
+        && mobileDialogRenderedOpen()
+        && panelClosed
+        && shell
+        && !shell.hidden
+        && messageSurfaceVisible
+        && !document.body.classList.contains("app-booting")
+      );
+    };
+
+    Object.defineProperty(guarded, "__yachatMobileVisibilityGuard", { value: true });
+    activeChatIsVisible = guarded;
+  }
+
   installSettingsToggleRepair();
   installMobileNavigationSync();
+  installMobileChatVisibilityGuard();
 })();

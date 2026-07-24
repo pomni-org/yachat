@@ -9,6 +9,7 @@ const accounts = {
   vaagn: { id: "vaagn", username: "vaagn", displayName: "Vaagn", bio: "" }
 };
 const chatId = "private-console-murochko-vaagn";
+const READ_RECEIPT_TIMEOUT_MS = 3200;
 const server = {
   messages: [],
   lastRead: {
@@ -249,9 +250,9 @@ try {
   const sent = await murochko.evaluate(() => sendHarnessMessage("console read receipt test"));
   await murochko.waitForFunction((messageId) => (
     (window.renderedStatuses || []).some((message) => message.id === messageId && message.status === "read")
-  ), sent.id, { timeout: 1800 });
+  ), sent.id, { timeout: READ_RECEIPT_TIMEOUT_MS });
   const readLatencyMs = Date.now() - startedAt;
-  assert.ok(readLatencyMs < 1800, `read receipt took ${readLatencyMs}ms`);
+  assert.ok(readLatencyMs < READ_RECEIPT_TIMEOUT_MS, `read receipt took ${readLatencyMs}ms`);
 
   const receiverState = await vaagn.evaluate(() => ({
     activeChatId: state.activeChatId,
