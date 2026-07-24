@@ -1,5 +1,5 @@
 (() => {
-  const PATCH_ID = "private-route-read-v2";
+  const PATCH_ID = "private-route-read-v1";
   const ACTIVE_POLL_MS = 1200;
   const originalGetActiveChat = getActiveChat;
   const originalApplyMessengerSnapshot = applyMessengerSnapshot;
