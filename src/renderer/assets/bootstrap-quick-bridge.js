@@ -6,26 +6,36 @@
 
   const originalFetch = window.fetch.bind(window);
 
-  window.fetch = function yachatBootstrapQuickFetch(input, init = {}) {
+  window.fetch = async function yachatBootstrapQuickFetch(input, init = {}) {
     try {
       const source = typeof input === "string" || input instanceof URL
         ? String(input)
         : input?.url || "";
-      const url = new URL(source, window.location.origin);
+      const originalUrl = new URL(source, window.location.origin);
       const method = String(init.method || input?.method || "GET").toUpperCase();
 
       if (
         method === "GET"
-        && url.origin === window.location.origin
-        && url.pathname === "/api/bootstrap"
+        && originalUrl.origin === window.location.origin
+        && originalUrl.pathname === "/api/bootstrap"
       ) {
-        url.pathname = "/api/bootstrap_quick";
-        window.__yachatQuickBootstrapUsed = true;
+        const quickUrl = new URL(originalUrl.href);
+        quickUrl.pathname = "/api/bootstrap_quick";
 
-        if (input instanceof Request) {
-          return originalFetch(new Request(url.href, input), init);
+        try {
+          const quickResponse = input instanceof Request
+            ? await originalFetch(new Request(quickUrl.href, input), init)
+            : await originalFetch(quickUrl.href, init);
+
+          if (quickResponse.ok) {
+            window.__yachatQuickBootstrapUsed = true;
+            return quickResponse;
+          }
+        } catch {
+          // The full bootstrap below preserves sign-in if the quick route is cold or unavailable.
         }
-        return originalFetch(url.href, init);
+
+        return originalFetch(input, init);
       }
     } catch {
       // The original request remains the safest fallback for malformed input.
