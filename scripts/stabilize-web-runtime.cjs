@@ -68,6 +68,7 @@ async function patchMessengerE2EEPayloads() {
 async function main() {
   await patchDatabaseResilience();
   await patchMessengerE2EEPayloads();
+  await execFileAsync(process.execPath, [path.join(root, "scripts", "test-e2ee-crypto.mjs")]);
 
   const webPath = path.join(publicDir, "web.html");
   let html = await fs.readFile(webPath, "utf8");
