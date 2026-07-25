@@ -45,7 +45,7 @@ alter table public.yachat_e2ee_devices
   check (protocol_version between 1 and 16);
 
 create index if not exists yachat_e2ee_devices_phase2_ready_idx
-  on public.yachat_e2ee_devices(user_id, updated_at desc)
+  on public.yachat_e2ee_devices(user_id, last_seen_at desc)
   where revoked_at is null and ready_at is not null and protocol_version >= 2;
 
 alter table public.yachat_chats
