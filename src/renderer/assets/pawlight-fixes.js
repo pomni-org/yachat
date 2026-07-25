@@ -1,9 +1,6 @@
 (() => {
   "use strict";
 
-  const RETRY_COOLDOWN_MS = 15_000;
-  let contactRetryBlockedUntil = 0;
-
   function isGroupLikeChat(chat) {
     return ["group", "channel"].includes(String(chat?.kind || "").toLowerCase());
   }
@@ -11,7 +8,9 @@
   function messageSenderName(message) {
     return String(
       message?.authorName
+      || message?.authorDisplayName
       || message?.senderName
+      || message?.senderDisplayName
       || message?.displayName
       || message?.sender?.displayName
       || message?.sender?.name
@@ -49,47 +48,6 @@
       return result;
     };
   }
-
-  function fixLanguageButtons() {
-    document.documentElement.removeAttribute("data-language");
-    document.querySelectorAll("[data-language]").forEach((element) => {
-      if (!(element instanceof HTMLButtonElement)) {
-        element.removeAttribute("data-language");
-      }
-    });
-  }
-
-  fixLanguageButtons();
-  const languageObserver = new MutationObserver(fixLanguageButtons);
-  languageObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-language"] });
-
-  function installContactsCircuitBreaker() {
-    if (typeof loadSaved !== "function") return;
-    const originalLoadSaved = loadSaved;
-    loadSaved = async function loadSavedWithCircuitBreaker(options = {}) {
-      const force = Boolean(options?.force);
-      if (!force && Date.now() < contactRetryBlockedUntil) return;
-      try {
-        return await originalLoadSaved.call(this, options);
-      } catch (error) {
-        contactRetryBlockedUntil = Date.now() + RETRY_COOLDOWN_MS;
-        throw error;
-      }
-    };
-  }
-
-  installContactsCircuitBreaker();
-
-  const panelObserver = new MutationObserver(() => {
-    if (typeof state === "undefined" || state.activePanel !== "contacts") return;
-    const status = document.querySelector("[data-contact-status]");
-    const text = String(status?.textContent || "").trim();
-    if (/ошиб|error|failed|недоступ/i.test(text)) {
-      contactRetryBlockedUntil = Math.max(contactRetryBlockedUntil, Date.now() + RETRY_COOLDOWN_MS);
-    }
-  });
-  const panelBodyElement = document.querySelector("[data-panel-body]");
-  if (panelBodyElement) panelObserver.observe(panelBodyElement, { childList: true, subtree: true });
 
   decorateGroupMessageAuthors();
 })();
