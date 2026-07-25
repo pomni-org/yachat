@@ -96,7 +96,7 @@ async function patchBrowserRuntime() {
     'rolloutPhase === "encrypted"',
     'text: "",',
     'replyToMessageId: null,',
-    'New protected message'.replace("New protected message", "Новое защищённое сообщение")
+    'headers.set("X-YaChat-E2EE-Runtime", "phase2")'
   ];
   required.forEach((marker) => {
     if (!runtime.includes(marker)) throw new Error(`Missing E2EE phase 2 runtime marker: ${marker}`);
