@@ -29,7 +29,49 @@ async function combineFiles(urls, extraFiles, separator) {
   return chunks.join(separator);
 }
 
+function replaceRequired(content, before, after, label) {
+  if (!content.includes(before)) throw new Error(`Unable to patch ${label}.`);
+  return content.replace(before, after);
+}
+
+async function patchKnownRuntimeBugs() {
+  const appPath = path.join(publicDir, "app.js");
+  let app = await fs.readFile(appPath, "utf8");
+  app = app.replaceAll('document.querySelectorAll("[data-language]")', 'document.querySelectorAll("button[data-language]")');
+  await fs.writeFile(appPath, app, "utf8");
+
+  const contactsPath = path.join(publicDir, "assets", "contacts-sync-v2.js");
+  let contacts = await fs.readFile(contactsPath, "utf8");
+  contacts = replaceRequired(
+    contacts,
+    'const cache = { accountId: "", loaded: false, loading: false, requestId: 0 };',
+    'const cache = { accountId: "", loaded: false, loading: false, requestId: 0, retryAfter: 0 };',
+    "contacts retry state"
+  );
+  contacts = replaceRequired(
+    contacts,
+    '      cache.loaded = false;\n    }\n    if (cache.loading || (cache.loaded && !force)) return;',
+    '      cache.loaded = false;\n      cache.retryAfter = 0;\n    }\n    if (cache.loading || (!force && Date.now() < cache.retryAfter) || (cache.loaded && !force)) return;',
+    "contacts retry guard"
+  );
+  contacts = replaceRequired(
+    contacts,
+    '    cache.loaded = true;\n  }',
+    '    cache.loaded = true;\n    cache.retryAfter = 0;\n  }',
+    "contacts successful retry reset"
+  );
+  contacts = replaceRequired(
+    contacts,
+    '    } catch (error) {\n      if (requestId === cache.requestId) state.contactLookupMessage = message || String(error?.message || error);\n    } finally {',
+    '    } catch (error) {\n      if (requestId === cache.requestId) {\n        state.contactLookupMessage = message || String(error?.message || error);\n        cache.loaded = true;\n        cache.retryAfter = Date.now() + 15_000;\n      }\n    } finally {',
+    "contacts error circuit breaker"
+  );
+  await fs.writeFile(contactsPath, contacts, "utf8");
+}
+
 async function consolidate() {
+  await patchKnownRuntimeBugs();
+
   const webPath = path.join(publicDir, "web.html");
   let html = await fs.readFile(webPath, "utf8");
 
