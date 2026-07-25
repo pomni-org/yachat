@@ -19,6 +19,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Capture backend CI source
+        run: |
+          mkdir -p /tmp/backend-ci-source/workflows
+          cp -R .github/workflows/. /tmp/backend-ci-source/workflows/
+          grep -R -n -E "compact writes|physical deletion|physicallyDeletedIds|backend-writes" .github scripts tests 2>/dev/null > /tmp/backend-ci-source/matches.txt || true
+
+      - name: Upload backend CI source
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-ci-source
+          path: /tmp/backend-ci-source
+          if-no-files-found: error
+          retention-days: 1
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
