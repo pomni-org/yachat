@@ -6,7 +6,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
-const version = "97";
+const version = "98";
 
 function replaceRequired(content, before, after, label) {
   if (!content.includes(before)) throw new Error(`Unable to patch ${label}.`);
@@ -53,8 +53,8 @@ async function patchE2EERuntime() {
   runtime = replaceRequired(
     runtime,
     '  const DB_VERSION = 1;',
-    '  const DB_VERSION = 2;',
-    "WebKit-compatible E2EE database version"
+    '  const DB_VERSION = 3;',
+    "split CryptoKey database version"
   );
 
   runtime = replaceRequired(
@@ -86,32 +86,174 @@ async function patchE2EERuntime() {
 
   runtime = replaceRequired(
     runtime,
-    `      request.onupgradeneeded = () => {
+    `  async function openDatabase() {
+    if (databasePromise) return databasePromise;
+    databasePromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains("devices")) db.createObjectStore("devices", { keyPath: "key" });
         if (!db.objectStoreNames.contains("trust")) db.createObjectStore("trust", { keyPath: "key" });
-      };`,
-    `      request.onupgradeneeded = () => {
-        const db = request.result;
-        // WebKit cannot reliably evaluate an object-store keyPath when the
-        // stored object also contains CryptoKey instances. Keep the record
-        // key outside the encrypted-key object instead.
-        if (db.objectStoreNames.contains("devices")) db.deleteObjectStore("devices");
-        db.createObjectStore("devices");
-        if (!db.objectStoreNames.contains("trust")) db.createObjectStore("trust", { keyPath: "key" });
-      };`,
-    "WebKit CryptoKey object store"
-  );
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Unable to open the E2EE key store."));
+    });
+    return databasePromise;
+  }
 
-  runtime = replaceRequired(
-    runtime,
-    `      const transaction = db.transaction(storeName, "readwrite");
-      transaction.objectStore(storeName).put(value);`,
-    `      const transaction = db.transaction(storeName, "readwrite");
+  async function storeGet(storeName, key) {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeName, "readonly");
+      const request = transaction.objectStore(storeName).get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error("Unable to read the E2EE key store."));
+    });
+  }
+
+  async function storePut(storeName, value) {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeName, "readwrite");
+      transaction.objectStore(storeName).put(value);
+      transaction.oncomplete = () => resolve(value);
+      transaction.onerror = () => reject(transaction.error || new Error("Unable to write the E2EE key store."));
+      transaction.onabort = () => reject(transaction.error || new Error("E2EE key store transaction aborted."));
+    });
+  }`,
+    `  async function openDatabase() {
+    if (databasePromise) return databasePromise;
+    databasePromise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        // WebKit can persist individual CryptoKey values, but is unreliable
+        // when records with keyPath/indexes also contain nested CryptoKeys.
+        if (db.objectStoreNames.contains("devices")) db.deleteObjectStore("devices");
+        if (db.objectStoreNames.contains("cryptoKeys")) db.deleteObjectStore("cryptoKeys");
+        db.createObjectStore("devices");
+        db.createObjectStore("cryptoKeys");
+        if (!db.objectStoreNames.contains("trust")) db.createObjectStore("trust", { keyPath: "key" });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Unable to open the E2EE key store."));
+    });
+    return databasePromise;
+  }
+
+  async function rawStoreGet(storeName, key) {
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeName, "readonly");
+      const request = transaction.objectStore(storeName).get(key);
+      request.onsuccess = () => resolve(request.result ?? null);
+      request.onerror = () => reject(request.error || new Error("Unable to read the E2EE key store."));
+    });
+  }
+
+  async function rawStoreGetMany(storeName, keys) {
+    if (!keys.length) return [];
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeName, "readonly");
       const store = transaction.objectStore(storeName);
-      if (storeName === "devices") store.put(value, value.key);
-      else store.put(value);`,
-    "out-of-line E2EE device key"
+      const values = new Array(keys.length);
+      keys.forEach((key, index) => {
+        const request = store.get(key);
+        request.onsuccess = () => { values[index] = request.result ?? null; };
+        request.onerror = () => reject(request.error || new Error("Unable to read E2EE CryptoKeys."));
+      });
+      transaction.oncomplete = () => resolve(values);
+      transaction.onerror = () => reject(transaction.error || new Error("Unable to read E2EE CryptoKeys."));
+      transaction.onabort = () => reject(transaction.error || new Error("E2EE CryptoKey read aborted."));
+    });
+  }
+
+  async function hydrateDeviceRecord(metadata) {
+    if (!metadata) return null;
+    const refs = [
+      metadata.identityDhPrivateRef,
+      metadata.identitySignPrivateRef,
+      ...(metadata.signedPreKeys || []).map((item) => item.privateKeyRef),
+      ...(metadata.oneTimePreKeys || []).map((item) => item.privateKeyRef)
+    ];
+    const keys = await rawStoreGetMany("cryptoKeys", refs);
+    if (keys.some((key) => !(key instanceof CryptoKey))) {
+      throw new Error("One or more persisted E2EE private keys are unavailable.");
+    }
+    let offset = 0;
+    const identityDhPrivate = keys[offset++];
+    const identitySignPrivate = keys[offset++];
+    const signedPreKeys = (metadata.signedPreKeys || []).map((item) => ({
+      ...item,
+      privateKey: keys[offset++]
+    }));
+    const oneTimePreKeys = (metadata.oneTimePreKeys || []).map((item) => ({
+      ...item,
+      privateKey: keys[offset++]
+    }));
+    return {
+      ...metadata,
+      identityDhPrivate,
+      identitySignPrivate,
+      signedPreKeys,
+      oneTimePreKeys
+    };
+  }
+
+  async function storeGet(storeName, key) {
+    const value = await rawStoreGet(storeName, key);
+    return storeName === "devices" ? hydrateDeviceRecord(value) : value;
+  }
+
+  async function storePut(storeName, value) {
+    if (storeName !== "devices") {
+      const db = await openDatabase();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction(storeName, "readwrite");
+        transaction.objectStore(storeName).put(value);
+        transaction.oncomplete = () => resolve(value);
+        transaction.onerror = () => reject(transaction.error || new Error("Unable to write the E2EE key store."));
+        transaction.onabort = () => reject(transaction.error || new Error("E2EE key store transaction aborted."));
+      });
+    }
+
+    const identityDhPrivateRef = \`\${value.key}:identity-dh\`;
+    const identitySignPrivateRef = \`\${value.key}:identity-sign\`;
+    const signedPreKeys = (value.signedPreKeys || []).map((item) => {
+      const privateKeyRef = \`\${value.key}:signed:\${item.id}\`;
+      return { ...item, privateKeyRef };
+    });
+    const oneTimePreKeys = (value.oneTimePreKeys || []).map((item) => {
+      const privateKeyRef = \`\${value.key}:one-time:\${item.id}\`;
+      return { ...item, privateKeyRef };
+    });
+    const metadata = {
+      ...value,
+      identityDhPrivateRef,
+      identitySignPrivateRef,
+      signedPreKeys: signedPreKeys.map(({ privateKey, ...item }) => item),
+      oneTimePreKeys: oneTimePreKeys.map(({ privateKey, ...item }) => item)
+    };
+    delete metadata.identityDhPrivate;
+    delete metadata.identitySignPrivate;
+
+    const db = await openDatabase();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(["devices", "cryptoKeys"], "readwrite");
+      const deviceStore = transaction.objectStore("devices");
+      const keyStore = transaction.objectStore("cryptoKeys");
+      keyStore.put(value.identityDhPrivate, identityDhPrivateRef);
+      keyStore.put(value.identitySignPrivate, identitySignPrivateRef);
+      signedPreKeys.forEach((item, index) => keyStore.put(value.signedPreKeys[index].privateKey, item.privateKeyRef));
+      oneTimePreKeys.forEach((item, index) => keyStore.put(value.oneTimePreKeys[index].privateKey, item.privateKeyRef));
+      deviceStore.put(metadata, value.key);
+      transaction.oncomplete = () => resolve(value);
+      transaction.onerror = () => reject(transaction.error || new Error("Unable to persist E2EE private keys."));
+      transaction.onabort = () => reject(transaction.error || new Error("E2EE private-key transaction aborted."));
+    });
+  }`,
+    "split WebKit CryptoKey persistence"
   );
 
   runtime = replaceRequired(
@@ -126,7 +268,7 @@ async function patchE2EERuntime() {
     || runtime.includes("const currentDeviceId = deviceId();")
     || runtime.includes('createObjectStore("devices", { keyPath: "key" })')
   ) {
-    throw new Error("E2EE runtime still contains an unsafe device identity or WebKit keyPath store.");
+    throw new Error("E2EE runtime still contains an unsafe identity or nested CryptoKey store.");
   }
 
   await fs.writeFile(runtimePath, runtime, "utf8");
