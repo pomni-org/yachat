@@ -79,6 +79,10 @@
       "destination": "/api/digital_id_blocked.py"
     },
     {
+      "source": "/api/e2ee/(.*)",
+      "destination": "/api/message.py"
+    },
+    {
       "source": "/api/message/delete",
       "destination": "/api/message.py"
     },

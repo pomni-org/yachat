@@ -1,0 +1,108 @@
+name: E2EE integration
+
+on:
+  push:
+    branches:
+      - agent/e2ee-foundation
+      - agent/e2ee-foundation-clean
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-e2ee:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install app and browser test dependency
+        run: |
+          npm install
+          npm install --no-save playwright@1.59.1
+          npx playwright install --with-deps chromium webkit
+
+      - name: Build production files
+        run: npm run build:vercel
+
+      - name: Create isolated browser fixture
+        run: |
+          cat > public/e2ee-browser-fixture.html <<'HTML'
+          <!doctype html>
+          <html lang="ru">
+            <head><meta charset="utf-8"><title>E2EE runtime test</title></head>
+            <body>
+              <script>
+                localStorage.setItem("yachat-http-auth-token", "test-token");
+                const state = {
+                  account: { id: "account-test", username: "test" },
+                  chats: [{
+                    id: "private-test-chat",
+                    kind: "private",
+                    participantIds: ["account-test"]
+                  }]
+                };
+              </script>
+              <script src="/assets/e2ee-runtime.js?v=97"></script>
+            </body>
+          </html>
+          HTML
+
+      - name: Start fixture server
+        run: |
+          python3 -m http.server 4173 --directory public > /tmp/e2ee-http.log 2>&1 &
+          echo $! > /tmp/e2ee-http.pid
+          for attempt in {1..20}; do
+            curl -fsS http://127.0.0.1:4173/e2ee-browser-fixture.html >/dev/null && break
+            sleep 0.25
+          done
+
+      - name: Run Chromium round-trip
+        run: |
+          set +e
+          E2EE_TEST_BROWSER=chromium E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs > /tmp/e2ee-chromium.log 2>&1
+          exit_code=$?
+          echo "$exit_code" > /tmp/e2ee-chromium.exit
+          cat /tmp/e2ee-chromium.log
+          exit 0
+
+      - name: Run WebKit round-trip
+        run: |
+          set +e
+          E2EE_TEST_BROWSER=webkit E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs > /tmp/e2ee-webkit.log 2>&1
+          exit_code=$?
+          echo "$exit_code" > /tmp/e2ee-webkit.exit
+          cat /tmp/e2ee-webkit.log
+          exit 0
+
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2ee-browser-diagnostics
+          path: |
+            /tmp/e2ee-chromium.log
+            /tmp/e2ee-webkit.log
+            /tmp/e2ee-chromium.exit
+            /tmp/e2ee-webkit.exit
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Require both browser tests
+        run: |
+          chromium_code="$(cat /tmp/e2ee-chromium.exit)"
+          webkit_code="$(cat /tmp/e2ee-webkit.exit)"
+          test "$chromium_code" = "0"
+          test "$webkit_code" = "0"
+
+      - name: Stop fixture server
+        if: always()
+        run: kill "$(cat /tmp/e2ee-http.pid)" || true
