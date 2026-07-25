@@ -273,6 +273,15 @@ async function patchServerCompatibility() {
 async function patchMessageApiSecurity() {
   const apiPath = path.join(root, "api", "message.py");
   let source = await fs.readFile(apiPath, "utf8");
+
+  source = replaceAllRequired(
+    source,
+    `          and updated_at > now() - interval '{_DEVICE_RETENTION_DAYS} days'`,
+    `          and last_seen_at > now() - interval '{_DEVICE_RETENTION_DAYS} days'`,
+    2,
+    "active device heartbeat filtering"
+  );
+
   source = replaceRequired(
     source,
     `                if existing and existing.get("revoked_at") is None:
@@ -281,8 +290,12 @@ async function patchMessageApiSecurity() {
                     if (`,
     "immutable device identity"
   );
-  if (!source.includes("This device identity changed. Revoke the old E2EE device before replacing it.")) {
-    throw new Error("Device identity replacement protection is missing.");
+
+  if (
+    !source.includes("This device identity changed. Revoke the old E2EE device before replacing it.")
+    || source.includes("and updated_at > now() - interval '{_DEVICE_RETENTION_DAYS} days'")
+  ) {
+    throw new Error("Message API E2EE device security patch is incomplete.");
   }
   await fs.writeFile(apiPath, source, "utf8");
 }
