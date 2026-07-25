@@ -6,10 +6,10 @@
   "private": true,
   "scripts": {
     "brand": "node scripts/generate-brand-assets.cjs",
-    "build": "node scripts/build-vercel.cjs && node scripts/finalize-public-web.cjs && node scripts/stabilize-web-runtime.cjs",
-    "build:vercel": "node scripts/build-vercel.cjs && node scripts/finalize-public-web.cjs && node scripts/stabilize-web-runtime.cjs",
+    "build": "node scripts/build-vercel.cjs && node scripts/finalize-public-web.cjs && node scripts/stabilize-web-runtime.cjs && node scripts/finalize-e2ee-webkit.cjs",
+    "build:vercel": "node scripts/build-vercel.cjs && node scripts/finalize-public-web.cjs && node scripts/stabilize-web-runtime.cjs && node scripts/finalize-e2ee-webkit.cjs",
     "start": "npm run brand && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-electron.ps1",
     "launch": "npm run brand && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/launch-yachat.ps1",
-    "check": "node --check scripts/generate-brand-assets.cjs && node --check scripts/build-vercel.cjs && node --check scripts/finalize-public-web.cjs && node --check scripts/stabilize-web-runtime.cjs && node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js && node --check src/renderer/sw.js && node --check src/renderer/assets/pawlight-fixes.js"
+    "check": "node --check scripts/generate-brand-assets.cjs && node --check scripts/build-vercel.cjs && node --check scripts/finalize-public-web.cjs && node --check scripts/stabilize-web-runtime.cjs && node --check scripts/finalize-e2ee-webkit.cjs && node --check src/main.cjs && node --check src/preload.cjs && node --check src/renderer/app.js && node --check src/renderer/sw.js && node --check src/renderer/assets/pawlight-fixes.js"
   }
 }
