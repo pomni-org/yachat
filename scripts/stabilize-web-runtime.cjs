@@ -6,7 +6,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
-const version = "96";
+const version = "97";
 
 function replaceRequired(content, before, after, label) {
   if (!content.includes(before)) throw new Error(`Unable to patch ${label}.`);
@@ -52,6 +52,13 @@ async function patchE2EERuntime() {
 
   runtime = replaceRequired(
     runtime,
+    '  const DB_VERSION = 1;',
+    '  const DB_VERSION = 2;',
+    "WebKit-compatible E2EE database version"
+  );
+
+  runtime = replaceRequired(
+    runtime,
     `  function deviceId() {
     const existing = safeStorageGet(DEVICE_ID_KEY).trim() || safeStorageGet(PUSH_DEVICE_ID_KEY).trim();
     if (/^[A-Za-z0-9._:-]{8,128}$/.test(existing)) {
@@ -79,13 +86,47 @@ async function patchE2EERuntime() {
 
   runtime = replaceRequired(
     runtime,
+    `      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains("devices")) db.createObjectStore("devices", { keyPath: "key" });
+        if (!db.objectStoreNames.contains("trust")) db.createObjectStore("trust", { keyPath: "key" });
+      };`,
+    `      request.onupgradeneeded = () => {
+        const db = request.result;
+        // WebKit cannot reliably evaluate an object-store keyPath when the
+        // stored object also contains CryptoKey instances. Keep the record
+        // key outside the encrypted-key object instead.
+        if (db.objectStoreNames.contains("devices")) db.deleteObjectStore("devices");
+        db.createObjectStore("devices");
+        if (!db.objectStoreNames.contains("trust")) db.createObjectStore("trust", { keyPath: "key" });
+      };`,
+    "WebKit CryptoKey object store"
+  );
+
+  runtime = replaceRequired(
+    runtime,
+    `      const transaction = db.transaction(storeName, "readwrite");
+      transaction.objectStore(storeName).put(value);`,
+    `      const transaction = db.transaction(storeName, "readwrite");
+      const store = transaction.objectStore(storeName);
+      if (storeName === "devices") store.put(value, value.key);
+      else store.put(value);`,
+    "out-of-line E2EE device key"
+  );
+
+  runtime = replaceRequired(
+    runtime,
     "      const currentDeviceId = deviceId();",
     "      const currentDeviceId = deviceId(accountId);",
     "account-scoped device id call"
   );
 
-  if (runtime.includes("PUSH_DEVICE_ID_KEY") || runtime.includes("const currentDeviceId = deviceId();")) {
-    throw new Error("E2EE runtime still shares the push installation identity.");
+  if (
+    runtime.includes("PUSH_DEVICE_ID_KEY")
+    || runtime.includes("const currentDeviceId = deviceId();")
+    || runtime.includes('createObjectStore("devices", { keyPath: "key" })')
+  ) {
+    throw new Error("E2EE runtime still contains an unsafe device identity or WebKit keyPath store.");
   }
 
   await fs.writeFile(runtimePath, runtime, "utf8");
