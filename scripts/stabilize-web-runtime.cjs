@@ -6,7 +6,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
-const version = "95";
+const version = "96";
 
 function replaceRequired(content, before, after, label) {
   if (!content.includes(before)) throw new Error(`Unable to patch ${label}.`);
@@ -39,6 +39,58 @@ async function patchDatabaseResilience() {
   await execFileAsync(process.execPath, ["--check", resiliencePath]);
 }
 
+async function patchE2EERuntime() {
+  const runtimePath = path.join(publicDir, "assets", "e2ee-runtime.js");
+  let runtime = await fs.readFile(runtimePath, "utf8");
+
+  runtime = replaceRequired(
+    runtime,
+    '  const DEVICE_ID_KEY = "yachat-e2ee-device-id-v1";\n  const PUSH_DEVICE_ID_KEY = "yachat-push-installation-id-v1";',
+    '  const DEVICE_ID_KEY_PREFIX = "yachat-e2ee-device-id-v1:";',
+    "separate E2EE and push device identities"
+  );
+
+  runtime = replaceRequired(
+    runtime,
+    `  function deviceId() {
+    const existing = safeStorageGet(DEVICE_ID_KEY).trim() || safeStorageGet(PUSH_DEVICE_ID_KEY).trim();
+    if (/^[A-Za-z0-9._:-]{8,128}$/.test(existing)) {
+      safeStorageSet(DEVICE_ID_KEY, existing);
+      if (!safeStorageGet(PUSH_DEVICE_ID_KEY)) safeStorageSet(PUSH_DEVICE_ID_KEY, existing);
+      return existing;
+    }
+    const created = randomId("device");
+    safeStorageSet(DEVICE_ID_KEY, created);
+    if (!safeStorageGet(PUSH_DEVICE_ID_KEY)) safeStorageSet(PUSH_DEVICE_ID_KEY, created);
+    return created;
+  }`,
+    `  function deviceId(accountId) {
+    const accountScope = String(accountId || "").trim();
+    if (!accountScope) throw new Error("E2EE device identity requires an account.");
+    const storageKey = \`\${DEVICE_ID_KEY_PREFIX}\${accountScope}\`;
+    const existing = safeStorageGet(storageKey).trim();
+    if (/^[A-Za-z0-9._:-]{8,128}$/.test(existing)) return existing;
+    const created = randomId("e2ee-device");
+    safeStorageSet(storageKey, created);
+    return created;
+  }`,
+    "per-account E2EE device id"
+  );
+
+  runtime = replaceRequired(
+    runtime,
+    "      const currentDeviceId = deviceId();",
+    "      const currentDeviceId = deviceId(accountId);",
+    "account-scoped device id call"
+  );
+
+  if (runtime.includes("PUSH_DEVICE_ID_KEY") || runtime.includes("const currentDeviceId = deviceId();")) {
+    throw new Error("E2EE runtime still shares the push installation identity.");
+  }
+
+  await fs.writeFile(runtimePath, runtime, "utf8");
+}
+
 async function patchMessengerE2EEPayloads() {
   const messengerPath = path.join(root, "api", "messenger_fast.py");
   let messenger = await fs.readFile(messengerPath, "utf8");
@@ -67,6 +119,7 @@ async function patchMessengerE2EEPayloads() {
 
 async function main() {
   await patchDatabaseResilience();
+  await patchE2EERuntime();
   await patchMessengerE2EEPayloads();
   await execFileAsync(process.execPath, [path.join(root, "scripts", "test-e2ee-crypto.mjs")]);
 
