@@ -3,13 +3,14 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const apiPath = path.join(root, "api", "index.py");
+const fastPath = path.join(root, "api", "messenger_fast.py");
 
 function replaceRequired(content, before, after, label) {
   if (!content.includes(before)) throw new Error(`Unable to patch ${label}.`);
   return content.replace(before, after);
 }
 
-async function main() {
+async function patchCoreApi() {
   let source = await fs.readFile(apiPath, "utf8");
 
   const encryptedMarker = '        "encrypted": True,';
@@ -82,10 +83,66 @@ async function main() {
     throw new Error("The public API does not report the E2EE phase 2 rollout honestly.");
   }
   if (source.split('"e2eePolicy"').length - 1 < 2) {
-    throw new Error("Chat E2EE policy is missing from API responses.");
+    throw new Error("Chat E2EE policy is missing from core API responses.");
   }
 
   await fs.writeFile(apiPath, source, "utf8");
+}
+
+async function patchFastMessenger() {
+  let source = await fs.readFile(fastPath, "utf8");
+
+  source = replaceRequired(
+    source,
+    `                    c.pinned, c.can_send, c.invite_code, c.created_at, c.updated_at`,
+    `                    c.pinned, c.can_send, c.invite_code, c.created_at, c.updated_at,
+                    c.e2ee_policy, c.e2ee_epoch_id, c.e2ee_enabled_at`,
+    "fast chat E2EE fields"
+  );
+
+  source = replaceRequired(
+    source,
+    `                    m.text,
+                    m.created_at,`,
+    `                    m.text,
+                    m.e2ee_mode,
+                    m.created_at,`,
+    "fast encrypted chat preview mode"
+  );
+
+  source = replaceRequired(
+    source,
+    `                        "description": str(row_value(chat, "description")),`,
+    `                        "description": str(row_value(chat, "description")),
+                        "e2eePolicy": str(row_value(chat, "e2ee_policy")) or "legacy",
+                        "e2eeEpochId": str(row_value(chat, "e2ee_epoch_id")),
+                        "e2eeEnabledAt": row_value(chat, "e2ee_enabled_at") or None,`,
+    "fast chat E2EE policy projection"
+  );
+
+  source = replaceRequired(
+    source,
+    `                        "lastMessage": str(row_value(last, "text"))
+                        or _attachment_label(str(row_value(last, "attachment_kind"))),`,
+    `                        "lastMessage": (
+                            _attachment_label(str(row_value(last, "attachment_kind")))
+                            or "Защищённое сообщение"
+                            if str(row_value(last, "e2ee_mode")) == "encrypted"
+                            else str(row_value(last, "text"))
+                            or _attachment_label(str(row_value(last, "attachment_kind")))
+                        ),`,
+    "fast protected chat preview"
+  );
+
+  if (!source.includes('"e2eePolicy"') || !source.includes("m.e2ee_mode")) {
+    throw new Error("Fast messenger E2EE policy projection is incomplete.");
+  }
+  await fs.writeFile(fastPath, source, "utf8");
+}
+
+async function main() {
+  await patchCoreApi();
+  await patchFastMessenger();
 }
 
 main().catch((error) => {
