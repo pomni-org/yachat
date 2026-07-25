@@ -148,8 +148,7 @@ async function validatePublicBundle() {
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
   requireText(web, "/assets/private-chat-presence.js?v=88", "v88 private chat runtime");
   requireText(web, "/assets/yachat-brand-256.png?v=88", "absolute web brand asset");
-  requireText(web, "/assets/privacy-safe-analytics.js?v=88", "privacy-safe analytics sanitizer");
-  requireText(web, "/_vercel/insights/script.js", "Vercel analytics script");
+  requireText(web, "/assets/analytics-init.mjs?v=88", "Vercel Web Analytics initialization");
   requireText(web, 'name="referrer" content="origin"', "privacy-safe referrer policy");
   requireText(web, BOOTSTRAP_QUICK_BRIDGE_TAG.trim(), "quick bootstrap bridge");
   requireText(web, ACTIVE_CHAT_GUARD_TAG.trim(), "active chat identity guard");

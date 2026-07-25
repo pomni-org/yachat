@@ -196,8 +196,7 @@ function assetTags(kind, names) {
 function analyticsTags() {
   return [
     '    <meta name="referrer" content="origin" />',
-    `    <script src="/assets/privacy-safe-analytics.js?v=${BRAND_VERSION}"></script>`,
-    '    <script defer src="/_vercel/insights/script.js"></script>'
+    `    <script type="module" src="/assets/analytics-init.mjs?v=${BRAND_VERSION}"></script>`
   ].join("\n");
 }
 

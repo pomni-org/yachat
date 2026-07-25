@@ -1781,11 +1781,11 @@ function chatProfileUrl(chat) {
   }
 
   if (chat?.id === "yachat-codes") {
-    return "https://yachat.vercel.app/verificationcodes_bot";
+    return "https://yachat.eu.org/web/verificationcodes_bot";
   }
 
   if (chat?.id === "yachat-channel") {
-    return "https://yachat.vercel.app/yachat_channel";
+    return "https://yachat.eu.org/web/yachat_channel";
   }
 
   if (chat?.kind === "group" || chat?.id === "yachat-favorites") {
@@ -1793,7 +1793,7 @@ function chatProfileUrl(chat) {
   }
 
   const username = chatProfileUsername(chat);
-  return username ? `https://yachat.vercel.app/${encodeURIComponent(username)}` : cleanDisplayText(chat?.inviteUrl || chat?.inviteCode, "");
+  return username ? `https://yachat.eu.org/web/${encodeURIComponent(username)}` : cleanDisplayText(chat?.inviteUrl || chat?.inviteCode, "");
 }
 
 function chatProfileAboutTitle(chat) {
@@ -3539,7 +3539,7 @@ function renderVerified(entity) {
 
   return `
     <span class="verified-mark-button" role="button" tabindex="0" title="${escapeHtml(meta.title)}" aria-label="${escapeHtml(meta.title)}" data-verified-info data-verified-title="${escapeHtml(meta.title)}" data-verified-description="${escapeHtml(meta.description)}">
-      <img class="verified-mark" src="./assets/verified-badge.png" alt="" />
+      <img class="verified-mark" src="/assets/verified-badge.png" alt="" />
     </span>
   `;
 }
@@ -3556,7 +3556,7 @@ function showInfoModal(title, description) {
         <button class="icon-button" type="button" data-info-close aria-label="${escapeHtml(t("cancel"))}">
           ${iconSvg("x")}
         </button>
-        <img class="info-modal-badge" src="./assets/verified-badge.png" alt="" />
+        <img class="info-modal-badge" src="/assets/verified-badge.png" alt="" />
         <h2 data-info-title></h2>
         <p data-info-text></p>
       </div>
@@ -3687,7 +3687,8 @@ function currentRoutePath() {
     return "";
   }
 
-  return decodeURIComponent(window.location.pathname || "/").replace(/^\/+|\/+$/g, "");
+  const pathname = decodeURIComponent(window.location.pathname || "/");
+  return pathname.replace(/^\/web(?:\/|$)/i, "/").replace(/^\/+|\/+$/g, "");
 }
 
 function routeNeeds404Check() {
@@ -6345,7 +6346,7 @@ function createLocalYachatApi() {
           subtitle: "Ваши одноразовые коды от банков, магазинов и сервисов",
           description: "Ваши одноразовые коды от банков, магазинов и сервисов",
           profileUsername: "verificationcodes_bot",
-          profileUrl: "https://yachat.vercel.app/verificationcodes_bot",
+          profileUrl: "https://yachat.eu.org/web/verificationcodes_bot",
           profileAbout: "Ваши одноразовые коды от банков, магазинов и сервисов",
           profileKindLabel: "Системный бот",
           locked: true,
@@ -6364,7 +6365,7 @@ function createLocalYachatApi() {
           title: "ЯЧат",
           subtitle: "Системный канал",
           profileUsername: "yachat_channel",
-          profileUrl: "https://yachat.vercel.app/yachat_channel",
+          profileUrl: "https://yachat.eu.org/web/yachat_channel",
           profileAbout: "Системный канал ЯЧата: новости приложения, изменения и служебные объявления.",
           profileKindLabel: "Системный канал",
           ownerId: SYSTEM_OWNER.id,
@@ -6377,7 +6378,7 @@ function createLocalYachatApi() {
           pinned: true,
           canSend: false,
           avatar: "channel",
-          avatarDataUrl: "./assets/yachat-icon-square.png",
+          avatarDataUrl: "/assets/yachat-icon-square.png",
           createdAt
         }
       ],
@@ -7746,7 +7747,7 @@ function routeUsernameFromLocation() {
     return "";
   }
 
-  const path = decodeURIComponent(window.location.pathname || "/").replace(/^\/+|\/+$/g, "");
+  const path = currentRoutePath();
   if (!path || path.includes("/") || standaloneRoutePaths.has(path.toLowerCase())) {
     return "";
   }
@@ -7775,12 +7776,18 @@ function routeUsernameForChat(chat) {
   return chat.kind === "private" ? normalizeUsername(chatProfileUsername(chat)) : "";
 }
 
+function appRoutePath(path = "/") {
+  const source = String(path || "/");
+  const normalized = source.startsWith("/") ? source : `/${source}`;
+  return normalized === "/" ? "/web" : `/web${normalized}`;
+}
+
 function replaceAppRoute(path = "/") {
   if (!canUseHistoryRoutes()) {
     return;
   }
 
-  const nextUrl = new URL(path, window.location.origin);
+  const nextUrl = new URL(appRoutePath(path), window.location.origin);
   if (nextUrl.pathname !== window.location.pathname || nextUrl.search !== window.location.search) {
     window.history.replaceState({}, "", nextUrl.href);
   }
@@ -7793,7 +7800,7 @@ function updateChatRoute(chat, options = {}) {
 
   const username = routeUsernameForChat(chat);
   const nextPath = username ? `/${encodeURIComponent(username)}` : "/";
-  const nextUrl = new URL(nextPath, window.location.origin);
+  const nextUrl = new URL(appRoutePath(nextPath), window.location.origin);
   if (nextUrl.pathname === window.location.pathname && !window.location.search) {
     return;
   }

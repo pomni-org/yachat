@@ -1,0 +1,105 @@
+/* Mobile chat occupies the whole viewport. Navigation returns with the lists. */
+@media (max-width: 640px) {
+  body.mobile-dialog-open .messenger-shell,
+  body.yachat-mobile-chat-view .messenger-shell,
+  body.chat-profile-open .messenger-shell {
+    grid-template-rows: minmax(0, 1fr) !important;
+  }
+
+  body.mobile-dialog-open .messenger-rail,
+  body.yachat-mobile-chat-view .messenger-rail,
+  body.chat-profile-open .messenger-rail {
+    display: none !important;
+  }
+
+  body.mobile-dialog-open .dialog-pane,
+  body.yachat-mobile-chat-view .dialog-pane {
+    grid-row: 1 !important;
+    height: 100dvh !important;
+    min-height: 0 !important;
+  }
+
+  body.mobile-dialog-open .side-panel,
+  body.yachat-mobile-chat-view .side-panel {
+    bottom: 0 !important;
+  }
+
+  body.mobile-dialog-open .action-feedback,
+  body.yachat-mobile-chat-view .action-feedback {
+    bottom: max(72px, calc(env(safe-area-inset-bottom) + 66px)) !important;
+  }
+}
+
+/* The editor grows upward, then becomes an internal native scroller. */
+.composer[data-form="message"] .message-editor[data-rich-message-editor] {
+  min-height: var(--composer-control, 46px) !important;
+  max-height: 132px !important;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+  border-radius: 24px !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+  -webkit-overflow-scrolling: touch;
+  transition: border-radius 140ms ease !important;
+}
+
+.composer[data-form="message"] .message-editor[data-rich-message-editor].is-multiline {
+  border-radius: 19px !important;
+}
+
+.composer[data-form="message"] .message-editor[data-rich-message-editor].is-scrollable {
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  border-radius: 16px !important;
+}
+
+body.yachat-ios-native-formatting .message-editor[data-ios-native-formatting] {
+  -webkit-user-select: text !important;
+  user-select: text !important;
+  -webkit-touch-callout: default !important;
+  caret-color: var(--accent) !important;
+}
+
+/* iOS provides its own Format action in the text-selection menu. */
+body.yachat-ios-native-formatting .rich-selection-toolbar {
+  display: none !important;
+}
+
+body.yachat-ios-native-formatting .settings-toggle-row {
+  cursor: pointer;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+body.yachat-ios-native-formatting .settings-toggle-row .settings-switch {
+  flex: 0 0 46px;
+  pointer-events: none;
+  transform: translateZ(0);
+  transition: background-color 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms ease !important;
+}
+
+body.yachat-ios-native-formatting .settings-toggle-row .settings-switch::after {
+  transform: translate3d(0,0,0) scale(1);
+  will-change: transform;
+  transition: transform 180ms cubic-bezier(.2,.85,.25,1.15) !important;
+}
+
+body.yachat-ios-native-formatting .settings-toggle-row.is-on .settings-switch {
+  background: var(--accent) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent), transparent 68%);
+}
+
+body.yachat-ios-native-formatting .settings-toggle-row.is-on .settings-switch::after {
+  transform: translate3d(18px,0,0) scale(1);
+}
+
+body.yachat-ios-native-formatting .settings-toggle-row.is-pressing .settings-switch::after {
+  transform: translate3d(0,0,0) scale(.88);
+}
+
+body.yachat-ios-native-formatting .settings-toggle-row.is-on.is-pressing .settings-switch::after {
+  transform: translate3d(18px,0,0) scale(.88);
+}

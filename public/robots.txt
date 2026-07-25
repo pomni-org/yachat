@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /web
+Disallow: /web/
+Disallow: /chats/
+Disallow: /profile/
+Disallow: /settings/
+Disallow: /admin/
+Disallow: /api/
+
+Sitemap: https://yachat.eu.org/sitemap.xml
