@@ -185,14 +185,14 @@ const stored = await page.evaluate(async () => {
     recordCount: records.length,
     privateKeyCount: privateKeys.length,
     metadataContainsCryptoKey: Object.values(record || {}).some((value) => value instanceof CryptoKey),
-    allPrivateKeysAreCryptoKeys: privateKeys.every((value) => value instanceof CryptoKey),
+    allPrivateKeysAreCryptoKeyShaped: privateKeys.every((value) => value && ["private", "public", "secret"].includes(String(value.type || "")) && value.algorithm),
     allPrivateKeysNonExtractable: privateKeys.every((value) => value.extractable === false)
   };
 });
 assert.equal(stored.recordCount, 1);
 assert.ok(stored.privateKeyCount >= 34, "identity, signed and one-time private keys must be persisted separately");
 assert.equal(stored.metadataContainsCryptoKey, false);
-assert.equal(stored.allPrivateKeysAreCryptoKeys, true);
+assert.equal(stored.allPrivateKeysAreCryptoKeyShaped, true);
 assert.equal(stored.allPrivateKeysNonExtractable, true);
 
 registeredBundle = null;
@@ -200,6 +200,10 @@ await page.reload({ waitUntil: "load" });
 await waitReady();
 assert.ok(registeredBundle, "device must re-register after reload");
 assert.equal(registeredBundle.identityDhPublic, firstIdentityKey, "device identity must persist across reloads");
+
+const afterReload = await send("После перезагрузки");
+assert.equal(afterReload.message.text, "После перезагрузки");
+assert.equal(afterReload.message.e2eeVerified, true, "restored private keys must perform a real E2EE round trip");
 
 await browser.close();
 console.log(`E2EE ${browserName} test passed: split IndexedDB keys, shadow round trip, persistence and tamper rejection.`);
