@@ -132,7 +132,20 @@ async function patchServerCompatibility() {
     "phase 1 server AAD compatibility"
   );
 
-  if (!source.includes("accepted_legacy_shadow") || !source.includes('mode == "encrypted" and version < 2')) {
+  source = replaceRequired(
+    source,
+    `        str(parsed["plaintextDigest"]),
+        str(parsed["epochId"]),`,
+    `        str(parsed["plaintextDigest"]),
+        str(parsed["epochId"]) or None,`,
+    "nullable legacy E2EE epoch"
+  );
+
+  if (
+    !source.includes("accepted_legacy_shadow")
+    || !source.includes('mode == "encrypted" and version < 2')
+    || !source.includes('str(parsed["epochId"]) or None')
+  ) {
     throw new Error("Server E2EE version compatibility is incomplete.");
   }
   await fs.writeFile(serverPath, source, "utf8");
