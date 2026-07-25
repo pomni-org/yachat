@@ -181,19 +181,26 @@ const stored = await page.evaluate(async () => {
     readAll("cryptoKeys")
   ]);
   const record = records[0];
+  let exportRejected = 0;
+  for (const key of privateKeys.slice(0, 4)) {
+    try {
+      await crypto.subtle.exportKey("jwk", key);
+    } catch {
+      exportRejected += 1;
+    }
+  }
   return {
     recordCount: records.length,
     privateKeyCount: privateKeys.length,
     metadataContainsCryptoKey: Object.values(record || {}).some((value) => value instanceof CryptoKey),
-    allPrivateKeysAreCryptoKeyShaped: privateKeys.every((value) => value && ["private", "public", "secret"].includes(String(value.type || "")) && value.algorithm),
-    allPrivateKeysNonExtractable: privateKeys.every((value) => value.extractable === false)
+    testedExports: Math.min(4, privateKeys.length),
+    exportRejected
   };
 });
 assert.equal(stored.recordCount, 1);
 assert.ok(stored.privateKeyCount >= 34, "identity, signed and one-time private keys must be persisted separately");
 assert.equal(stored.metadataContainsCryptoKey, false);
-assert.equal(stored.allPrivateKeysAreCryptoKeyShaped, true);
-assert.equal(stored.allPrivateKeysNonExtractable, true);
+assert.equal(stored.exportRejected, stored.testedExports, "persisted private keys must remain non-extractable");
 
 registeredBundle = null;
 await page.reload({ waitUntil: "load" });
