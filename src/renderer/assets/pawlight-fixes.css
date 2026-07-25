@@ -1,0 +1,85 @@
+/* Pawlight audit fixes: mobile geometry, tap targets and group authors. */
+.message-author {
+  margin: 0 0 3px;
+  font-size: 0.78rem;
+  line-height: 1.2;
+  font-weight: 700;
+  color: var(--accent, #5b5ce2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-button,
+.dialog-back,
+.dialog-search,
+.icon-button,
+.round-action,
+.composer-tool,
+.send-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.link-button,
+.legal-note button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer {
+  padding-bottom: max(10px, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 900px) and (min-height: 620px) {
+  .dialog-back {
+    display: none !important;
+  }
+}
+
+@media (max-height: 619px), (max-width: 700px) {
+  .messenger-shell {
+    grid-template-columns: 1fr !important;
+    min-height: 100dvh;
+    height: 100dvh;
+  }
+
+  .messenger-rail,
+  .chat-pane,
+  .dialog-pane,
+  .side-panel {
+    min-height: 0;
+    max-height: 100dvh;
+  }
+
+  .dialog-pane {
+    width: 100%;
+    min-width: 0;
+    height: 100dvh;
+  }
+
+  .dialog-wall {
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .composer {
+    position: sticky;
+    bottom: 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .messenger-rail,
+  .chat-pane {
+    display: none !important;
+  }
+
+  .dialog-back {
+    display: inline-flex !important;
+  }
+}
