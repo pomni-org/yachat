@@ -73,6 +73,7 @@ await page.route("**/api/message", async (route) => {
   assert.equal(body.e2ee.envelopes.length, 1);
   assert.equal(JSON.stringify(body).includes("identityDhPrivate"), false);
   assert.equal(JSON.stringify(body).includes("identitySignPrivate"), false);
+  assert.equal(JSON.stringify(body).includes("privateJwk"), false);
 
   const e2ee = structuredClone(body.e2ee);
   if (messageRequests === 2) {
@@ -163,44 +164,38 @@ assert.equal(tampered.message.e2eeVerified, false, "tampered ciphertext must fai
 await page.waitForFunction(() => window.__yachatE2EE?.verificationFailures >= 1);
 
 const stored = await page.evaluate(async () => {
-  const request = indexedDB.open("yachat-e2ee-v1", 3);
+  const request = indexedDB.open("yachat-e2ee-v1", 4);
   const db = await new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-
-  const readAll = (storeName) => new Promise((resolve, reject) => {
-    const transaction = db.transaction(storeName, "readonly");
-    const getAll = transaction.objectStore(storeName).getAll();
+  const transaction = db.transaction("devices", "readonly");
+  const getAll = transaction.objectStore("devices").getAll();
+  const records = await new Promise((resolve, reject) => {
     getAll.onsuccess = () => resolve(getAll.result);
     getAll.onerror = () => reject(getAll.error);
   });
-
-  const [records, privateKeys] = await Promise.all([
-    readAll("devices"),
-    readAll("cryptoKeys")
-  ]);
-  const record = records[0];
-  let exportRejected = 0;
-  for (const key of privateKeys.slice(0, 4)) {
-    try {
-      await crypto.subtle.exportKey("jwk", key);
-    } catch {
-      exportRejected += 1;
-    }
-  }
+  const record = records[0] || {};
+  const serialized = JSON.stringify(record);
+  const vaultSecretKeys = Object.keys(localStorage).filter((key) => key.startsWith("yachat-e2ee-vault-secret-v1:"));
   return {
     recordCount: records.length,
-    privateKeyCount: privateKeys.length,
-    metadataContainsCryptoKey: Object.values(record || {}).some((value) => value instanceof CryptoKey),
-    testedExports: Math.min(4, privateKeys.length),
-    exportRejected
+    hasLegacyCryptoKeyStore: db.objectStoreNames.contains("cryptoKeys"),
+    hasVault: Number(record.privateVault?.version) === 1
+      && typeof record.privateVault?.iv === "string"
+      && typeof record.privateVault?.ciphertext === "string"
+      && record.privateVault.ciphertext.length > 100,
+    metadataContainsPrivateJwk: serialized.includes("privateJwk") || serialized.includes("identityDhPrivate") || serialized.includes("identitySignPrivate"),
+    vaultSecretCount: vaultSecretKeys.length,
+    vaultSecretLength: vaultSecretKeys.length ? String(localStorage.getItem(vaultSecretKeys[0]) || "").length : 0
   };
 });
 assert.equal(stored.recordCount, 1);
-assert.ok(stored.privateKeyCount >= 34, "identity, signed and one-time private keys must be persisted separately");
-assert.equal(stored.metadataContainsCryptoKey, false);
-assert.equal(stored.exportRejected, stored.testedExports, "persisted private keys must remain non-extractable");
+assert.equal(stored.hasLegacyCryptoKeyStore, false);
+assert.equal(stored.hasVault, true, "private JWK material must be stored only inside the encrypted vault");
+assert.equal(stored.metadataContainsPrivateJwk, false);
+assert.equal(stored.vaultSecretCount, 1);
+assert.ok(stored.vaultSecretLength >= 40, "the local vault secret must contain 256 bits of random material");
 
 registeredBundle = null;
 await page.reload({ waitUntil: "load" });
@@ -210,7 +205,7 @@ assert.equal(registeredBundle.identityDhPublic, firstIdentityKey, "device identi
 
 const afterReload = await send("После перезагрузки");
 assert.equal(afterReload.message.text, "После перезагрузки");
-assert.equal(afterReload.message.e2eeVerified, true, "restored private keys must perform a real E2EE round trip");
+assert.equal(afterReload.message.e2eeVerified, true, "restored non-extractable keys must perform a real E2EE round trip");
 
 await browser.close();
-console.log(`E2EE ${browserName} test passed: split IndexedDB keys, shadow round trip, persistence and tamper rejection.`);
+console.log(`E2EE ${browserName} test passed: encrypted JWK vault, shadow round trip, persistence and tamper rejection.`);
