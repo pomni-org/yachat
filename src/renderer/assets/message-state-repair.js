@@ -4,6 +4,17 @@
   if (window.__yachatMessageStateRepairInstalled) return;
   window.__yachatMessageStateRepairInstalled = true;
 
+  let replyHighlightTimer = null;
+
+  function ensureReplyStyles() {
+    if (document.querySelector('[data-yachat-message-replies-style]')) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "/assets/message-replies.css?v=90";
+    link.dataset.yachatMessageRepliesStyle = "";
+    document.head.append(link);
+  }
+
   function activeMessageCount() {
     try {
       return typeof displayedMessages === "function" ? displayedMessages().length : 0;
@@ -30,10 +41,148 @@
     return message.author === "user";
   }
 
+  function replyAuthorName(message) {
+    if (!message) return "";
+    const explicit = cleanDisplayText(
+      message.authorName || message.senderName || message.displayName || "",
+      ""
+    );
+    if (explicit) return explicit;
+
+    const accountId = String(state?.account?.id || "");
+    const authorId = String(message.authorId || message.senderId || "");
+    if (message.author === "user" || (authorId && authorId === accountId)) {
+      return cleanDisplayText(state?.account?.displayName, state?.account?.username || "Вы");
+    }
+
+    const chat = typeof getActiveChat === "function" ? getActiveChat() : null;
+    const profile = authorId && chat?.participantProfiles
+      ? chat.participantProfiles[authorId]
+      : null;
+    const profileName = cleanDisplayText(
+      profile?.displayName || profile?.previewName || profile?.username || "",
+      ""
+    );
+    if (profileName) return profileName;
+
+    if (message.author === "system") return "ЯЧат";
+    return cleanDisplayText(
+      typeof getChatTitle === "function" ? getChatTitle(chat) : chat?.title,
+      "Собеседник"
+    );
+  }
+
+  function compactReplyAttachments(message) {
+    return (Array.isArray(message?.attachments) ? message.attachments : []).slice(0, 1).map((item) => ({
+      kind: String(item?.kind || "file"),
+      name: String(item?.name || ""),
+      mime: String(item?.mime || "")
+    }));
+  }
+
+  function replyReferenceFromMessage(message) {
+    if (!message?.id) return null;
+    return {
+      messageId: String(message.id),
+      author: message.author || "contact",
+      authorId: String(message.authorId || message.senderId || ""),
+      authorName: replyAuthorName(message),
+      text: String(messagePreviewText(message) || "").slice(0, 500),
+      attachments: compactReplyAttachments(message)
+    };
+  }
+
+  function currentVisibleMessages() {
+    try {
+      return typeof displayedMessages === "function"
+        ? displayedMessages()
+        : Array.isArray(state?.messages) ? state.messages : [];
+    } catch {
+      return Array.isArray(state?.messages) ? state.messages : [];
+    }
+  }
+
+  function normalizeReplyState() {
+    const messages = currentVisibleMessages();
+    const byId = new Map(
+      messages
+        .filter((message) => message?.id)
+        .map((message) => [String(message.id), message])
+    );
+
+    messages.forEach((message) => {
+      if (!message) return;
+      const replyId = String(message.replyToMessageId || message.replyTo?.messageId || "").trim();
+      if (!replyId) {
+        message.replyToMessageId = null;
+        if (message.replyTo) delete message.replyTo;
+        return;
+      }
+
+      const source = byId.get(replyId);
+      if (!source || source === message) {
+        message.replyToMessageId = null;
+        if (message.replyTo) delete message.replyTo;
+        return;
+      }
+
+      message.replyToMessageId = replyId;
+      message.replyTo = replyReferenceFromMessage(source);
+    });
+
+    const composerReplyId = String(state?.replyToMessage?.messageId || "").trim();
+    if (composerReplyId) {
+      const source = byId.get(composerReplyId);
+      state.replyToMessage = source ? replyReferenceFromMessage(source) : null;
+    }
+  }
+
+  function installReplyRenderer() {
+    if (typeof renderMessageReference !== "function" || renderMessageReference.__yachatStrictReplyRenderer) {
+      return;
+    }
+
+    const strictRenderer = function renderStrictMessageReference(message, className = "message-reference") {
+      if (!message) return "";
+      const text = cleanDisplayText(message.text, "") || t("messagePlaceholder");
+      const author = replyAuthorName(message);
+      const targetId = String(message.messageId || "").trim();
+      const targetAttribute = targetId ? ` data-reply-target="${escapeHtml(targetId)}"` : "";
+      return `
+        <button class="${className}" type="button"${targetAttribute} aria-label="${escapeHtml(`Ответ на сообщение от ${author}`)}">
+          <strong>${escapeHtml(author)}</strong>
+          <span>${escapeHtml(text)}</span>
+        </button>
+      `;
+    };
+
+    Object.defineProperty(strictRenderer, "__yachatStrictReplyRenderer", { value: true });
+    renderMessageReference = strictRenderer;
+  }
+
+  function installReplyComposer() {
+    if (typeof startReplyMessage !== "function" || startReplyMessage.__yachatStrictReplyComposer) {
+      return;
+    }
+
+    const strictStartReplyMessage = function startStrictReplyMessage(message) {
+      const reference = replyReferenceFromMessage(message);
+      if (!reference) return;
+      state.replyToMessage = reference;
+      state.editingMessageId = null;
+      renderComposerContext();
+      messageInput?.focus();
+    };
+
+    Object.defineProperty(strictStartReplyMessage, "__yachatStrictReplyComposer", { value: true });
+    startReplyMessage = strictStartReplyMessage;
+  }
+
   function installRenderHooks() {
     if (typeof renderMessages === "function" && !renderMessages.__yachatSyncsIntro) {
       const originalRenderMessages = renderMessages;
       const wrappedRenderMessages = function renderMessagesAndSyncIntro(...args) {
+        normalizeReplyState();
         const result = originalRenderMessages.apply(this, args);
         syncDialogIntro();
         return result;
@@ -104,13 +253,50 @@
     openMessageDeleteMenu = correctedOpenMessageDeleteMenu;
   }
 
+  function escapeSelectorValue(value) {
+    if (window.CSS?.escape) return CSS.escape(String(value || ""));
+    return String(value || "").replace(/["\\]/g, "\\$&");
+  }
+
+  function focusReplyTarget(messageId) {
+    const target = messageList?.querySelector(`[data-message-id="${escapeSelectorValue(messageId)}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    document.querySelectorAll(".is-reply-target-highlight").forEach((element) => {
+      element.classList.remove("is-reply-target-highlight");
+    });
+    target.classList.add("is-reply-target-highlight");
+    window.clearTimeout(replyHighlightTimer);
+    replyHighlightTimer = window.setTimeout(() => {
+      target.classList.remove("is-reply-target-highlight");
+    }, 1400);
+  }
+
+  function installReplyNavigation() {
+    if (window.__yachatReplyNavigationInstalled) return;
+    window.__yachatReplyNavigationInstalled = true;
+    document.addEventListener("click", (event) => {
+      const reference = event.target.closest("[data-reply-target]");
+      if (!reference) return;
+      event.preventDefault();
+      event.stopPropagation();
+      focusReplyTarget(reference.dataset.replyTarget);
+    }, true);
+  }
+
   function installAll() {
+    ensureReplyStyles();
+    installReplyRenderer();
+    installReplyComposer();
     installRenderHooks();
     installDeleteMenuRules();
+    installReplyNavigation();
+    normalizeReplyState();
     syncDialogIntro();
   }
 
   installAll();
+  try { renderMessages?.(); } catch {}
 
   const observer = new MutationObserver(() => {
     installAll();
