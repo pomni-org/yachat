@@ -51,7 +51,7 @@ jobs:
                   }]
                 };
               </script>
-              <script src="/assets/e2ee-runtime.js?v=96"></script>
+              <script src="/assets/e2ee-runtime.js?v=97"></script>
             </body>
           </html>
           HTML
@@ -66,24 +66,42 @@ jobs:
           done
 
       - name: Run Chromium round-trip
-        run: E2EE_TEST_BROWSER=chromium E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs
+        run: |
+          set +e
+          E2EE_TEST_BROWSER=chromium E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs > /tmp/e2ee-chromium.log 2>&1
+          exit_code=$?
+          echo "$exit_code" > /tmp/e2ee-chromium.exit
+          cat /tmp/e2ee-chromium.log
+          exit 0
 
       - name: Run WebKit round-trip
         run: |
           set +e
           E2EE_TEST_BROWSER=webkit E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs > /tmp/e2ee-webkit.log 2>&1
           exit_code=$?
+          echo "$exit_code" > /tmp/e2ee-webkit.exit
           cat /tmp/e2ee-webkit.log
-          exit $exit_code
+          exit 0
 
-      - name: Upload WebKit diagnostics
+      - name: Upload browser diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2ee-webkit-diagnostics
-          path: /tmp/e2ee-webkit.log
+          name: e2ee-browser-diagnostics
+          path: |
+            /tmp/e2ee-chromium.log
+            /tmp/e2ee-webkit.log
+            /tmp/e2ee-chromium.exit
+            /tmp/e2ee-webkit.exit
           if-no-files-found: error
           retention-days: 2
+
+      - name: Require both browser tests
+        run: |
+          chromium_code="$(cat /tmp/e2ee-chromium.exit)"
+          webkit_code="$(cat /tmp/e2ee-webkit.exit)"
+          test "$chromium_code" = "0"
+          test "$webkit_code" = "0"
 
       - name: Stop fixture server
         if: always()
