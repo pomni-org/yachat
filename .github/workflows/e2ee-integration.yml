@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/e2ee-foundation
+      - agent/e2ee-foundation-clean
   pull_request:
     branches:
       - main
@@ -15,7 +16,7 @@ permissions:
 jobs:
   browser-e2ee:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +28,7 @@ jobs:
         run: |
           npm install
           npm install --no-save playwright@1.54.1
-          npx playwright install chromium
+          npx playwright install --with-deps chromium webkit
 
       - name: Build production files
         run: npm run build:vercel
@@ -55,13 +56,21 @@ jobs:
           </html>
           HTML
 
-      - name: Run Chromium round-trip
+      - name: Start fixture server
         run: |
           python3 -m http.server 4173 --directory public > /tmp/e2ee-http.log 2>&1 &
-          server_pid=$!
-          trap 'kill $server_pid || true' EXIT
+          echo $! > /tmp/e2ee-http.pid
           for attempt in {1..20}; do
             curl -fsS http://127.0.0.1:4173/e2ee-browser-fixture.html >/dev/null && break
             sleep 0.25
           done
-          E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs
+
+      - name: Run Chromium round-trip
+        run: E2EE_TEST_BROWSER=chromium E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs
+
+      - name: Run WebKit round-trip
+        run: E2EE_TEST_BROWSER=webkit E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs
+
+      - name: Stop fixture server
+        if: always()
+        run: kill "$(cat /tmp/e2ee-http.pid)" || true
