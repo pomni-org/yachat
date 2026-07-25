@@ -1,0 +1,64 @@
+name: E2EE integration
+
+on:
+  push:
+    branches:
+      - agent/e2ee-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-e2ee:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install app and browser test dependency
+        run: |
+          npm install
+          npm install --no-save playwright@1.54.1
+          npx playwright install chromium
+
+      - name: Build production files
+        run: npm run build:vercel
+
+      - name: Create isolated browser fixture
+        run: |
+          cat > public/e2ee-browser-fixture.html <<'HTML'
+          <!doctype html>
+          <html lang="ru">
+            <head><meta charset="utf-8"><title>E2EE runtime test</title></head>
+            <body>
+              <script>
+                localStorage.setItem("yachat-http-auth-token", "test-token");
+                const state = {
+                  account: { id: "account-test", username: "test" },
+                  chats: [{
+                    id: "private-test-chat",
+                    kind: "private",
+                    participantIds: ["account-test"]
+                  }]
+                };
+              </script>
+              <script src="/assets/e2ee-runtime.js?v=95"></script>
+            </body>
+          </html>
+          HTML
+
+      - name: Run Chromium round-trip
+        run: |
+          python3 -m http.server 4173 --directory public > /tmp/e2ee-http.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid || true' EXIT
+          for attempt in {1..20}; do
+            curl -fsS http://127.0.0.1:4173/e2ee-browser-fixture.html >/dev/null && break
+            sleep 0.25
+          done
+          E2EE_TEST_ORIGIN=http://127.0.0.1:4173 node scripts/test-e2ee-browser.mjs
