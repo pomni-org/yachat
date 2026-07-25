@@ -23,14 +23,22 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install app and browser test dependency
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install app and test dependencies
         run: |
           npm install
           npm install --no-save playwright@1.59.1
           npx playwright install --with-deps chromium webkit
+          python -m pip install -r requirements.txt
 
       - name: Build production files
         run: npm run build:vercel
+
+      - name: Run server protocol tests
+        run: python -m unittest tests.test_e2ee_phase2_server -v
 
       - name: Create isolated browser fixture
         run: |
