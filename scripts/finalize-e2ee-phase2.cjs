@@ -11,6 +11,14 @@ function replaceRequired(content, before, after, label) {
   return content.replace(before, after);
 }
 
+function replaceAllRequired(content, before, after, expectedCount, label) {
+  const count = content.split(before).length - 1;
+  if (count !== expectedCount) {
+    throw new Error(`Unable to patch ${label}: expected ${expectedCount}, found ${count}.`);
+  }
+  return content.split(before).join(after);
+}
+
 async function patchBrowserRuntime() {
   const runtimePath = path.join(root, "public", "assets", "e2ee-phase2.js");
   let runtime = await fs.readFile(runtimePath, "utf8");
@@ -74,7 +82,7 @@ async function patchBrowserRuntime() {
         && item.mime === String(expectedItem.mime || "")
         && item.size === Number(expectedItem.size || 0);
       // Phase 1 authenticated only the manifest fields. Phase 2 also binds
-      // the actual attachment source to the encrypted digest.
+      // the canonical server attachment to the encrypted digest.
       return baseMatches && (Number(e2eeVersion) === 1 || item.digest === String(expectedItem.digest || ""));
     });
   }`,
@@ -88,6 +96,112 @@ async function patchBrowserRuntime() {
     "versioned attachment verification"
   );
 
+  runtime = replaceRequired(
+    runtime,
+    `  async function attachmentManifest(attachments) {
+    const result = [];
+    for (const item of (Array.isArray(attachments) ? attachments : []).slice(0, 8)) {
+      const stable = {
+        kind: String(item?.kind || "file").slice(0, 24),
+        name: String(item?.name || "").slice(0, 240),
+        mime: String(item?.mime || item?.type || "").slice(0, 160),
+        size: Math.max(0, Number(item?.size) || 0),
+        source: String(item?.dataUrl || item?.url || item?.src || "")
+      };
+      result.push({
+        kind: stable.kind,
+        name: stable.name,
+        mime: stable.mime,
+        size: stable.size,
+        digest: await digestText(JSON.stringify(stable))
+      });
+    }
+    return result;
+  }`,
+    `  async function attachmentManifest(attachments) {
+    const result = [];
+    for (const item of (Array.isArray(attachments) ? attachments : []).slice(0, 8)) {
+      const mime = String(item?.mime || item?.type || "application/octet-stream").slice(0, 120)
+        || "application/octet-stream";
+      let kind = String(item?.kind || "").slice(0, 20);
+      if (!["image", "video", "file"].includes(kind)) {
+        kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "file";
+      }
+      const rawSource = String(item?.dataUrl || "").slice(0, 9000000);
+      const stable = {
+        kind,
+        name: String(item?.name || "file").slice(0, 180) || "file",
+        mime,
+        size: Math.max(0, Math.min(Number(item?.size) || 0, 9000000)),
+        source: rawSource.startsWith("data:") ? rawSource : ""
+      };
+      result.push({
+        kind: stable.kind,
+        name: stable.name,
+        mime: stable.mime,
+        size: stable.size,
+        digest: await digestText(JSON.stringify(stable))
+      });
+    }
+    return result;
+  }`,
+    "canonical server attachment manifest"
+  );
+
+  runtime = replaceRequired(
+    runtime,
+    `    const allowed = new Set(["STRONG", "EM", "U", "S", "CODE", "BR", "A"]);
+    const output = document.createElement("div");`,
+    `    const allowed = new Set(["STRONG", "EM", "U", "S", "CODE", "BR", "A"]);
+    const blocked = new Set(["SCRIPT", "STYLE", "TEMPLATE", "IFRAME", "OBJECT", "EMBED", "SVG", "MATH"]);
+    const output = document.createElement("div");`,
+    "blocked rich-content elements"
+  );
+
+  runtime = replaceRequired(
+    runtime,
+    `      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = node.tagName === "B" ? "STRONG" : node.tagName === "I" ? "EM" : node.tagName === "DEL" ? "S" : node.tagName;`,
+    `      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      if (blocked.has(node.tagName)) return;
+      const tag = node.tagName === "B" ? "STRONG" : node.tagName === "I" ? "EM" : node.tagName === "DEL" ? "S" : node.tagName;`,
+    "drop active rich-content subtrees"
+  );
+
+  runtime = replaceRequired(
+    runtime,
+    `  const MAX_LOCAL_PREKEYS = 220;`,
+    `  // Phase 2 retains historical private prekeys. Until Double Ratchet
+  // persists independent session state, deleting them would make old messages unreadable.`,
+    "historical prekey retention policy"
+  );
+
+  runtime = replaceRequired(
+    runtime,
+    `    record.signedPreKeys = signed.slice(-4);`,
+    `    record.signedPreKeys = signed;`,
+    "historical signed-prekey retention"
+  );
+
+  runtime = replaceRequired(
+    runtime,
+    `    if (record.oneTimePreKeys.length > MAX_LOCAL_PREKEYS) {
+      record.oneTimePreKeys = record.oneTimePreKeys.slice(-MAX_LOCAL_PREKEYS);
+    }
+`,
+    ``,
+    "refresh one-time prekey truncation"
+  );
+
+  runtime = replaceAllRequired(
+    runtime,
+    `      if (record.oneTimePreKeys.length > MAX_LOCAL_PREKEYS) record.oneTimePreKeys = record.oneTimePreKeys.slice(-MAX_LOCAL_PREKEYS);
+`,
+    ``,
+    2,
+    "registration one-time prekey truncation"
+  );
+
   const required = [
     'const PROTOCOL_VERSION = 2;',
     '"server-blind-text-v1"',
@@ -96,7 +210,10 @@ async function patchBrowserRuntime() {
     'rolloutPhase === "encrypted"',
     'text: "",',
     'replyToMessageId: null,',
-    'headers.set("X-YaChat-E2EE-Runtime", "phase2")'
+    'headers.set("X-YaChat-E2EE-Runtime", "phase2")',
+    'record.signedPreKeys = signed;',
+    'const blocked = new Set(["SCRIPT"',
+    'rawSource.startsWith("data:")'
   ];
   required.forEach((marker) => {
     if (!runtime.includes(marker)) throw new Error(`Missing E2EE phase 2 runtime marker: ${marker}`);
@@ -105,7 +222,9 @@ async function patchBrowserRuntime() {
   const forbidden = [
     'PUSH_DEVICE_ID_KEY',
     'createObjectStore("cryptoKeys")',
-    '/assets/e2ee-runtime.js'
+    '/assets/e2ee-runtime.js',
+    'MAX_LOCAL_PREKEYS',
+    'signed.slice(-4)'
   ];
   forbidden.forEach((marker) => {
     if (runtime.includes(marker)) throw new Error(`Unsafe legacy E2EE marker remains: ${marker}`);
@@ -151,9 +270,27 @@ async function patchServerCompatibility() {
   await fs.writeFile(serverPath, source, "utf8");
 }
 
+async function patchMessageApiSecurity() {
+  const apiPath = path.join(root, "api", "message.py");
+  let source = await fs.readFile(apiPath, "utf8");
+  source = replaceRequired(
+    source,
+    `                if existing and existing.get("revoked_at") is None:
+                    if (`,
+    `                if existing:
+                    if (`,
+    "immutable device identity"
+  );
+  if (!source.includes("This device identity changed. Revoke the old E2EE device before replacing it.")) {
+    throw new Error("Device identity replacement protection is missing.");
+  }
+  await fs.writeFile(apiPath, source, "utf8");
+}
+
 async function main() {
   await patchBrowserRuntime();
   await patchServerCompatibility();
+  await patchMessageApiSecurity();
 }
 
 main().catch((error) => {
