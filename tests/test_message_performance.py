@@ -57,12 +57,18 @@ class FakeCursor:
 class FakeConnection:
     def __init__(self, cursor: FakeCursor):
         self.fake_cursor = cursor
+        self.transaction_entries = 0
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, tb):
         return False
+
+    @contextmanager
+    def transaction(self):
+        self.transaction_entries += 1
+        yield self
 
     @contextmanager
     def cursor(self, row_factory=None):
@@ -72,6 +78,7 @@ class FakeConnection:
 class MessagePerformanceTests(unittest.IsolatedAsyncioTestCase):
     async def test_send_returns_compact_ack_and_queues_push(self):
         cursor = FakeCursor("send")
+        connection = FakeConnection(cursor)
         tasks = BackgroundTasks()
         payload = {
             "chatId": "chat-1",
@@ -81,7 +88,7 @@ class MessagePerformanceTests(unittest.IsolatedAsyncioTestCase):
             "attachments": [],
         }
         user = {"id": "self", "username": "self", "display_name": "Я"}
-        chat = {"id": "chat-1", "kind": "private", "can_send": True, "title": ""}
+        chat = {"id": "chat-1", "kind": "private", "can_send": True, "title": "", "e2ee_policy": "legacy"}
 
         with (
             patch.object(message_api, "require_user", return_value=user),
@@ -89,7 +96,7 @@ class MessagePerformanceTests(unittest.IsolatedAsyncioTestCase):
             patch.object(message_api, "clean_chat_id", return_value="chat-1"),
             patch.object(message_api, "prepare_rich_message", return_value=("<strong>быстро</strong>", "быстро")),
             patch.object(message_api, "clean_attachments", return_value=[]),
-            patch.object(message_api, "connect_db", return_value=FakeConnection(cursor)),
+            patch.object(message_api, "connect_db", return_value=connection),
             patch.object(message_api, "require_chat_member", return_value=chat),
             patch.object(message_api, "require_chat_messaging_allowed", return_value=None),
             patch.object(message_api, "message_payload", side_effect=lambda row, user_id: {
@@ -108,6 +115,7 @@ class MessagePerformanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("messages", result)
         self.assertEqual(result["pushQueued"], 1)
         self.assertEqual(len(tasks.tasks), 1)
+        self.assertEqual(connection.transaction_entries, 1)
         self.assertTrue(any("with touched_chat as" in query for query in cursor.queries))
 
     async def test_delete_for_everyone_physically_deletes_rows(self):
