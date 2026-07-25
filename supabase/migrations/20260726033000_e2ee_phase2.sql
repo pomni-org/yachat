@@ -25,8 +25,7 @@ alter table public.yachat_sessions
   check (e2ee_version between 0 and 16);
 
 create index if not exists yachat_sessions_e2ee_active_idx
-  on public.yachat_sessions(user_id, last_seen_at desc, device_id)
-  where expires_at > now();
+  on public.yachat_sessions(user_id, expires_at, last_seen_at desc, device_id);
 
 create index if not exists yachat_sessions_device_idx
   on public.yachat_sessions(device_id, user_id)
