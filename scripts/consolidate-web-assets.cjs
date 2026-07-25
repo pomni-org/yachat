@@ -7,7 +7,7 @@ const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
 const rendererAssets = path.join(root, "src", "renderer", "assets");
-const version = "92";
+const version = "93";
 
 function localPathFromUrl(url) {
   const pathname = String(url || "").split("?", 1)[0];
@@ -67,6 +67,22 @@ async function patchKnownRuntimeBugs() {
     "contacts error circuit breaker"
   );
   await fs.writeFile(contactsPath, contacts, "utf8");
+
+  const resiliencePath = path.join(publicDir, "assets", "db-resilience.js");
+  let resilience = await fs.readFile(resiliencePath, "utf8");
+  resilience = replaceRequired(
+    resilience,
+    "const WRITE_TIMEOUT_MS = 9000;",
+    "const WRITE_TIMEOUT_MS = 20000;",
+    "foreground write timeout"
+  );
+  resilience = replaceRequired(
+    resilience,
+    "    if (Date.now() < circuitOpenUntil) return unavailableResponse();\n\n    try {",
+    "    // Never reject a user write only because a background read opened the circuit.\n    // The server must receive the request and decide whether the database is available.\n    try {",
+    "write-through circuit breaker"
+  );
+  await fs.writeFile(resiliencePath, resilience, "utf8");
 }
 
 async function consolidate() {
