@@ -100,8 +100,36 @@ await page.route("**/api/message", async (route) => {
   });
 });
 
+async function browserDiagnostics() {
+  return page.evaluate(async () => {
+    const algorithms = {};
+    for (const name of ["X25519", "Ed25519"]) {
+      try {
+        const usages = name === "X25519" ? ["deriveBits"] : ["sign", "verify"];
+        const pair = await crypto.subtle.generateKey({ name }, true, usages);
+        algorithms[name] = Boolean(pair?.privateKey);
+      } catch (error) {
+        algorithms[name] = `${error?.name || "Error"}: ${error?.message || error}`;
+      }
+    }
+    return {
+      runtime: window.__yachatE2EE || null,
+      secureContext: window.isSecureContext,
+      hasIndexedDB: Boolean(window.indexedDB),
+      hasSubtleCrypto: Boolean(window.crypto?.subtle),
+      userAgent: navigator.userAgent,
+      algorithms
+    };
+  }).catch((error) => ({ diagnosticsError: String(error?.message || error) }));
+}
+
 async function waitReady() {
-  await page.waitForFunction(() => window.__yachatE2EE?.ready === true, null, { timeout: 30_000 });
+  try {
+    await page.waitForFunction(() => window.__yachatE2EE?.ready === true, null, { timeout: 30_000 });
+  } catch (error) {
+    const diagnostics = await browserDiagnostics();
+    throw new Error(`${error?.message || error}\nE2EE diagnostics: ${JSON.stringify(diagnostics)}`);
+  }
 }
 
 async function send(text) {
