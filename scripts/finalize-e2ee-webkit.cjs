@@ -15,35 +15,28 @@ async function main() {
     }`;
   const after = `    const keys = await rawStoreGetMany("cryptoKeys", refs);
     keys.forEach((key) => {
-      // WebKit can deserialize a valid CryptoKey with a broken prototype
-      // chain. Restore the standard prototype only for CryptoKey-shaped
-      // objects; the key's internal cryptographic slots remain untouched.
-      if (
-        !(key instanceof CryptoKey)
-        && key
-        && typeof key === "object"
-        && ["private", "public", "secret"].includes(String(key.type || ""))
-        && key.algorithm
-        && Array.isArray(key.usages)
-        && typeof key.extractable === "boolean"
-      ) {
+      if (!key || typeof key !== "object") {
+        throw new Error("One or more persisted E2EE private keys are unavailable.");
+      }
+      // WebKit can return a fully usable CryptoKey with a corrupt prototype
+      // chain. Repair it when possible, but do not use instanceof as the
+      // security decision: the following real sign/derive operations validate
+      // the browser's internal cryptographic slots.
+      if (!(key instanceof CryptoKey)) {
         try {
           Object.setPrototypeOf(key, CryptoKey.prototype);
         } catch {
-          // The explicit validation below will reject an unusable value.
+          // Some WebKit builds keep the object non-extensible. That is okay.
         }
-      }
-      if (!(key instanceof CryptoKey)) {
-        throw new Error("One or more persisted E2EE private keys are unavailable.");
       }
     });`;
 
   if (!runtime.includes(before)) {
-    throw new Error("Unable to install the WebKit CryptoKey prototype repair.");
+    throw new Error("Unable to install the WebKit CryptoKey restoration patch.");
   }
   runtime = runtime.replace(before, after);
-  if (!runtime.includes("Object.setPrototypeOf(key, CryptoKey.prototype)")) {
-    throw new Error("WebKit CryptoKey prototype repair is missing.");
+  if (!runtime.includes("the following real sign/derive operations validate")) {
+    throw new Error("WebKit CryptoKey restoration patch is missing.");
   }
 
   await fs.writeFile(runtimePath, runtime, "utf8");
