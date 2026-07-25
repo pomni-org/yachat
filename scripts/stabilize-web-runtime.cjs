@@ -6,7 +6,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
-const version = "94";
+const version = "95";
 
 function replaceRequired(content, before, after, label) {
   if (!content.includes(before)) throw new Error(`Unable to patch ${label}.`);
@@ -39,14 +39,43 @@ async function patchDatabaseResilience() {
   await execFileAsync(process.execPath, ["--check", resiliencePath]);
 }
 
+async function patchMessengerE2EEPayloads() {
+  const messengerPath = path.join(root, "api", "messenger_fast.py");
+  let messenger = await fs.readFile(messengerPath, "utf8");
+
+  if (!messenger.includes("from server.e2ee import attach_e2ee_payload")) {
+    messenger = replaceRequired(
+      messenger,
+      "from psycopg.rows import dict_row\n\nfrom api.index import (",
+      "from psycopg.rows import dict_row\n\nfrom server.e2ee import attach_e2ee_payload\n\nfrom api.index import (",
+      "E2EE message payload import"
+    );
+  }
+
+  messenger = replaceRequired(
+    messenger,
+    "            return [message_payload(row, user_id, recipient_read_times) for row in rows]",
+    "            return [attach_e2ee_payload(message_payload(row, user_id, recipient_read_times), row) for row in rows]",
+    "E2EE message payload projection"
+  );
+
+  if (!messenger.includes("attach_e2ee_payload(message_payload")) {
+    throw new Error("Messenger responses do not include E2EE payloads.");
+  }
+  await fs.writeFile(messengerPath, messenger, "utf8");
+}
+
 async function main() {
   await patchDatabaseResilience();
+  await patchMessengerE2EEPayloads();
+  await execFileAsync(process.execPath, [path.join(root, "scripts", "test-e2ee-crypto.mjs")]);
 
   const webPath = path.join(publicDir, "web.html");
   let html = await fs.readFile(webPath, "utf8");
 
   const styleTag = `    <link rel="stylesheet" href="/assets/pawlight-fixes.css?v=${version}" />`;
-  const scriptTag = `    <script src="/assets/pawlight-fixes.js?v=${version}"></script>`;
+  const e2eeTag = `    <script src="/assets/e2ee-runtime.js?v=${version}"></script>`;
+  const pawlightTag = `    <script src="/assets/pawlight-fixes.js?v=${version}"></script>`;
 
   if (!html.includes(styleTag)) {
     const marker = '<meta name="referrer" content="origin" />';
@@ -54,16 +83,28 @@ async function main() {
     html = html.replace(marker, `${styleTag}\n    ${marker}`);
   }
 
-  if (!html.includes(scriptTag)) {
+  if (!html.includes(e2eeTag)) {
+    if (!html.includes("</body>")) throw new Error("Unable to place E2EE runtime.");
+    html = html.replace("</body>", `${e2eeTag}\n  </body>`);
+  }
+
+  if (!html.includes(pawlightTag)) {
     if (!html.includes("</body>")) throw new Error("Unable to place Pawlight runtime.");
-    html = html.replace("</body>", `${scriptTag}\n  </body>`);
+    html = html.replace("</body>", `${pawlightTag}\n  </body>`);
+  }
+
+  if (html.indexOf(e2eeTag) > html.indexOf(pawlightTag)) {
+    throw new Error("E2EE runtime must load before the final Pawlight decorator.");
   }
 
   if (html.includes("yachat-app.bundle.js") || html.includes("yachat-app.bundle.css")) {
     throw new Error("Unsafe consolidated frontend bundle is still enabled.");
   }
 
-  await execFileAsync(process.execPath, ["--check", path.join(publicDir, "assets", "pawlight-fixes.js")]);
+  await Promise.all([
+    "e2ee-runtime.js",
+    "pawlight-fixes.js"
+  ].map((name) => execFileAsync(process.execPath, ["--check", path.join(publicDir, "assets", name)])));
   await fs.writeFile(webPath, html, "utf8");
 }
 
