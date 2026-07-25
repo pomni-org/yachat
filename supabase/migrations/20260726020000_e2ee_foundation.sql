@@ -42,6 +42,10 @@ create index if not exists yachat_e2ee_prekeys_available_idx
   on public.yachat_e2ee_one_time_prekeys(device_id, created_at)
   where claimed_at is null;
 
+create index if not exists yachat_e2ee_prekeys_claimed_user_idx
+  on public.yachat_e2ee_one_time_prekeys(claimed_by_user_id)
+  where claimed_by_user_id is not null;
+
 alter table public.yachat_messages
   add column if not exists e2ee_version integer not null default 0,
   add column if not exists e2ee_mode text not null default 'legacy',
