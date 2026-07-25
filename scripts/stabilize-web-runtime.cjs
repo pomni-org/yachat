@@ -6,7 +6,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
-const version = "98";
+const version = "99";
 
 function replaceRequired(content, before, after, label) {
   if (!content.includes(before)) throw new Error(`Unable to patch ${label}.`);
@@ -16,25 +16,21 @@ function replaceRequired(content, before, after, label) {
 async function patchDatabaseResilience() {
   const resiliencePath = path.join(publicDir, "assets", "db-resilience.js");
   let resilience = await fs.readFile(resiliencePath, "utf8");
-
   resilience = replaceRequired(
     resilience,
     "const WRITE_TIMEOUT_MS = 9000;",
     "const WRITE_TIMEOUT_MS = 20000;",
     "foreground write timeout"
   );
-
   resilience = replaceRequired(
     resilience,
     "    if (Date.now() < circuitOpenUntil) return unavailableResponse();\n\n    try {",
     "    // A slow background read must never block a message send locally.\n    // Always let the server receive foreground writes and report the real result.\n    try {",
     "write-through circuit breaker"
   );
-
   if (resilience.includes("Date.now() < circuitOpenUntil) return unavailableResponse()")) {
     throw new Error("Foreground writes are still blocked by the database circuit breaker.");
   }
-
   await fs.writeFile(resiliencePath, resilience, "utf8");
   await execFileAsync(process.execPath, ["--check", resiliencePath]);
 }
@@ -45,16 +41,15 @@ async function patchE2EERuntime() {
 
   runtime = replaceRequired(
     runtime,
-    '  const DEVICE_ID_KEY = "yachat-e2ee-device-id-v1";\n  const PUSH_DEVICE_ID_KEY = "yachat-push-installation-id-v1";',
-    '  const DEVICE_ID_KEY_PREFIX = "yachat-e2ee-device-id-v1:";',
-    "separate E2EE and push device identities"
-  );
-
-  runtime = replaceRequired(
-    runtime,
-    '  const DB_VERSION = 1;',
-    '  const DB_VERSION = 3;',
-    "split CryptoKey database version"
+    `  const DEVICE_ID_KEY = "yachat-e2ee-device-id-v1";
+  const PUSH_DEVICE_ID_KEY = "yachat-push-installation-id-v1";
+  const DB_NAME = "yachat-e2ee-v1";
+  const DB_VERSION = 1;`,
+    `  const DEVICE_ID_KEY_PREFIX = "yachat-e2ee-device-id-v1:";
+  const VAULT_SECRET_KEY_PREFIX = "yachat-e2ee-vault-secret-v1:";
+  const DB_NAME = "yachat-e2ee-v1";
+  const DB_VERSION = 4;`,
+    "account-scoped E2EE storage constants"
   );
 
   runtime = replaceRequired(
@@ -80,8 +75,20 @@ async function patchE2EERuntime() {
     const created = randomId("e2ee-device");
     safeStorageSet(storageKey, created);
     return created;
+  }
+
+  function vaultSecretBytes(accountId, currentDeviceId, create = true) {
+    const storageKey = \`\${VAULT_SECRET_KEY_PREFIX}\${accountId}:\${currentDeviceId}\`;
+    const existing = safeStorageGet(storageKey).trim();
+    if (existing) return base64UrlToBytes(existing);
+    if (!create) throw new Error("The local E2EE key vault is unavailable.");
+    const created = randomBytes(32);
+    if (!safeStorageSet(storageKey, bytesToBase64Url(created))) {
+      throw new Error("The browser cannot persist the local E2EE vault secret.");
+    }
+    return created;
   }`,
-    "per-account E2EE device id"
+    "per-account device and vault identities"
   );
 
   runtime = replaceRequired(
@@ -127,12 +134,12 @@ async function patchE2EERuntime() {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
       request.onupgradeneeded = () => {
         const db = request.result;
-        // WebKit can persist individual CryptoKey values, but is unreliable
-        // when records with keyPath/indexes also contain nested CryptoKeys.
+        // Earlier preview builds experimented with direct CryptoKey storage.
+        // Safari does not persist X25519/Ed25519 keys reliably, so Phase 1
+        // uses an AES-GCM encrypted JWK vault instead.
         if (db.objectStoreNames.contains("devices")) db.deleteObjectStore("devices");
         if (db.objectStoreNames.contains("cryptoKeys")) db.deleteObjectStore("cryptoKeys");
         db.createObjectStore("devices");
-        db.createObjectStore("cryptoKeys");
         if (!db.objectStoreNames.contains("trust")) db.createObjectStore("trust", { keyPath: "key" });
       };
       request.onsuccess = () => resolve(request.result);
@@ -151,53 +158,87 @@ async function patchE2EERuntime() {
     });
   }
 
-  async function rawStoreGetMany(storeName, keys) {
-    if (!keys.length) return [];
+  async function rawStorePut(storeName, key, value) {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction(storeName, "readonly");
+      const transaction = db.transaction(storeName, "readwrite");
       const store = transaction.objectStore(storeName);
-      const values = new Array(keys.length);
-      keys.forEach((key, index) => {
-        const request = store.get(key);
-        request.onsuccess = () => { values[index] = request.result ?? null; };
-        request.onerror = () => reject(request.error || new Error("Unable to read E2EE CryptoKeys."));
-      });
-      transaction.oncomplete = () => resolve(values);
-      transaction.onerror = () => reject(transaction.error || new Error("Unable to read E2EE CryptoKeys."));
-      transaction.onabort = () => reject(transaction.error || new Error("E2EE CryptoKey read aborted."));
+      if (storeName === "devices") store.put(value, key);
+      else store.put(value);
+      transaction.oncomplete = () => resolve(value);
+      transaction.onerror = () => reject(transaction.error || new Error("Unable to write the E2EE key store."));
+      transaction.onabort = () => reject(transaction.error || new Error("E2EE key store transaction aborted."));
     });
+  }
+
+  async function vaultKey(accountId, currentDeviceId) {
+    return crypto.subtle.importKey(
+      "raw",
+      vaultSecretBytes(accountId, currentDeviceId),
+      { name: "AES-GCM" },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  }
+
+  async function importPrivateJwk(jwk, name, usages) {
+    if (!jwk || typeof jwk !== "object" || !jwk.d) {
+      throw new Error("An E2EE private key is missing from the local vault.");
+    }
+    const key = await crypto.subtle.importKey("jwk", jwk, { name }, false, usages);
+    if (key.extractable !== false) throw new Error("An E2EE private key became exportable.");
+    return key;
+  }
+
+  async function encryptPrivateVault(record) {
+    const material = {
+      identityDhPrivateJwk: record.identityDhPrivateJwk,
+      identitySignPrivateJwk: record.identitySignPrivateJwk,
+      signedPreKeys: (record.signedPreKeys || []).map((item) => ({ id: item.id, privateJwk: item.privateJwk })),
+      oneTimePreKeys: (record.oneTimePreKeys || []).map((item) => ({ id: item.id, privateJwk: item.privateJwk }))
+    };
+    const iv = randomBytes(12);
+    const aad = encoder.encode(\`\${ALGORITHM}|vault|\${record.key}\`);
+    const ciphertext = await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv, additionalData: aad },
+      await vaultKey(record.accountId, record.deviceId),
+      encoder.encode(JSON.stringify(material))
+    );
+    return { version: 1, iv: bytesToBase64Url(iv), ciphertext: bytesToBase64Url(ciphertext) };
   }
 
   async function hydrateDeviceRecord(metadata) {
     if (!metadata) return null;
-    const refs = [
-      metadata.identityDhPrivateRef,
-      metadata.identitySignPrivateRef,
-      ...(metadata.signedPreKeys || []).map((item) => item.privateKeyRef),
-      ...(metadata.oneTimePreKeys || []).map((item) => item.privateKeyRef)
-    ];
-    const keys = await rawStoreGetMany("cryptoKeys", refs);
-    if (keys.some((key) => !(key instanceof CryptoKey))) {
-      throw new Error("One or more persisted E2EE private keys are unavailable.");
-    }
-    let offset = 0;
-    const identityDhPrivate = keys[offset++];
-    const identitySignPrivate = keys[offset++];
-    const signedPreKeys = (metadata.signedPreKeys || []).map((item) => ({
-      ...item,
-      privateKey: keys[offset++]
-    }));
-    const oneTimePreKeys = (metadata.oneTimePreKeys || []).map((item) => ({
-      ...item,
-      privateKey: keys[offset++]
-    }));
+    const vault = metadata.privateVault;
+    if (!vault?.iv || !vault?.ciphertext) throw new Error("The local E2EE private-key vault is missing.");
+    const plaintext = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: base64UrlToBytes(vault.iv),
+        additionalData: encoder.encode(\`\${ALGORITHM}|vault|\${metadata.key}\`)
+      },
+      await vaultKey(metadata.accountId, metadata.deviceId),
+      base64UrlToBytes(vault.ciphertext)
+    );
+    const material = JSON.parse(decoder.decode(plaintext));
+    const signedPrivate = new Map((material.signedPreKeys || []).map((item) => [item.id, item.privateJwk]));
+    const oneTimePrivate = new Map((material.oneTimePreKeys || []).map((item) => [item.id, item.privateJwk]));
     return {
       ...metadata,
-      identityDhPrivate,
-      identitySignPrivate,
-      signedPreKeys,
-      oneTimePreKeys
+      identityDhPrivateJwk: material.identityDhPrivateJwk,
+      identitySignPrivateJwk: material.identitySignPrivateJwk,
+      identityDhPrivate: await importPrivateJwk(material.identityDhPrivateJwk, "X25519", ["deriveBits"]),
+      identitySignPrivate: await importPrivateJwk(material.identitySignPrivateJwk, "Ed25519", ["sign"]),
+      signedPreKeys: await Promise.all((metadata.signedPreKeys || []).map(async (item) => ({
+        ...item,
+        privateJwk: signedPrivate.get(item.id),
+        privateKey: await importPrivateJwk(signedPrivate.get(item.id), "X25519", ["deriveBits"])
+      }))),
+      oneTimePreKeys: await Promise.all((metadata.oneTimePreKeys || []).map(async (item) => ({
+        ...item,
+        privateJwk: oneTimePrivate.get(item.id),
+        privateKey: await importPrivateJwk(oneTimePrivate.get(item.id), "X25519", ["deriveBits"])
+      })))
     };
   }
 
@@ -207,55 +248,62 @@ async function patchE2EERuntime() {
   }
 
   async function storePut(storeName, value) {
-    if (storeName !== "devices") {
-      const db = await openDatabase();
-      return new Promise((resolve, reject) => {
-        const transaction = db.transaction(storeName, "readwrite");
-        transaction.objectStore(storeName).put(value);
-        transaction.oncomplete = () => resolve(value);
-        transaction.onerror = () => reject(transaction.error || new Error("Unable to write the E2EE key store."));
-        transaction.onabort = () => reject(transaction.error || new Error("E2EE key store transaction aborted."));
-      });
-    }
-
-    const identityDhPrivateRef = \`\${value.key}:identity-dh\`;
-    const identitySignPrivateRef = \`\${value.key}:identity-sign\`;
-    const signedPreKeys = (value.signedPreKeys || []).map((item) => {
-      const privateKeyRef = \`\${value.key}:signed:\${item.id}\`;
-      return { ...item, privateKeyRef };
-    });
-    const oneTimePreKeys = (value.oneTimePreKeys || []).map((item) => {
-      const privateKeyRef = \`\${value.key}:one-time:\${item.id}\`;
-      return { ...item, privateKeyRef };
-    });
+    if (storeName !== "devices") return rawStorePut(storeName, value?.key || "", value);
     const metadata = {
       ...value,
-      identityDhPrivateRef,
-      identitySignPrivateRef,
-      signedPreKeys: signedPreKeys.map(({ privateKey, ...item }) => item),
-      oneTimePreKeys: oneTimePreKeys.map(({ privateKey, ...item }) => item)
+      privateVault: await encryptPrivateVault(value),
+      signedPreKeys: (value.signedPreKeys || []).map(({ privateKey, privateJwk, ...item }) => item),
+      oneTimePreKeys: (value.oneTimePreKeys || []).map(({ privateKey, privateJwk, ...item }) => item)
     };
     delete metadata.identityDhPrivate;
     delete metadata.identitySignPrivate;
-
-    const db = await openDatabase();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(["devices", "cryptoKeys"], "readwrite");
-      const deviceStore = transaction.objectStore("devices");
-      const keyStore = transaction.objectStore("cryptoKeys");
-      keyStore.put(value.identityDhPrivate, identityDhPrivateRef);
-      keyStore.put(value.identitySignPrivate, identitySignPrivateRef);
-      signedPreKeys.forEach((item, index) => keyStore.put(value.signedPreKeys[index].privateKey, item.privateKeyRef));
-      oneTimePreKeys.forEach((item, index) => keyStore.put(value.oneTimePreKeys[index].privateKey, item.privateKeyRef));
-      deviceStore.put(metadata, value.key);
-      transaction.oncomplete = () => resolve(value);
-      transaction.onerror = () => reject(transaction.error || new Error("Unable to persist E2EE private keys."));
-      transaction.onabort = () => reject(transaction.error || new Error("E2EE private-key transaction aborted."));
-    });
+    delete metadata.identityDhPrivateJwk;
+    delete metadata.identitySignPrivateJwk;
+    return rawStorePut("devices", value.key, metadata);
   }`,
-    "split WebKit CryptoKey persistence"
+    "Safari-compatible encrypted private-key vault"
   );
 
+  runtime = replaceRequired(
+    runtime,
+    `    return { publicKey: bytesToBase64Url(publicRaw), privateKey };`,
+    `    return { publicKey: bytesToBase64Url(publicRaw), privateKey, privateJwk };`,
+    "retain private JWK only inside the encrypted local vault"
+  );
+  runtime = replaceRequired(
+    runtime,
+    `      privateKey: pair.privateKey,
+      signature: bytesToBase64Url(signature),`,
+    `      privateKey: pair.privateKey,
+      privateJwk: pair.privateJwk,
+      signature: bytesToBase64Url(signature),`,
+    "signed prekey private JWK"
+  );
+  runtime = replaceRequired(
+    runtime,
+    `      publicKey: pair.publicKey,
+      privateKey: pair.privateKey,
+      createdAt: Date.now()`,
+    `      publicKey: pair.publicKey,
+      privateKey: pair.privateKey,
+      privateJwk: pair.privateJwk,
+      createdAt: Date.now()`,
+    "one-time prekey private JWK"
+  );
+  runtime = replaceRequired(
+    runtime,
+    `      identityDhPublic: identityDh.publicKey,
+      identityDhPrivate: identityDh.privateKey,
+      identitySignPublic: identitySign.publicKey,
+      identitySignPrivate: identitySign.privateKey,`,
+    `      identityDhPublic: identityDh.publicKey,
+      identityDhPrivate: identityDh.privateKey,
+      identityDhPrivateJwk: identityDh.privateJwk,
+      identitySignPublic: identitySign.publicKey,
+      identitySignPrivate: identitySign.privateKey,
+      identitySignPrivateJwk: identitySign.privateJwk,`,
+    "identity private JWK vault material"
+  );
   runtime = replaceRequired(
     runtime,
     "      const currentDeviceId = deviceId();",
@@ -266,18 +314,17 @@ async function patchE2EERuntime() {
   if (
     runtime.includes("PUSH_DEVICE_ID_KEY")
     || runtime.includes("const currentDeviceId = deviceId();")
-    || runtime.includes('createObjectStore("devices", { keyPath: "key" })')
+    || runtime.includes('createObjectStore("cryptoKeys")')
+    || !runtime.includes("privateVault: await encryptPrivateVault(value)")
   ) {
-    throw new Error("E2EE runtime still contains an unsafe identity or nested CryptoKey store.");
+    throw new Error("E2EE runtime still contains unsafe device or Safari key persistence logic.");
   }
-
   await fs.writeFile(runtimePath, runtime, "utf8");
 }
 
 async function patchMessengerE2EEPayloads() {
   const messengerPath = path.join(root, "api", "messenger_fast.py");
   let messenger = await fs.readFile(messengerPath, "utf8");
-
   if (!messenger.includes("from server.e2ee import attach_e2ee_payload")) {
     messenger = replaceRequired(
       messenger,
@@ -286,14 +333,12 @@ async function patchMessengerE2EEPayloads() {
       "E2EE message payload import"
     );
   }
-
   messenger = replaceRequired(
     messenger,
     "            return [message_payload(row, user_id, recipient_read_times) for row in rows]",
     "            return [attach_e2ee_payload(message_payload(row, user_id, recipient_read_times), row) for row in rows]",
     "E2EE message payload projection"
   );
-
   if (!messenger.includes("attach_e2ee_payload(message_payload")) {
     throw new Error("Messenger responses do not include E2EE payloads.");
   }
@@ -308,35 +353,22 @@ async function main() {
 
   const webPath = path.join(publicDir, "web.html");
   let html = await fs.readFile(webPath, "utf8");
-
   const styleTag = `    <link rel="stylesheet" href="/assets/pawlight-fixes.css?v=${version}" />`;
   const e2eeTag = `    <script src="/assets/e2ee-runtime.js?v=${version}"></script>`;
   const pawlightTag = `    <script src="/assets/pawlight-fixes.js?v=${version}"></script>`;
-
   if (!html.includes(styleTag)) {
     const marker = '<meta name="referrer" content="origin" />';
     if (!html.includes(marker)) throw new Error("Unable to place Pawlight styles.");
     html = html.replace(marker, `${styleTag}\n    ${marker}`);
   }
-
-  if (!html.includes(e2eeTag)) {
-    if (!html.includes("</body>")) throw new Error("Unable to place E2EE runtime.");
-    html = html.replace("</body>", `${e2eeTag}\n  </body>`);
-  }
-
-  if (!html.includes(pawlightTag)) {
-    if (!html.includes("</body>")) throw new Error("Unable to place Pawlight runtime.");
-    html = html.replace("</body>", `${pawlightTag}\n  </body>`);
-  }
-
+  if (!html.includes(e2eeTag)) html = html.replace("</body>", `${e2eeTag}\n  </body>`);
+  if (!html.includes(pawlightTag)) html = html.replace("</body>", `${pawlightTag}\n  </body>`);
   if (html.indexOf(e2eeTag) > html.indexOf(pawlightTag)) {
     throw new Error("E2EE runtime must load before the final Pawlight decorator.");
   }
-
   if (html.includes("yachat-app.bundle.js") || html.includes("yachat-app.bundle.css")) {
     throw new Error("Unsafe consolidated frontend bundle is still enabled.");
   }
-
   await Promise.all([
     "e2ee-runtime.js",
     "pawlight-fixes.js"
