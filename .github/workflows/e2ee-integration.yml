@@ -3,8 +3,7 @@ name: E2EE integration
 on:
   push:
     branches:
-      - agent/e2ee-foundation
-      - agent/e2ee-foundation-clean
+      - agent/e2ee-phase2
   pull_request:
     branches:
       - main
@@ -38,7 +37,7 @@ jobs:
           cat > public/e2ee-browser-fixture.html <<'HTML'
           <!doctype html>
           <html lang="ru">
-            <head><meta charset="utf-8"><title>E2EE runtime test</title></head>
+            <head><meta charset="utf-8"><title>E2EE phase 2 runtime test</title></head>
             <body>
               <script>
                 localStorage.setItem("yachat-http-auth-token", "test-token");
@@ -47,11 +46,12 @@ jobs:
                   chats: [{
                     id: "private-test-chat",
                     kind: "private",
+                    e2eePolicy: "text_encrypted",
                     participantIds: ["account-test"]
                   }]
                 };
               </script>
-              <script src="/assets/e2ee-runtime.js?v=97"></script>
+              <script src="/assets/e2ee-phase2.js?v=100"></script>
             </body>
           </html>
           HTML
@@ -87,7 +87,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2ee-browser-diagnostics
+          name: e2ee-phase2-browser-diagnostics
           path: |
             /tmp/e2ee-chromium.log
             /tmp/e2ee-webkit.log
