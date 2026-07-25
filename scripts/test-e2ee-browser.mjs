@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 
 const baseUrl = process.env.E2EE_TEST_ORIGIN || "http://127.0.0.1:4173";
-const browser = await chromium.launch({ headless: true });
+const browserName = String(process.env.E2EE_TEST_BROWSER || "chromium").toLowerCase();
+const browserType = browserName === "webkit" ? webkit : chromium;
+const browser = await browserType.launch({ headless: true });
 const context = await browser.newContext();
 const page = await context.newPage();
 
@@ -166,4 +168,4 @@ assert.ok(registeredBundle, "device must re-register after reload");
 assert.equal(registeredBundle.identityDhPublic, firstIdentityKey, "device identity must persist across reloads");
 
 await browser.close();
-console.log("E2EE browser test passed: IndexedDB keys, shadow round trip, persistence and tamper rejection.");
+console.log(`E2EE ${browserName} test passed: IndexedDB keys, shadow round trip, persistence and tamper rejection.`);
