@@ -1,8 +1,9 @@
 (() => {
   "use strict";
 
-  const REPAIR_VERSION = "89";
+  const REPAIR_VERSION = "91";
   const AUTH_TOKEN_KEY = "yachat-http-auth-token";
+  const INSTALLATION_ID_KEY = "yachat-push-installation-id-v1";
   const REPAIR_COOLDOWN_MS = 60_000;
   let repairPromise = null;
   let lastRepairAt = 0;
@@ -16,8 +17,30 @@
     }
   }
 
+  function safeStorageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function token() {
     return safeStorageGet(AUTH_TOKEN_KEY);
+  }
+
+  function installationId() {
+    const existing = safeStorageGet(INSTALLATION_ID_KEY).trim();
+    if (/^[A-Za-z0-9._:-]{8,128}$/.test(existing)) {
+      return existing;
+    }
+
+    const generated = globalThis.crypto?.randomUUID
+      ? globalThis.crypto.randomUUID()
+      : `install-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
+    safeStorageSet(INSTALLATION_ID_KEY, generated);
+    return generated;
   }
 
   function supported() {
@@ -135,6 +158,7 @@
       const subscription = await currentSubscription(readyRegistration || registration, config.publicKey);
       const serialized = subscription.toJSON();
       serialized.contentEncoding = contentEncoding();
+      serialized.deviceId = installationId();
 
       const saved = await serverJson("/api/push/subscribe", {
         method: "POST",
