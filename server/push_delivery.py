@@ -119,6 +119,48 @@ def _log_push(event: str, **fields: Any) -> None:
     print(json.dumps(safe, ensure_ascii=False, default=str), flush=True)
 
 
+def _claim_push_delivery(user_id: str, notification_tag: str, window_seconds: int) -> bool:
+    if not notification_tag:
+        return True
+
+    window = max(60, min(int(window_seconds), 30 * 86_400))
+    with connect_db() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "delete from yachat_push_delivery_dedup where created_at < now() - interval '30 days'"
+            )
+            cursor.execute(
+                """
+                delete from yachat_push_delivery_dedup
+                where user_id = %s
+                  and notification_tag = %s
+                  and created_at < now() - (%s * interval '1 second')
+                """,
+                (user_id, notification_tag, window),
+            )
+            cursor.execute(
+                """
+                insert into yachat_push_delivery_dedup(user_id, notification_tag, created_at)
+                values (%s, %s, now())
+                on conflict(user_id, notification_tag) do nothing
+                returning 1
+                """,
+                (user_id, notification_tag),
+            )
+            return cursor.fetchone() is not None
+
+
+def _release_push_delivery(user_id: str, notification_tag: str) -> None:
+    if not notification_tag:
+        return
+    with connect_db() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "delete from yachat_push_delivery_dedup where user_id = %s and notification_tag = %s",
+                (user_id, notification_tag),
+            )
+
+
 def push_subscription_count(user_id: str) -> int:
     with connect_db() as connection:
         with connection.cursor() as cursor:
@@ -145,6 +187,7 @@ def send_push_to_user(
         "sent": 0,
         "failed": 0,
         "removed": 0,
+        "deduplicated": False,
     }
     if not public_key or not private_key:
         result["error"] = "vapid-unavailable"
@@ -172,6 +215,12 @@ def send_push_to_user(
         return result
 
     notification_tag = tag or f"yachat:{url}"
+    dedupe_window = 600 if notification_tag == "push-test" else 7 * 86_400
+    if not _claim_push_delivery(user_id, notification_tag, dedupe_window):
+        result["deduplicated"] = True
+        _log_push("push_deduplicated", userId=user_id, tag=notification_tag)
+        return result
+
     payload = json.dumps(
         {
             "title": str(title or "ЯЧат")[:120],
@@ -215,6 +264,7 @@ def send_push_to_user(
                 host=_endpoint_host(endpoint),
                 status=status_code,
                 encoding=encoding,
+                tag=notification_tag,
             )
         except WebPushException as error:
             response = getattr(error, "response", None)
@@ -236,6 +286,7 @@ def send_push_to_user(
                 status=status_code,
                 detail=response_text or str(error)[:500],
                 encoding=encoding,
+                tag=notification_tag,
             )
         except Exception as error:
             result["failed"] += 1
@@ -246,6 +297,10 @@ def send_push_to_user(
                 status=None,
                 detail=f"{type(error).__name__}: {str(error)[:500]}",
                 encoding=encoding,
+                tag=notification_tag,
             )
+
+    if result["sent"] == 0:
+        _release_push_delivery(user_id, notification_tag)
 
     return result

@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -13,13 +14,15 @@ from api.index import (
 )
 from server.push_delivery import push_subscription_count, send_push_to_user, vapid_public_key
 
-app = FastAPI(title="YaChat push API", version="0.3.0")
+app = FastAPI(title="YaChat push API", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+_DEVICE_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 
 
 @app.middleware("http")
@@ -36,10 +39,15 @@ def normalize_content_encoding(value: Any) -> str:
     return encoding if encoding in {"aes128gcm", "aesgcm"} else "aes128gcm"
 
 
+def normalize_device_id(value: Any) -> str:
+    device_id = clean_text(value, 128)
+    return device_id if _DEVICE_ID_PATTERN.fullmatch(device_id) else ""
+
+
 @app.get("/api/push/public-key")
 def push_public_key():
     key = vapid_public_key()
-    return {"enabled": bool(key), "publicKey": key, "version": 2}
+    return {"enabled": bool(key), "publicKey": key, "version": 3}
 
 
 @app.get("/api/push/status")
@@ -64,9 +72,13 @@ async def push_subscribe(request: Request):
     content_encoding = normalize_content_encoding(
         payload.get("contentEncoding") or payload.get("content_encoding")
     )
+    device_id = normalize_device_id(payload.get("deviceId") or payload.get("device_id"))
+    user_agent = clean_text(request.headers.get("user-agent"), 500)
+    user_id = str(user["id"])
     if not endpoint or not p256dh or not auth:
         raise HTTPException(status_code=400, detail="Invalid push subscription.")
 
+    removed_subscriptions = 0
     with connect_db() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -74,27 +86,54 @@ async def push_subscribe(request: Request):
                 (endpoint,),
             )
             previous = cursor.fetchone()
+
+            if device_id:
+                cursor.execute(
+                    """
+                    delete from yachat_push_subscriptions
+                    where user_id = %s
+                      and endpoint <> %s
+                      and (
+                        device_id = %s
+                        or (
+                          coalesce(device_id, '') = ''
+                          and %s <> ''
+                          and user_agent = %s
+                        )
+                      )
+                    returning endpoint
+                    """,
+                    (user_id, endpoint, device_id, user_agent, user_agent),
+                )
+                removed_subscriptions = len(cursor.fetchall())
+
             cursor.execute(
                 """
                 insert into yachat_push_subscriptions(
-                    endpoint, user_id, p256dh, auth, content_encoding, user_agent, updated_at
+                    endpoint, user_id, p256dh, auth, content_encoding,
+                    user_agent, device_id, updated_at
                 )
-                values (%s, %s, %s, %s, %s, %s, now())
+                values (%s, %s, %s, %s, %s, %s, %s, now())
                 on conflict (endpoint) do update
                 set user_id = excluded.user_id,
                     p256dh = excluded.p256dh,
                     auth = excluded.auth,
                     content_encoding = excluded.content_encoding,
                     user_agent = excluded.user_agent,
+                    device_id = case
+                        when excluded.device_id <> '' then excluded.device_id
+                        else yachat_push_subscriptions.device_id
+                    end,
                     updated_at = now()
                 """,
                 (
                     endpoint,
-                    user["id"],
+                    user_id,
                     p256dh,
                     auth,
                     content_encoding,
-                    clean_text(request.headers.get("user-agent"), 500),
+                    user_agent,
+                    device_id,
                 ),
             )
 
@@ -102,7 +141,9 @@ async def push_subscribe(request: Request):
         "ok": True,
         "created": previous is None,
         "contentEncoding": content_encoding,
-        "subscriptions": push_subscription_count(str(user["id"])),
+        "deviceId": device_id,
+        "removedSubscriptions": removed_subscriptions,
+        "subscriptions": push_subscription_count(user_id),
     }
 
 
