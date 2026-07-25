@@ -67,9 +67,12 @@ async function consolidate() {
   html = html.replace(firstScript, `\n    <script src="/assets/yachat-app.bundle.js?v=${version}"></script>`);
   for (const match of scriptMatches.slice(1)) html = html.replace(match[0], "");
 
-  const remainingLocalStyles = [...html.matchAll(stylePattern)].length;
+  const remainingLocalStyles = [...html.matchAll(stylePattern)]
+    .filter((match) => !match[1].includes("yachat-app.bundle.css"))
+    .length;
   const remainingLocalScripts = [...html.matchAll(scriptPattern)]
     .filter((match) => !match[1].includes("privacy-safe-analytics.js"))
+    .filter((match) => !match[1].includes("yachat-app.bundle.js"))
     .length;
   if (remainingLocalStyles || remainingLocalScripts) {
     throw new Error(`Consolidation incomplete: ${remainingLocalStyles} styles, ${remainingLocalScripts} scripts remain.`);
