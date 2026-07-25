@@ -163,31 +163,37 @@ assert.equal(tampered.message.e2eeVerified, false, "tampered ciphertext must fai
 await page.waitForFunction(() => window.__yachatE2EE?.verificationFailures >= 1);
 
 const stored = await page.evaluate(async () => {
-  const request = indexedDB.open("yachat-e2ee-v1", 1);
+  const request = indexedDB.open("yachat-e2ee-v1", 3);
   const db = await new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  const transaction = db.transaction("devices", "readonly");
-  const getAll = transaction.objectStore("devices").getAll();
-  const records = await new Promise((resolve, reject) => {
+
+  const readAll = (storeName) => new Promise((resolve, reject) => {
+    const transaction = db.transaction(storeName, "readonly");
+    const getAll = transaction.objectStore(storeName).getAll();
     getAll.onsuccess = () => resolve(getAll.result);
     getAll.onerror = () => reject(getAll.error);
   });
+
+  const [records, privateKeys] = await Promise.all([
+    readAll("devices"),
+    readAll("cryptoKeys")
+  ]);
   const record = records[0];
   return {
-    count: records.length,
-    hasIdentityPrivateKey: record?.identityDhPrivate instanceof CryptoKey,
-    hasSigningPrivateKey: record?.identitySignPrivate instanceof CryptoKey,
-    identityPrivateExtractable: record?.identityDhPrivate?.extractable,
-    signingPrivateExtractable: record?.identitySignPrivate?.extractable
+    recordCount: records.length,
+    privateKeyCount: privateKeys.length,
+    metadataContainsCryptoKey: Object.values(record || {}).some((value) => value instanceof CryptoKey),
+    allPrivateKeysAreCryptoKeys: privateKeys.every((value) => value instanceof CryptoKey),
+    allPrivateKeysNonExtractable: privateKeys.every((value) => value.extractable === false)
   };
 });
-assert.equal(stored.count, 1);
-assert.equal(stored.hasIdentityPrivateKey, true);
-assert.equal(stored.hasSigningPrivateKey, true);
-assert.equal(stored.identityPrivateExtractable, false);
-assert.equal(stored.signingPrivateExtractable, false);
+assert.equal(stored.recordCount, 1);
+assert.ok(stored.privateKeyCount >= 34, "identity, signed and one-time private keys must be persisted separately");
+assert.equal(stored.metadataContainsCryptoKey, false);
+assert.equal(stored.allPrivateKeysAreCryptoKeys, true);
+assert.equal(stored.allPrivateKeysNonExtractable, true);
 
 registeredBundle = null;
 await page.reload({ waitUntil: "load" });
@@ -196,4 +202,4 @@ assert.ok(registeredBundle, "device must re-register after reload");
 assert.equal(registeredBundle.identityDhPublic, firstIdentityKey, "device identity must persist across reloads");
 
 await browser.close();
-console.log(`E2EE ${browserName} test passed: IndexedDB keys, shadow round trip, persistence and tamper rejection.`);
+console.log(`E2EE ${browserName} test passed: split IndexedDB keys, shadow round trip, persistence and tamper rejection.`);
