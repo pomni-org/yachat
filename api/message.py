@@ -30,10 +30,13 @@ from server.e2ee import (
     attach_e2ee_payload,
     canonical_roster,
     e2ee_message_columns,
+    message_signature_input,
     normalize_device_id,
     parse_device_registration,
     parse_e2ee_message,
+    push_preview_signature_input,
     roster_digest,
+    verify_ed25519,
 )
 from server.push_delivery import send_push_to_user
 
@@ -51,6 +54,14 @@ _PHASE3_VERSION = 3
 _PHASE3_ATTACHMENT_CAPABILITY = "encrypted-attachments-v1"
 _PHASE4_VERSION = 4
 _PHASE4_PUSH_CAPABILITY = "encrypted-push-preview-v1"
+_PHASE5_VERSION = 5
+_PHASE5_REQUIRED_CAPABILITIES = {
+    "mandatory-e2ee-v1",
+    "signed-messages-v1",
+    "padded-content-v1",
+    "sealed-push-descriptor-v1",
+    "encrypted-digital-id-v1",
+}
 _ENCRYPTED_ATTACHMENT_MIME = "application/vnd.yachat.e2ee"
 _RECENT_SESSION_DAYS = 7
 _DEVICE_RETENTION_DAYS = 90
@@ -86,6 +97,8 @@ def validate_encrypted_attachment_transport(
     if int(encrypted.get("version") or 0) < _PHASE3_VERSION:
         raise HTTPException(status_code=400, detail="Encrypted attachments require E2EE protocol version 3.")
     if not attachments:
+        if int(encrypted.get("version") or 0) >= _PHASE5_VERSION:
+            return
         raise HTTPException(status_code=400, detail="The encrypted-attachment payload is empty.")
 
     seen_ids: set[str] = set()
@@ -164,9 +177,11 @@ def device_capabilities(value: Any) -> list[str]:
 
 def encrypted_previews_for_user(encrypted: dict[str, Any], user_id: str) -> dict[str, dict[str, Any]]:
     return {
-        str(item["deviceId"]): item
+        str(item["deviceId"]): {
+            key: value for key, value in item.items() if not str(key).startswith("_")
+        }
         for item in encrypted.get("pushPreviews", [])
-        if str(item.get("userId") or "") == user_id
+        if str(item.get("_recipientUserId") or item.get("userId") or "") == user_id
     }
 
 
@@ -301,6 +316,26 @@ def eligible_phase3_devices(cursor, member_ids: list[str]) -> list[dict[str, Any
     return [dict(row) for row in cursor.fetchall()]
 
 
+def eligible_phase5_devices(cursor, member_ids: list[str]) -> list[dict[str, Any]]:
+    if not member_ids:
+        return []
+    cursor.execute(
+        f"""
+        select *
+        from yachat_e2ee_devices
+        where user_id = any(%s)
+          and revoked_at is null
+          and ready_at is not null
+          and protocol_version >= %s
+          and capabilities ?& %s
+          and last_seen_at > now() - interval '{_DEVICE_RETENTION_DAYS} days'
+        order by user_id, device_id
+        """,
+        (member_ids, _PHASE5_VERSION, sorted(_PHASE5_REQUIRED_CAPABILITIES)),
+    )
+    return [dict(row) for row in cursor.fetchall()]
+
+
 def shadow_devices(cursor, member_ids: list[str]) -> list[dict[str, Any]]:
     if not member_ids:
         return []
@@ -404,11 +439,24 @@ def resolve_chat_rollout(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
     if len(member_ids) != 2:
         raise HTTPException(status_code=409, detail="Private chat membership is invalid.")
 
-    devices = eligible_phase2_devices(cursor, member_ids)
+    minimum_protocol_version = max(
+        _PHASE2_VERSION,
+        min(int(row_value(chat, "e2ee_min_protocol") or _PHASE2_VERSION), _PHASE5_VERSION),
+    )
+    devices = (
+        eligible_phase5_devices(cursor, member_ids)
+        if minimum_protocol_version >= _PHASE5_VERSION
+        else eligible_phase2_devices(cursor, member_ids)
+    )
     device_ids = {str(row["device_id"]) for row in devices}
     users_with_devices = {str(row["user_id"]) for row in devices}
     missing_device_users = sorted(set(member_ids) - users_with_devices)
-    unready_session_users = recent_unready_session_users(cursor, member_ids, device_ids)
+    unready_session_users = recent_unready_session_users(
+        cursor,
+        member_ids,
+        device_ids,
+        minimum_version=minimum_protocol_version,
+    )
     phase3_devices = eligible_phase3_devices(cursor, member_ids)
     phase3_device_ids = {str(row["device_id"]) for row in phase3_devices}
     phase3_users_with_devices = {str(row["user_id"]) for row in phase3_devices}
@@ -420,10 +468,15 @@ def resolve_chat_rollout(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
         minimum_version=_PHASE3_VERSION,
     )
     attachment_encryption_ready = (
-        not phase3_missing_users
-        and not phase3_unready_session_users
-        and bool(device_ids)
-        and device_ids == phase3_device_ids
+        bool(device_ids)
+        and (
+            minimum_protocol_version >= _PHASE5_VERSION
+            or (
+                not phase3_missing_users
+                and not phase3_unready_session_users
+                and device_ids == phase3_device_ids
+            )
+        )
     )
     current_policy = str(row_value(chat, "e2ee_policy")) or "shadow"
 
@@ -440,7 +493,9 @@ def resolve_chat_rollout(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
         )
 
     if current_policy == "text_encrypted":
-        if missing_device_users:
+        if missing_device_users or (
+            minimum_protocol_version >= _PHASE5_VERSION and unready_session_users
+        ):
             return {
                 "phase": "blocked",
                 "chat": dict(chat),
@@ -452,6 +507,7 @@ def resolve_chat_rollout(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
                 "attachmentEncryptionReady": False,
                 "phase3MissingDeviceUserIds": phase3_missing_users,
                 "phase3UnreadySessionUserIds": phase3_unready_session_users,
+                "minimumProtocolVersion": minimum_protocol_version,
             }
         roster = canonical_roster(devices)
         epoch = create_or_refresh_epoch(cursor, chat_id=chat_id, roster=roster)
@@ -475,6 +531,7 @@ def resolve_chat_rollout(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
             "attachmentEncryptionReady": attachment_encryption_ready,
             "phase3MissingDeviceUserIds": phase3_missing_users,
             "phase3UnreadySessionUserIds": phase3_unready_session_users,
+            "minimumProtocolVersion": minimum_protocol_version,
         }
 
     return {
@@ -488,6 +545,7 @@ def resolve_chat_rollout(cursor, chat_id: str, user_id: str) -> dict[str, Any]:
         "attachmentEncryptionReady": False,
         "phase3MissingDeviceUserIds": phase3_missing_users,
         "phase3UnreadySessionUserIds": phase3_unready_session_users,
+        "minimumProtocolVersion": minimum_protocol_version,
     }
 
 
@@ -566,6 +624,15 @@ def validate_encrypted_message(
         raise HTTPException(status_code=400, detail="Server-blind E2EE is currently limited to private chats.")
     if str(row_value(chat, "e2ee_policy")) != "text_encrypted":
         raise HTTPException(status_code=409, detail="This chat has not completed E2EE phase 2 readiness yet.")
+    minimum_protocol_version = max(
+        _PHASE2_VERSION,
+        min(int(row_value(chat, "e2ee_min_protocol") or _PHASE2_VERSION), _PHASE5_VERSION),
+    )
+    if int(encrypted.get("version") or 0) < minimum_protocol_version:
+        raise HTTPException(
+            status_code=426,
+            detail=f"This chat requires E2EE protocol version {minimum_protocol_version}.",
+        )
     epoch_id = str(row_value(chat, "e2ee_epoch_id"))
     if not epoch_id or encrypted["epochId"] != epoch_id:
         raise HTTPException(status_code=409, detail="The E2EE device roster changed. Refresh the chat and send again.")
@@ -607,6 +674,22 @@ def validate_encrypted_message(
     sender_identity = str(sender_device["identity_dh_public"])
     sender_signing_identity = str(sender_device["identity_sign_public"])
     sender_capabilities = device_capabilities(sender_device.get("capabilities"))
+    if minimum_protocol_version >= _PHASE5_VERSION:
+        if (
+            int(sender_device.get("protocol_version") or 0) < _PHASE5_VERSION
+            or not _PHASE5_REQUIRED_CAPABILITIES.issubset(set(sender_capabilities))
+            or int(encrypted.get("version") or 0) < _PHASE5_VERSION
+            or str(encrypted.get("senderIdentitySignPublic") or "") != sender_signing_identity
+        ):
+            raise HTTPException(status_code=426, detail="The sender device has not completed E2EE phase 5.")
+        verify_ed25519(
+            sender_signing_identity,
+            str(encrypted.get("signature") or ""),
+            message_signature_input(encrypted),
+            field="message",
+        )
+        if any(int(preview.get("version") or 0) < 2 for preview in encrypted.get("pushPreviews", [])):
+            raise HTTPException(status_code=400, detail="Phase 5 requires sealed push descriptors.")
     sender_supports_push_previews = (
         int(sender_device.get("protocol_version") or 0) >= _PHASE4_VERSION
         and _PHASE4_PUSH_CAPABILITY in sender_capabilities
@@ -640,12 +723,18 @@ def validate_encrypted_message(
             raise HTTPException(status_code=400, detail="E2EE push preview targets an unknown device.")
         capabilities = device_capabilities(device.get("capabilities"))
         if (
-            str(preview["userId"]) != expected_user_id
-            or str(preview["senderUserId"]) != user_id
-            or str(preview["senderDeviceId"]) != encrypted["senderDeviceId"]
+            str(preview["senderDeviceId"]) != encrypted["senderDeviceId"]
             or str(preview["senderIdentitySignPublic"]) != sender_signing_identity
+            or (
+                int(preview.get("version") or 0) == 1
+                and (
+                    str(preview["userId"]) != expected_user_id
+                    or str(preview["senderUserId"]) != user_id
+                )
+            )
         ):
             raise HTTPException(status_code=400, detail="E2EE push-preview ownership does not match the chat roster.")
+        preview["_recipientUserId"] = expected_user_id
         if (
             int(device.get("protocol_version") or 0) < _PHASE4_VERSION
             or _PHASE4_PUSH_CAPABILITY not in capabilities
@@ -653,6 +742,13 @@ def validate_encrypted_message(
             or str(preview["recipientPushPreviewPublic"]) != str(device.get("push_preview_public") or "")
         ):
             raise HTTPException(status_code=409, detail="The push-preview key for a recipient device changed.")
+        if int(encrypted.get("version") or 0) >= _PHASE5_VERSION:
+            verify_ed25519(
+                sender_signing_identity,
+                str(preview.get("signature") or ""),
+                push_preview_signature_input(preview),
+                field="push descriptor",
+            )
 
     for device_id, expected_user_id in roster_map.items():
         envelope = envelope_map[device_id]
@@ -789,6 +885,17 @@ async def register_e2ee_device(request: Request):
                     protocol_version=bundle["protocolVersion"],
                     phase2_ready=bundle["phase2Ready"],
                 )
+                if bundle["phase5Ready"]:
+                    cursor.execute(
+                        """
+                        update public_users
+                        set e2ee_required = true,
+                            e2ee_min_protocol = greatest(coalesce(e2ee_min_protocol, 2), 5),
+                            updated_at = now()
+                        where id = %s
+                        """,
+                        (user_id,),
+                    )
 
                 for prekey in bundle["oneTimePreKeys"]:
                     cursor.execute(
@@ -823,7 +930,9 @@ async def register_e2ee_device(request: Request):
         "availableOneTimePreKeys": available,
         "needsOneTimePreKeys": available < 12,
         "rolloutPhase": (
-            "phase4-ready"
+            "phase5-ready"
+            if bundle["phase5Ready"]
+            else "phase4-ready"
             if bundle["phase4Ready"]
             else "phase3-ready"
             if bundle["phase3Ready"]
@@ -856,7 +965,14 @@ async def heartbeat_e2ee_device(request: Request):
         "availableOneTimePreKeys": available,
         "needsOneTimePreKeys": available < 12,
         "rolloutPhase": (
-            "phase4-ready"
+            "phase5-ready"
+            if (
+                int(device.get("protocol_version") or 0) >= _PHASE5_VERSION
+                and _PHASE5_REQUIRED_CAPABILITIES.issubset(
+                    set(device_capabilities(device.get("capabilities")))
+                )
+            )
+            else "phase4-ready"
             if (
                 int(device.get("protocol_version") or 0) >= _PHASE4_VERSION
                 and _PHASE4_PUSH_CAPABILITY
@@ -923,7 +1039,11 @@ async def claim_e2ee_bundles(request: Request):
                         "chatId": chat_id,
                         "algorithm": "yachat-x3dh-v1",
                         "rolloutPhase": "blocked",
-                        "reason": "A participant has no active phase 2 E2EE device.",
+                        "reason": (
+                            f"A participant has no active phase {rollout['minimumProtocolVersion']} "
+                            "E2EE device or session."
+                        ),
+                        "minimumProtocolVersion": rollout["minimumProtocolVersion"],
                         "missingDeviceUserIds": rollout["missingDeviceUserIds"],
                         "unreadySessionUserIds": rollout["unreadySessionUserIds"],
                         "attachmentEncryptionReady": False,
@@ -944,8 +1064,13 @@ async def claim_e2ee_bundles(request: Request):
         "chatId": chat_id,
         "algorithm": "yachat-x3dh-v1",
         "protocolVersion": (
-            _PHASE3_VERSION if rollout["attachmentEncryptionReady"] else _PHASE2_VERSION
+            rollout["minimumProtocolVersion"]
+            if rollout["minimumProtocolVersion"] >= _PHASE5_VERSION
+            else _PHASE3_VERSION
+            if rollout["attachmentEncryptionReady"]
+            else _PHASE2_VERSION
         ),
+        "minimumProtocolVersion": rollout["minimumProtocolVersion"],
         "rolloutPhase": rollout["phase"],
         "attachmentEncryptionReady": rollout["attachmentEncryptionReady"],
         "epochId": str(epoch["id"]) if epoch else "",
@@ -1086,11 +1211,14 @@ async def send_message(request: Request, background_tasks: BackgroundTasks):
                         attachments, reply_to_message_id, forwarded_from,
                         e2ee_version, e2ee_mode, e2ee_ciphertext, e2ee_iv,
                         e2ee_aad, e2ee_envelopes, e2ee_sender_device_id,
-                        e2ee_plaintext_digest, e2ee_epoch_id, created_at
+                        e2ee_plaintext_digest, e2ee_epoch_id, e2ee_padding_scheme,
+                        e2ee_envelope_digest, e2ee_sender_sign_public,
+                        e2ee_signature, created_at
                     )
                     values (
                         %s, %s, %s, %s, %s, %s::jsonb, %s, %s,
-                        %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, now()
+                        %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s,
+                        %s, %s, %s, %s, now()
                     )
                     on conflict(id) do nothing
                     returning *
@@ -1155,17 +1283,29 @@ async def send_message(request: Request, background_tasks: BackgroundTasks):
     push_target = f"/{sender_username}" if chat_kind == "private" and sender_username else f"/?chat={chat_id}"
     push_title = sender_name if chat_kind == "private" else chat_title or sender_name
     push_body = push_plaintext if chat_kind == "private" else f"{sender_name}: {push_plaintext}"
-    deliveries = [
-        (
-            recipient_id,
-            push_title,
-            push_body[:240],
-            push_target,
-            f"message:{message_id}:{recipient_id}",
-            encrypted_previews_for_user(encrypted, recipient_id),
+    sealed_push = encrypted["mode"] == "encrypted" and int(encrypted.get("version") or 0) >= _PHASE5_VERSION
+    deliveries = []
+    for recipient_id in recipients:
+        if sealed_push:
+            outer_title = "ЯЧат"
+            outer_body = "Новое сообщение"
+            outer_target = "/web"
+            outer_tag = f"e2ee:{hash_secret(f'push-route:{message_id}:{recipient_id}')[:32]}"
+        else:
+            outer_title = push_title
+            outer_body = push_body[:240]
+            outer_target = push_target
+            outer_tag = f"message:{message_id}:{recipient_id}"
+        deliveries.append(
+            (
+                recipient_id,
+                outer_title,
+                outer_body,
+                outer_target,
+                outer_tag,
+                encrypted_previews_for_user(encrypted, recipient_id),
+            )
         )
-        for recipient_id in recipients
-    ]
     background_tasks.add_task(deliver_pushes_background, deliveries)
 
     rendered_message = attach_e2ee_payload(message_payload(message, user_id), message)

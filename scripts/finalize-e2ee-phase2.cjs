@@ -95,13 +95,19 @@ async function patchBrowserRuntime() {
   );
 
   const required = [
-    'const PROTOCOL_VERSION = 4;',
+    'const PROTOCOL_VERSION = 5;',
     '"server-blind-text-v1"',
     '"encrypted-attachments-v1"',
     '"encrypted-push-preview-v1"',
-    'const DB_VERSION = 6;',
+    '"mandatory-e2ee-v1"',
+    '"signed-messages-v1"',
+    '"padded-content-v1"',
+    '"sealed-push-descriptor-v1"',
+    '"encrypted-digital-id-v1"',
+    'const DB_VERSION = 7;',
     'createObjectStore("pushPreviewKeys"',
     'createObjectStore("pushPreviewTrust"',
+    'createObjectStore("messageKeys"',
     'const ENCRYPTED_ATTACHMENT_MIME = "application/vnd.yachat.e2ee";',
     'const MAX_ATTACHMENT_DATA_URL_CHARS = 9000000;',
     'privateVault: await encryptPrivateVault(value)',
@@ -114,11 +120,15 @@ async function patchBrowserRuntime() {
     'assertContentContext(',
     'text: "",',
     'replyToMessageId: null,',
-    'headers.set("X-YaChat-E2EE-Runtime", "phase4")',
+    'headers.set("X-YaChat-E2EE-Runtime", "phase5")',
     'record.signedPreKeys = signed;',
     'const blocked = new Set(["SCRIPT"',
     'rawSource.startsWith("data:")',
-    'parts[2] === "v3"'
+    '["v3", "v5"].includes(parts[2])',
+    'bucketPaddedContent(',
+    'messageSignatureInput(',
+    'ensureDigitalIdVault(',
+    'digitalIdSignatureInput('
   ];
   required.forEach((marker) => {
     if (!runtime.includes(marker)) throw new Error(`Missing E2EE phase 4 runtime marker: ${marker}`);

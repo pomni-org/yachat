@@ -43,6 +43,13 @@ function base64UrlToBytes(value) {
 }
 
 function expectedPushPreviewAad(preview) {
+  const version = Number(preview?.version || 0);
+  if (version >= 2) {
+    return (
+      `yachat-x3dh-v1|push-descriptor|v2|${preview.contextId}|${preview.senderDeviceId}|`
+      + `${preview.deviceId}|${preview.recipientPushPreviewPublic}`
+    );
+  }
   return (
     `yachat-x3dh-v1|push-preview|v1|${preview.chatId}|${preview.messageId}|`
     + `${preview.senderUserId}|${preview.senderDeviceId}|${preview.userId}|${preview.deviceId}|`
@@ -89,7 +96,9 @@ async function pinPushPreviewIdentity(preview) {
     if (!database.objectStoreNames.contains("pushPreviewTrust")) {
       throw new Error("Push-preview trust storage is unavailable.");
     }
-    const key = `${preview.senderUserId}:${preview.senderDeviceId}`;
+    const key = Number(preview.version || 0) >= 2
+      ? `device:${preview.senderDeviceId}`
+      : `${preview.senderUserId}:${preview.senderDeviceId}`;
     await new Promise((resolve, reject) => {
       const transaction = database.transaction("pushPreviewTrust", "readwrite");
       const store = transaction.objectStore("pushPreviewTrust");
@@ -130,7 +139,7 @@ async function pinPushPreviewIdentity(preview) {
 }
 
 async function decryptPushPreview(preview) {
-  if (!preview || Number(preview.version || 0) !== 1) {
+  if (!preview || ![1, 2].includes(Number(preview.version || 0))) {
     throw new Error("Unsupported encrypted push preview.");
   }
   const keyRecord = await e2eeStoreGet("pushPreviewKeys", String(preview.deviceId || ""));
@@ -144,10 +153,12 @@ async function decryptPushPreview(preview) {
   if (String(preview.aad || "") !== expectedPushPreviewAad(preview)) {
     throw new Error("The encrypted push-preview context was modified.");
   }
-  const trustedBundle = await e2eeStoreGet(
-    "trust",
-    `${preview.userId}:${preview.senderUserId}:${preview.senderDeviceId}`
-  );
+  const trustedBundle = Number(preview.version || 0) === 1
+    ? await e2eeStoreGet(
+        "trust",
+        `${preview.userId}:${preview.senderUserId}:${preview.senderDeviceId}`
+      )
+    : null;
   if (
     trustedBundle?.identitySignPublic
     && trustedBundle.identitySignPublic !== preview.senderIdentitySignPublic
@@ -221,8 +232,15 @@ async function decryptPushPreview(preview) {
   const decoded = JSON.parse(previewDecoder.decode(plaintext.subarray(2, 2 + length)));
   const createdAt = Number(decoded.createdAt || 0);
   if (
-    Number(decoded.version || 0) !== 1
-    || String(decoded.messageId || "") !== String(preview.messageId || "")
+    Number(decoded.version || 0) !== Number(preview.version || 0)
+    || (
+      Number(preview.version || 0) === 1
+      && String(decoded.messageId || "") !== String(preview.messageId || "")
+    )
+    || (
+      Number(preview.version || 0) >= 2
+      && String(decoded.contextId || "") !== String(preview.contextId || "")
+    )
     || !createdAt
     || createdAt > Date.now() + 10 * 60 * 1000
     || Date.now() - createdAt > PUSH_PREVIEW_MAX_AGE_MS
@@ -232,25 +250,42 @@ async function decryptPushPreview(preview) {
   const body = String(decoded.body || "").trim();
   if (!body) throw new Error("The encrypted push-preview body is empty.");
   await pinPushPreviewIdentity(preview);
-  return body.slice(0, 300);
+  if (Number(preview.version || 0) === 1) return body.slice(0, 300);
+  return {
+    title: String(decoded.title || "ЯЧат").slice(0, 120),
+    body: body.slice(0, 300),
+    url: String(decoded.url || "/web").slice(0, 300),
+    tag: String(decoded.tag || `message:${decoded.messageId || "sealed"}`).slice(0, 240),
+    timestamp: Number(decoded.clientCreatedAt || createdAt)
+  };
 }
 
-async function resolvePushBody(payload) {
+async function resolvePushDescriptor(payload) {
   if (payload?.e2eePreview) {
     try {
-      return await decryptPushPreview(payload.e2eePreview);
+      const decrypted = await decryptPushPreview(payload.e2eePreview);
+      if (typeof decrypted === "string") {
+        return { title: payload.title || "ЯЧат", body: decrypted, url: payload.url || "/web", tag: payload.tag || "" };
+      }
+      return decrypted;
     } catch {
-      return "Новое сообщение";
+      return { title: "ЯЧат", body: "Новое сообщение", url: "/web", tag: "" };
     }
   }
-  return String(payload?.body || "Новое сообщение");
+  return {
+    title: String(payload?.title || "ЯЧат"),
+    body: String(payload?.body || "Новое сообщение"),
+    url: String(payload?.url || "/web"),
+    tag: String(payload?.tag || "")
+  };
 }
 
 async function showPushNotification(payload = {}) {
-  const targetUrl = normalizeAppTarget(payload.url);
-  const title = payload.title || "ЯЧат";
-  const body = await resolvePushBody(payload);
-  const tag = stableNotificationTag(payload, targetUrl, title, body);
+  const descriptor = await resolvePushDescriptor(payload);
+  const targetUrl = normalizeAppTarget(descriptor.url);
+  const title = descriptor.title || "ЯЧат";
+  const body = descriptor.body || "Новое сообщение";
+  const tag = descriptor.tag || stableNotificationTag(payload, targetUrl, title, body);
   const now = Date.now();
 
   pruneRecentPushTags(now);
@@ -272,7 +307,7 @@ async function showPushNotification(payload = {}) {
     tag,
     renotify: false,
     silent: false,
-    timestamp: now,
+    timestamp: Number(descriptor.timestamp || now),
     lang: "ru",
     dir: "auto",
     data: {

@@ -6,6 +6,7 @@ on:
       - agent/e2ee-phase2
       - agent/e2ee-phase3
       - agent/e2ee-phase4
+      - agent/e2ee-phase5
   pull_request:
     branches:
       - main
@@ -40,14 +41,14 @@ jobs:
         run: npm run build:vercel
 
       - name: Run server protocol tests
-        run: python -m unittest tests.test_e2ee_phase2_server tests.test_e2ee_phase3_server tests.test_e2ee_phase4_server -v
+        run: python -m unittest tests.test_e2ee_phase2_server tests.test_e2ee_phase3_server tests.test_e2ee_phase4_server tests.test_e2ee_phase5_server -v
 
       - name: Create isolated browser fixture
         run: |
           cat > public/e2ee-browser-fixture.html <<'HTML'
           <!doctype html>
           <html lang="ru">
-            <head><meta charset="utf-8"><title>E2EE phase 4 runtime test</title></head>
+            <head><meta charset="utf-8"><title>E2EE phase 5 runtime test</title></head>
             <body>
               <script>
                 localStorage.setItem("yachat-http-auth-token", "test-token");
@@ -97,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: e2ee-phase4-browser-diagnostics
+          name: e2ee-phase5-browser-diagnostics
           path: |
             /tmp/e2ee-chromium.log
             /tmp/e2ee-webkit.log
