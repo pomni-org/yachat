@@ -19,13 +19,21 @@ _DIGITAL_ID_CIPHERTEXT_BYTES = 272
 _MAX_VAULT_ENVELOPES = 32
 
 
-def digital_id_lookup_hash(value: str) -> str:
-    normalized = str(value or "").strip().upper()
-    secret = (
+def _digital_id_lookup_secret() -> str:
+    return (
         os.getenv("YACHAT_DIGITAL_ID_HMAC_SECRET")
         or os.getenv("YACHAT_AUTH_SECRET")
         or ""
     )
+
+
+def digital_id_lookup_configured() -> bool:
+    return len(_digital_id_lookup_secret()) >= 32
+
+
+def digital_id_lookup_hash(value: str) -> str:
+    normalized = str(value or "").strip().upper()
+    secret = _digital_id_lookup_secret()
     if len(secret) < 32:
         raise HTTPException(
             status_code=503,

@@ -19,6 +19,7 @@ from api.index import (
     require_user,
 )
 from server.digital_id_vault import (
+    digital_id_lookup_configured,
     digital_id_lookup_hash,
     digital_id_signature_input,
     digital_id_vault_payload,
@@ -467,6 +468,7 @@ def digital_id_health():
         "version": "2.0.0",
         "proof": "otp-pkce-one-time-token",
         "digitalIdExposure": "client-encrypted-owner-vault",
+        "privateLookupConfigured": digital_id_lookup_configured(),
         "immutable": True,
         "alphabets": ["latin", "cyrillic"],
     }

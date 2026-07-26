@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from api.message import encrypted_previews_for_user
 from server.digital_id_vault import (
     digital_id_envelope_digest,
+    digital_id_lookup_configured,
     digital_id_lookup_hash,
     digital_id_signature_input,
     parse_digital_id_vault,
@@ -255,11 +256,13 @@ class E2EEPhase5ServerTests(unittest.TestCase):
             {"YACHAT_DIGITAL_ID_HMAC_SECRET": "h" * 32},
             clear=True,
         ):
+            self.assertTrue(digital_id_lookup_configured())
             self.assertEqual(
                 digital_id_lookup_hash("ркн399"),
                 digital_id_lookup_hash("РКН399"),
             )
         with patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(digital_id_lookup_configured())
             with self.assertRaises(HTTPException):
                 digital_id_lookup_hash("РКН399")
 
