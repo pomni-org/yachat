@@ -159,6 +159,120 @@ async function roundTrip(useOneTimePreKey) {
   );
 }
 
+async function pushPreviewRoundTrip() {
+  const recipient = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"]
+  );
+  const ephemeral = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"]
+  );
+  const senderSigning = await crypto.subtle.generateKey(
+    { name: "Ed25519" },
+    true,
+    ["sign", "verify"]
+  );
+  const recipientPublic = await rawPublic(recipient.publicKey);
+  const recipientPublicEncoded = Buffer.from(recipientPublic).toString("base64url");
+  const keyAttestation = encoder.encode(
+    `${ALGORITHM}|push-preview-key|v1|device-recipient-test|${recipientPublicEncoded}`
+  );
+  const keySignature = await crypto.subtle.sign("Ed25519", senderSigning.privateKey, keyAttestation);
+  assert.equal(
+    await crypto.subtle.verify("Ed25519", senderSigning.publicKey, keySignature, keyAttestation),
+    true,
+    "the notification public key must have an identity signature"
+  );
+
+  const senderShared = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: "ECDH", public: recipient.publicKey },
+    ephemeral.privateKey,
+    256
+  ));
+  const recipientShared = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: "ECDH", public: ephemeral.publicKey },
+    recipient.privateKey,
+    256
+  ));
+  assert.deepEqual(senderShared, recipientShared, "push-preview ECDH must agree");
+
+  const aad = encoder.encode(
+    `${ALGORITHM}|push-preview|v1|private-test|message-test|sender|sender-device|`
+    + `recipient|recipient-device|${recipientPublicEncoded}`
+  );
+  const salt = randomBytes(32);
+  const senderMaterial = await crypto.subtle.importKey("raw", senderShared, "HKDF", false, ["deriveKey"]);
+  const recipientMaterial = await crypto.subtle.importKey("raw", recipientShared, "HKDF", false, ["deriveKey"]);
+  const senderKey = await crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt, info: aad },
+    senderMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt"]
+  );
+  const recipientKey = await crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt, info: aad },
+    recipientMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+  const body = encoder.encode(JSON.stringify({ version: 1, body: "реальный текст сообщения" }));
+  const padded = randomBytes(1024);
+  padded[0] = body.byteLength >>> 8;
+  padded[1] = body.byteLength & 0xff;
+  padded.set(body, 2);
+  const iv = randomBytes(12);
+  const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: aad },
+    senderKey,
+    padded
+  ));
+  assert.equal(ciphertext.byteLength, 1040, "push-preview ciphertext has a fixed size");
+
+  const previewSignature = await crypto.subtle.sign(
+    "Ed25519",
+    senderSigning.privateKey,
+    concat([aad, ciphertext])
+  );
+  assert.equal(
+    await crypto.subtle.verify(
+      "Ed25519",
+      senderSigning.publicKey,
+      previewSignature,
+      concat([aad, ciphertext])
+    ),
+    true,
+    "the encrypted push preview must retain sender authenticity"
+  );
+
+  const opened = new Uint8Array(await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv, additionalData: aad },
+    recipientKey,
+    ciphertext
+  ));
+  const length = (opened[0] << 8) | opened[1];
+  assert.equal(
+    JSON.parse(decoder.decode(opened.subarray(2, 2 + length))).body,
+    "реальный текст сообщения"
+  );
+
+  const tampered = ciphertext.slice();
+  tampered[0] ^= 1;
+  await assert.rejects(
+    crypto.subtle.decrypt(
+      { name: "AES-GCM", iv, additionalData: aad },
+      recipientKey,
+      tampered
+    ),
+    "a modified encrypted push preview must fail"
+  );
+}
+
 await roundTrip(true);
 await roundTrip(false);
-console.log("E2EE crypto tests passed: signatures, 3DH/4DH, HKDF, message and attachment AES-GCM tamper rejection.");
+await pushPreviewRoundTrip();
+console.log("E2EE crypto tests passed: message, attachment and device-bound push-preview tamper rejection.");

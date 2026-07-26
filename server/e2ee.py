@@ -14,9 +14,13 @@ _CAPABILITY_RE = re.compile(r"^[a-z0-9._:-]{2,80}$")
 _ALGORITHM = "yachat-x3dh-v1"
 _PHASE2_CAPABILITY = "server-blind-text-v1"
 _PHASE3_ATTACHMENT_CAPABILITY = "encrypted-attachments-v1"
+_PHASE4_PUSH_CAPABILITY = "encrypted-push-preview-v1"
 _ATTACHMENT_MODES = {"plaintext", "encrypted"}
 _MAX_CIPHERTEXT_CHARS = 12_000_000
 _MAX_ENVELOPES = 64
+_PUSH_PREVIEW_CIPHERTEXT_BYTES = 1040
+_P256_FIELD = 0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF
+_P256_B = 0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B
 
 
 def _text(value: Any, limit: int) -> str:
@@ -44,6 +48,25 @@ def _decode_b64url(value: Any, *, field: str, expected: set[int], max_chars: int
     if len(raw) not in expected:
         raise HTTPException(status_code=400, detail=f"Invalid E2EE {field} length.")
     return encoded.rstrip("=")
+
+
+def _decode_p256_public(value: Any, *, field: str) -> str:
+    encoded = _decode_b64url(value, field=field, expected={65})
+    padded = encoded + "=" * ((4 - len(encoded) % 4) % 4)
+    raw = base64.urlsafe_b64decode(padded.encode("ascii"))
+    if raw[0] != 4:
+        raise HTTPException(status_code=400, detail=f"Invalid E2EE {field} format.")
+    x = int.from_bytes(raw[1:33], "big")
+    y = int.from_bytes(raw[33:65], "big")
+    if (
+        x >= _P256_FIELD
+        or y >= _P256_FIELD
+        or (pow(y, 2, _P256_FIELD) - (pow(x, 3, _P256_FIELD) - 3 * x + _P256_B))
+        % _P256_FIELD
+        != 0
+    ):
+        raise HTTPException(status_code=400, detail=f"Invalid E2EE {field} point.")
+    return encoded
 
 
 def normalize_device_id(value: Any) -> str:
@@ -97,6 +120,8 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="Phase 2 E2EE capability is missing.")
     if protocol_version >= 3 and _PHASE3_ATTACHMENT_CAPABILITY not in capabilities:
         raise HTTPException(status_code=400, detail="Phase 3 encrypted-attachment capability is missing.")
+    if protocol_version >= 4 and _PHASE4_PUSH_CAPABILITY not in capabilities:
+        raise HTTPException(status_code=400, detail="Phase 4 encrypted-push capability is missing.")
 
     signed = payload.get("signedPreKey") if isinstance(payload.get("signedPreKey"), dict) else {}
     raw_prekeys = payload.get("oneTimePreKeys") if isinstance(payload.get("oneTimePreKeys"), list) else []
@@ -114,6 +139,20 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
             "publicKey": _decode_b64url(item.get("publicKey"), field="one-time prekey", expected={32}),
         })
 
+    push_preview = None
+    if protocol_version >= 4:
+        push_preview = {
+            "publicKey": _decode_p256_public(
+                payload.get("pushPreviewPublic"),
+                field="push-preview public key",
+            ),
+            "signature": _decode_b64url(
+                payload.get("pushPreviewSignature"),
+                field="push-preview key signature",
+                expected={64},
+            ),
+        }
+
     return {
         "deviceId": normalize_device_id(payload.get("deviceId")),
         "algorithm": algorithm,
@@ -125,6 +164,14 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
             and _PHASE2_CAPABILITY in capabilities
             and _PHASE3_ATTACHMENT_CAPABILITY in capabilities
         ),
+        "phase4Ready": (
+            protocol_version >= 4
+            and _PHASE2_CAPABILITY in capabilities
+            and _PHASE3_ATTACHMENT_CAPABILITY in capabilities
+            and _PHASE4_PUSH_CAPABILITY in capabilities
+            and push_preview is not None
+        ),
+        "pushPreview": push_preview,
         "identityDhPublic": _decode_b64url(payload.get("identityDhPublic"), field="identity DH key", expected={32}),
         "identitySignPublic": _decode_b64url(payload.get("identitySignPublic"), field="identity signing key", expected={32}),
         "signedPreKey": {
@@ -148,6 +195,107 @@ def expected_content_aad(
     epoch = epoch_id or "shadow"
     base = f"{_ALGORITHM}|content|v{version}|{chat_id}|{message_id}|{sender_device_id}|{epoch}"
     return f"{base}|attachments-{attachment_mode}" if version >= 3 else base
+
+
+def expected_push_preview_aad(
+    *,
+    chat_id: str,
+    message_id: str,
+    sender_user_id: str,
+    sender_device_id: str,
+    recipient_user_id: str,
+    recipient_device_id: str,
+    recipient_push_preview_public: str,
+) -> str:
+    return (
+        f"{_ALGORITHM}|push-preview|v1|{chat_id}|{message_id}|"
+        f"{sender_user_id}|{sender_device_id}|{recipient_user_id}|{recipient_device_id}|"
+        f"{recipient_push_preview_public}"
+    )
+
+
+def parse_push_previews(
+    raw: Any,
+    *,
+    chat_id: str,
+    message_id: str,
+    sender_device_id: str,
+) -> list[dict[str, Any]]:
+    if raw in (None, "", []):
+        return []
+    if not isinstance(raw, list) or len(raw) > _MAX_ENVELOPES:
+        raise HTTPException(status_code=400, detail="Invalid E2EE push-preview envelopes.")
+
+    previews: list[dict[str, Any]] = []
+    devices: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict) or _integer(item.get("version"), 0) != 1:
+            raise HTTPException(status_code=400, detail="Invalid E2EE push-preview envelope.")
+        device_id = normalize_device_id(item.get("deviceId"))
+        if device_id in devices:
+            raise HTTPException(status_code=400, detail="Duplicate E2EE push-preview device.")
+        devices.add(device_id)
+        sender_id = normalize_device_id(item.get("senderDeviceId"))
+        if sender_id != sender_device_id:
+            raise HTTPException(status_code=400, detail="E2EE push-preview sender device does not match.")
+        if _text(item.get("chatId"), 160) != chat_id or _text(item.get("messageId"), 64) != message_id:
+            raise HTTPException(status_code=400, detail="E2EE push-preview context does not match.")
+
+        sender_user_id = _text(item.get("senderUserId"), 128)
+        recipient_user_id = _text(item.get("userId"), 128)
+        if not sender_user_id or not recipient_user_id:
+            raise HTTPException(status_code=400, detail="Missing E2EE push-preview user context.")
+        recipient_push_preview_public = _decode_p256_public(
+            item.get("recipientPushPreviewPublic"),
+            field="push-preview recipient key",
+        )
+        aad = _text(item.get("aad"), 900)
+        expected_aad = expected_push_preview_aad(
+            chat_id=chat_id,
+            message_id=message_id,
+            sender_user_id=sender_user_id,
+            sender_device_id=sender_device_id,
+            recipient_user_id=recipient_user_id,
+            recipient_device_id=device_id,
+            recipient_push_preview_public=recipient_push_preview_public,
+        )
+        if aad != expected_aad:
+            raise HTTPException(status_code=400, detail="E2EE push-preview associated data does not match.")
+
+        previews.append({
+            "version": 1,
+            "chatId": chat_id,
+            "messageId": message_id,
+            "userId": recipient_user_id,
+            "deviceId": device_id,
+            "senderUserId": sender_user_id,
+            "senderDeviceId": sender_device_id,
+            "recipientPushPreviewPublic": recipient_push_preview_public,
+            "senderIdentitySignPublic": _decode_b64url(
+                item.get("senderIdentitySignPublic"),
+                field="push-preview sender signing key",
+                expected={32},
+            ),
+            "ephemeralKey": _decode_p256_public(
+                item.get("ephemeralKey"),
+                field="push-preview ephemeral key",
+            ),
+            "salt": _decode_b64url(item.get("salt"), field="push-preview salt", expected={32}),
+            "iv": _decode_b64url(item.get("iv"), field="push-preview IV", expected={12}),
+            "ciphertext": _decode_b64url(
+                item.get("ciphertext"),
+                field="push-preview ciphertext",
+                expected={_PUSH_PREVIEW_CIPHERTEXT_BYTES},
+                max_chars=1800,
+            ),
+            "aad": aad,
+            "signature": _decode_b64url(
+                item.get("signature"),
+                field="push-preview signature",
+                expected={64},
+            ),
+        })
+    return previews
 
 
 def canonical_roster(devices: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -180,6 +328,7 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
         "senderDeviceId": "",
         "plaintextDigest": "",
         "attachmentMode": "plaintext",
+        "pushPreviews": [],
     }
     if raw in (None, "", {}):
         return legacy
@@ -205,6 +354,14 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
 
     epoch_id = normalize_epoch_id(raw.get("epochId"), required=mode == "encrypted")
     sender_device_id = normalize_device_id(raw.get("senderDeviceId"))
+    push_previews = parse_push_previews(
+        raw.get("pushPreviews"),
+        chat_id=chat_id,
+        message_id=message_id,
+        sender_device_id=sender_device_id,
+    )
+    if push_previews and mode != "encrypted":
+        raise HTTPException(status_code=400, detail="E2EE push previews require server-blind encryption.")
     expected_aad = expected_content_aad(
         version=version,
         chat_id=chat_id,
@@ -274,6 +431,7 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
         "senderDeviceId": sender_device_id,
         "plaintextDigest": _decode_b64url(raw.get("plaintextDigest"), field="plaintext digest", expected={32}),
         "attachmentMode": attachment_mode,
+        "pushPreviews": push_previews,
     }
 
 

@@ -5,12 +5,13 @@
   window.__yachatE2EEPhase2Installed = true;
 
   const ALGORITHM = "yachat-x3dh-v1";
-  const PROTOCOL_VERSION = 3;
+  const PROTOCOL_VERSION = 4;
   const CAPABILITIES = [
     "shadow-v1",
     "server-blind-text-v1",
     "attachment-integrity-v1",
-    "encrypted-attachments-v1"
+    "encrypted-attachments-v1",
+    "encrypted-push-preview-v1"
   ];
   const ENCRYPTED_ATTACHMENT_MIME = "application/vnd.yachat.e2ee";
   const MAX_ATTACHMENT_DATA_URL_CHARS = 9000000;
@@ -18,7 +19,8 @@
   const DEVICE_ID_KEY_PREFIX = "yachat-e2ee-device-id-v1:";
   const VAULT_SECRET_KEY_PREFIX = "yachat-e2ee-vault-secret-v1:";
   const DB_NAME = "yachat-e2ee-v1";
-  const DB_VERSION = 5;
+  const DB_VERSION = 6;
+  const PUSH_PREVIEW_PLAINTEXT_BYTES = 1024;
   const SIGNED_PREKEY_ROTATION_MS = 14 * 24 * 60 * 60 * 1000;
   const HEARTBEAT_MS = 15 * 60 * 1000;
   const PREKEY_TARGET = 32;
@@ -31,6 +33,7 @@
   let initializationPromise = null;
   let activeAccountId = "";
   let activeRecord = null;
+  let activePushPreview = null;
   let lastInitializationAttempt = 0;
   let lastHeartbeatAt = 0;
   let status = {
@@ -40,6 +43,7 @@
     protocolVersion: PROTOCOL_VERSION,
     deviceId: "",
     accountId: "",
+    pushPreviewPublic: "",
     verifiedMessages: 0,
     verificationFailures: 0,
     encryptedMessages: 0,
@@ -173,6 +177,8 @@
         if (!db.objectStoreNames.contains("devices")) db.createObjectStore("devices");
         if (!db.objectStoreNames.contains("trust")) db.createObjectStore("trust", { keyPath: "key" });
         if (!db.objectStoreNames.contains("chatState")) db.createObjectStore("chatState", { keyPath: "key" });
+        if (!db.objectStoreNames.contains("pushPreviewKeys")) db.createObjectStore("pushPreviewKeys", { keyPath: "deviceId" });
+        if (!db.objectStoreNames.contains("pushPreviewTrust")) db.createObjectStore("pushPreviewTrust", { keyPath: "key" });
         if (db.objectStoreNames.contains("cryptoKeys")) db.deleteObjectStore("cryptoKeys");
       };
       request.onsuccess = () => resolve(request.result);
@@ -305,6 +311,62 @@
     return { publicKey: bytesToBase64Url(publicRaw), privateKey, privateJwk };
   }
 
+  function pushPreviewKeyAttestation(currentDeviceId, publicKey) {
+    return `${ALGORITHM}|push-preview-key|v1|${currentDeviceId}|${publicKey}`;
+  }
+
+  function pushPreviewPublicFromJwk(jwk) {
+    try {
+      if (!jwk?.x || !jwk?.y) return "";
+      return bytesToBase64Url(concatBytes([
+        new Uint8Array([4]),
+        base64UrlToBytes(jwk.x),
+        base64UrlToBytes(jwk.y)
+      ]));
+    } catch {
+      return "";
+    }
+  }
+
+  async function ensurePushPreviewKey(record) {
+    let stored = await storeGet("pushPreviewKeys", record.deviceId);
+    const storedPrivatePublic = pushPreviewPublicFromJwk(stored?.privateJwk);
+    if (
+      !stored
+      || stored.version !== 1
+      || stored.deviceId !== record.deviceId
+      || typeof stored.publicKey !== "string"
+      || !stored.privateJwk?.d
+      || stored.privateJwk?.kty !== "EC"
+      || stored.privateJwk?.crv !== "P-256"
+      || storedPrivatePublic !== stored.publicKey
+    ) {
+      const pair = await crypto.subtle.generateKey(
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveBits"]
+      );
+      stored = {
+        version: 1,
+        deviceId: record.deviceId,
+        publicKey: bytesToBase64Url(new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey))),
+        privateJwk: await crypto.subtle.exportKey("jwk", pair.privateKey),
+        createdAt: Date.now()
+      };
+      await rawStorePut("pushPreviewKeys", record.deviceId, stored);
+    }
+    const signature = new Uint8Array(await crypto.subtle.sign(
+      "Ed25519",
+      record.identitySignPrivate,
+      encoder.encode(pushPreviewKeyAttestation(record.deviceId, stored.publicKey))
+    ));
+    return {
+      version: 1,
+      publicKey: stored.publicKey,
+      signature: bytesToBase64Url(signature)
+    };
+  }
+
   async function createSignedPreKey(identitySignPrivate) {
     const pair = await hardenedKeyPair("X25519", [], ["deriveBits"]);
     const rawPublic = base64UrlToBytes(pair.publicKey);
@@ -341,7 +403,12 @@
     try {
       const x = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]);
       const e = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
-      return Boolean(x?.privateKey && e?.privateKey);
+      const p = await crypto.subtle.generateKey(
+        { name: "ECDH", namedCurve: "P-256" },
+        true,
+        ["deriveBits"]
+      );
+      return Boolean(x?.privateKey && e?.privateKey && p?.privateKey);
     } catch {
       return false;
     }
@@ -414,13 +481,15 @@
     return payload;
   }
 
-  function registrationPayload(record) {
+  function registrationPayload(record, pushPreview) {
     const signed = record.signedPreKeys.at(-1);
     return {
       deviceId: record.deviceId,
       algorithm: ALGORITHM,
       protocolVersion: PROTOCOL_VERSION,
       capabilities: CAPABILITIES,
+      pushPreviewPublic: pushPreview.publicKey,
+      pushPreviewSignature: pushPreview.signature,
       identityDhPublic: record.identityDhPublic,
       identitySignPublic: record.identitySignPublic,
       signedPreKey: {
@@ -435,13 +504,15 @@
     };
   }
 
-  async function registerDevice(record) {
-    let result = await apiJson("/api/e2ee/device/register", { body: registrationPayload(record) });
+  async function registerDevice(record, pushPreview = activePushPreview) {
+    const preview = pushPreview || await ensurePushPreviewKey(record);
+    activePushPreview = preview;
+    let result = await apiJson("/api/e2ee/device/register", { body: registrationPayload(record, preview) });
     if (result.needsOneTimePreKeys) {
       record.oneTimePreKeys.push(...await generatePreKeys(PREKEY_TARGET));
       if (record.oneTimePreKeys.length > MAX_LOCAL_PREKEYS) record.oneTimePreKeys = record.oneTimePreKeys.slice(-MAX_LOCAL_PREKEYS);
       await storePut("devices", record);
-      result = await apiJson("/api/e2ee/device/register", { body: registrationPayload(record) });
+      result = await apiJson("/api/e2ee/device/register", { body: registrationPayload(record, preview) });
     }
     lastHeartbeatAt = Date.now();
     return result;
@@ -454,7 +525,7 @@
       record.oneTimePreKeys.push(...await generatePreKeys(PREKEY_TARGET));
       if (record.oneTimePreKeys.length > MAX_LOCAL_PREKEYS) record.oneTimePreKeys = record.oneTimePreKeys.slice(-MAX_LOCAL_PREKEYS);
       await storePut("devices", record);
-      await registerDevice(record);
+      await registerDevice(record, activePushPreview || await ensurePushPreviewKey(record));
     }
   }
 
@@ -468,7 +539,9 @@
     initializationPromise = (async () => {
       const supported = await supportsRequiredCrypto();
       publishStatus({ supported, ready: false, accountId, phase: "initializing", lastError: "" });
-      if (!supported) throw e2eeError("This browser does not support X25519 and Ed25519 Web Crypto.", true);
+      if (!supported) {
+        throw e2eeError("This browser does not support X25519, Ed25519 and P-256 Web Crypto.", true);
+      }
 
       const currentDeviceId = deviceId(accountId);
       const storageKey = `${accountId}:${currentDeviceId}`;
@@ -480,19 +553,22 @@
         throw e2eeError("The browser cannot restore the local E2EE vault.", true);
       }
       record = persisted;
-      await registerDevice(record);
+      activePushPreview = await ensurePushPreviewKey(record);
+      await registerDevice(record, activePushPreview);
       activeRecord = record;
       publishStatus({
         supported: true,
         ready: true,
         accountId,
         deviceId: currentDeviceId,
-        phase: "phase3-ready",
+        pushPreviewPublic: activePushPreview.publicKey,
+        phase: "phase4-ready",
         lastError: ""
       });
       return record;
     })().catch((error) => {
       activeRecord = null;
+      activePushPreview = null;
       publishStatus({ ready: false, phase: "error", lastError: String(error?.message || error) });
       return null;
     }).finally(() => {
@@ -739,6 +815,170 @@
     );
   }
 
+  async function verifyPushPreviewKey(bundle) {
+    const preview = bundle?.pushPreview;
+    if (
+      Number(bundle?.protocolVersion || 0) < 4
+      || !Array.isArray(bundle?.capabilities)
+      || !bundle.capabilities.includes("encrypted-push-preview-v1")
+      || Number(preview?.version || 0) !== 1
+      || preview?.algorithm !== "P-256-HKDF-SHA256-AESGCM"
+      || !preview?.publicKey
+      || !preview?.signature
+    ) {
+      return false;
+    }
+    const identityKey = await crypto.subtle.importKey(
+      "raw",
+      base64UrlToBytes(bundle.identitySignPublic),
+      { name: "Ed25519" },
+      false,
+      ["verify"]
+    );
+    return crypto.subtle.verify(
+      "Ed25519",
+      identityKey,
+      base64UrlToBytes(preview.signature),
+      encoder.encode(pushPreviewKeyAttestation(String(bundle.deviceId || ""), preview.publicKey))
+    );
+  }
+
+  function notificationPreviewText(payload, attachments) {
+    const plain = String(payload.text || payload.message || "").replace(/\u0000/g, "").trim();
+    if (plain) return Array.from(plain).slice(0, 200).join("");
+    const rich = String(payload.formattedHtml || payload.formatted_html || "");
+    if (rich) {
+      const parsed = new DOMParser().parseFromString(
+        `<body>${sanitizeRichHtml(rich)}</body>`,
+        "text/html"
+      );
+      const text = String(parsed.body?.textContent || "").replace(/\s+/g, " ").trim();
+      if (text) return Array.from(text).slice(0, 200).join("");
+    }
+    const first = Array.isArray(attachments) ? attachments[0] : null;
+    const kind = String(first?.kind || "");
+    if (kind === "image") return "Фото";
+    if (kind === "video") return "Видео";
+    if (first) return "Файл";
+    return "Новое сообщение";
+  }
+
+  function pushPreviewAad({
+    chatId,
+    messageId,
+    senderUserId,
+    senderDeviceId,
+    recipientUserId,
+    recipientDeviceId,
+    recipientPushPreviewPublic
+  }) {
+    return (
+      `${ALGORITHM}|push-preview|v1|${chatId}|${messageId}|${senderUserId}|`
+      + `${senderDeviceId}|${recipientUserId}|${recipientDeviceId}|${recipientPushPreviewPublic}`
+    );
+  }
+
+  function pushPreviewSignatureInput(preview) {
+    return encoder.encode([
+      preview.aad,
+      preview.senderIdentitySignPublic,
+      preview.ephemeralKey,
+      preview.salt,
+      preview.iv,
+      preview.ciphertext
+    ].join("|"));
+  }
+
+  function paddedPushPreview(body, messageId) {
+    let text = String(body || "Новое сообщение").slice(0, 200);
+    let encoded;
+    while (true) {
+      encoded = encoder.encode(JSON.stringify({
+        version: 1,
+        messageId,
+        body: text,
+        createdAt: Date.now()
+      }));
+      if (encoded.byteLength <= PUSH_PREVIEW_PLAINTEXT_BYTES - 2) break;
+      text = text.slice(0, Math.max(0, text.length - 8));
+    }
+    const padded = randomBytes(PUSH_PREVIEW_PLAINTEXT_BYTES);
+    padded[0] = (encoded.byteLength >>> 8) & 0xff;
+    padded[1] = encoded.byteLength & 0xff;
+    padded.set(encoded, 2);
+    return padded;
+  }
+
+  async function pushPreviewForBundle(record, bundle, { chatId, messageId, body }) {
+    if (!await verifyPushPreviewKey(bundle)) {
+      throw e2eeError(`The push-preview key for device ${bundle?.deviceId || "unknown"} is invalid.`, true);
+    }
+    const recipientPushPreviewPublic = String(bundle.pushPreview.publicKey);
+    const aad = pushPreviewAad({
+      chatId,
+      messageId,
+      senderUserId: record.accountId,
+      senderDeviceId: record.deviceId,
+      recipientUserId: String(bundle.userId || ""),
+      recipientDeviceId: String(bundle.deviceId || ""),
+      recipientPushPreviewPublic
+    });
+    const recipientPublic = await crypto.subtle.importKey(
+      "raw",
+      base64UrlToBytes(recipientPushPreviewPublic),
+      { name: "ECDH", namedCurve: "P-256" },
+      false,
+      []
+    );
+    const ephemeral = await crypto.subtle.generateKey(
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveBits"]
+    );
+    const shared = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: "ECDH", public: recipientPublic },
+      ephemeral.privateKey,
+      256
+    ));
+    const salt = randomBytes(32);
+    const material = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt, info: encoder.encode(aad) },
+      material,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt"]
+    );
+    const iv = randomBytes(12);
+    const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv, additionalData: encoder.encode(aad) },
+      key,
+      paddedPushPreview(body, messageId)
+    ));
+    const preview = {
+      version: 1,
+      chatId,
+      messageId,
+      userId: String(bundle.userId || ""),
+      deviceId: String(bundle.deviceId || ""),
+      senderUserId: record.accountId,
+      senderDeviceId: record.deviceId,
+      senderIdentitySignPublic: record.identitySignPublic,
+      recipientPushPreviewPublic,
+      ephemeralKey: bytesToBase64Url(new Uint8Array(await crypto.subtle.exportKey("raw", ephemeral.publicKey))),
+      salt: bytesToBase64Url(salt),
+      iv: bytesToBase64Url(iv),
+      ciphertext: bytesToBase64Url(ciphertext),
+      aad
+    };
+    const signature = new Uint8Array(await crypto.subtle.sign(
+      "Ed25519",
+      record.identitySignPrivate,
+      pushPreviewSignatureInput(preview)
+    ));
+    return { ...preview, signature: bytesToBase64Url(signature) };
+  }
+
   async function trustBundle(accountId, bundle) {
     const key = `${accountId}:${bundle.userId}:${bundle.deviceId}`;
     const fingerprintBytes = new Uint8Array(await crypto.subtle.digest(
@@ -756,6 +996,7 @@
       userId: String(bundle.userId || ""),
       deviceId: String(bundle.deviceId || ""),
       fingerprint,
+      identitySignPublic: String(bundle.identitySignPublic || ""),
       firstSeenAt: Number(previous?.firstSeenAt || Date.now()),
       lastSeenAt: Date.now()
     });
@@ -884,6 +1125,22 @@
 
     const envelopes = [];
     for (const bundle of bundles) envelopes.push(await envelopeForBundle(record, bundle, contentKeyBytes, messageId));
+    const pushPreviews = [];
+    if (mode === "encrypted") {
+      const previewBody = notificationPreviewText(payload, sourceAttachments);
+      for (const bundle of bundles) {
+        const phase4 = Number(bundle?.protocolVersion || 0) >= 4
+          && Array.isArray(bundle?.capabilities)
+          && bundle.capabilities.includes("encrypted-push-preview-v1");
+        if (phase4) {
+          pushPreviews.push(await pushPreviewForBundle(record, bundle, {
+            chatId,
+            messageId,
+            body: previewBody
+          }));
+        }
+      }
+    }
     return {
       mode,
       attachments: protectedAttachments.transport,
@@ -899,7 +1156,8 @@
         iv: bytesToBase64Url(iv),
         aad,
         plaintextDigest: bytesToBase64Url(digest),
-        envelopes
+        envelopes,
+        pushPreviews
       }
     };
   }
@@ -1248,7 +1506,7 @@
       const decrypted = await decryptResponsePayload(payload);
       const headers = new Headers(response.headers);
       headers.delete("content-length");
-      headers.set("X-YaChat-E2EE-Runtime", "phase3");
+      headers.set("X-YaChat-E2EE-Runtime", "phase4");
       return new Response(JSON.stringify(decrypted), {
         status: response.status,
         statusText: response.statusText,

@@ -1,6 +1,11 @@
-const YACHAT_SW_VERSION = "91";
+const YACHAT_SW_VERSION = "92";
 const RECENT_PUSH_TTL_MS = 10 * 60 * 1000;
+const E2EE_DB_NAME = "yachat-e2ee-v1";
+const PUSH_PREVIEW_PLAINTEXT_BYTES = 1024;
+const PUSH_PREVIEW_MAX_AGE_MS = 2 * 24 * 60 * 60 * 1000;
 const recentPushTags = new Map();
+const previewEncoder = new TextEncoder();
+const previewDecoder = new TextDecoder();
 
 function normalizeAppTarget(value) {
   const source = String(value || "").trim();
@@ -30,10 +35,221 @@ function stableNotificationTag(payload, targetUrl, title, body) {
   return `yachat:${targetUrl}:${title}:${body}`.slice(0, 240);
 }
 
+function base64UrlToBytes(value) {
+  const source = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = source + "=".repeat((4 - source.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+function expectedPushPreviewAad(preview) {
+  return (
+    `yachat-x3dh-v1|push-preview|v1|${preview.chatId}|${preview.messageId}|`
+    + `${preview.senderUserId}|${preview.senderDeviceId}|${preview.userId}|${preview.deviceId}|`
+    + `${preview.recipientPushPreviewPublic}`
+  );
+}
+
+function pushPreviewSignatureInput(preview) {
+  return previewEncoder.encode([
+    preview.aad,
+    preview.senderIdentitySignPublic,
+    preview.ephemeralKey,
+    preview.salt,
+    preview.iv,
+    preview.ciphertext
+  ].join("|"));
+}
+
+async function e2eeStoreGet(storeName, key) {
+  const database = await new Promise((resolve, reject) => {
+    const request = indexedDB.open(E2EE_DB_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Unable to open the E2EE database."));
+  });
+  try {
+    if (!database.objectStoreNames.contains(storeName)) return null;
+    return await new Promise((resolve, reject) => {
+      const request = database.transaction(storeName, "readonly").objectStore(storeName).get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error || new Error("Unable to read the E2EE database."));
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function pinPushPreviewIdentity(preview) {
+  const database = await new Promise((resolve, reject) => {
+    const request = indexedDB.open(E2EE_DB_NAME);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Unable to open the E2EE database."));
+  });
+  try {
+    if (!database.objectStoreNames.contains("pushPreviewTrust")) {
+      throw new Error("Push-preview trust storage is unavailable.");
+    }
+    const key = `${preview.senderUserId}:${preview.senderDeviceId}`;
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction("pushPreviewTrust", "readwrite");
+      const store = transaction.objectStore("pushPreviewTrust");
+      let rejected = false;
+      const request = store.get(key);
+      request.onsuccess = () => {
+        const existing = request.result || null;
+        if (existing && existing.identitySignPublic !== preview.senderIdentitySignPublic) {
+          rejected = true;
+          transaction.abort();
+          reject(new Error("The push-preview sender identity changed."));
+          return;
+        }
+        store.put({
+          key,
+          senderUserId: preview.senderUserId,
+          senderDeviceId: preview.senderDeviceId,
+          identitySignPublic: preview.senderIdentitySignPublic,
+          firstSeenAt: Number(existing?.firstSeenAt || Date.now()),
+          lastSeenAt: Date.now()
+        });
+      };
+      request.onerror = () => {
+        rejected = true;
+        reject(request.error || new Error("Unable to read push-preview trust."));
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => {
+        if (!rejected) reject(transaction.error || new Error("Unable to persist push-preview trust."));
+      };
+      transaction.onabort = () => {
+        if (!rejected) reject(transaction.error || new Error("Push-preview trust transaction aborted."));
+      };
+    });
+  } finally {
+    database.close();
+  }
+}
+
+async function decryptPushPreview(preview) {
+  if (!preview || Number(preview.version || 0) !== 1) {
+    throw new Error("Unsupported encrypted push preview.");
+  }
+  const keyRecord = await e2eeStoreGet("pushPreviewKeys", String(preview.deviceId || ""));
+  if (
+    !keyRecord?.privateJwk?.d
+    || keyRecord.publicKey !== preview.recipientPushPreviewPublic
+    || keyRecord.deviceId !== preview.deviceId
+  ) {
+    throw new Error("This notification belongs to another E2EE device.");
+  }
+  if (String(preview.aad || "") !== expectedPushPreviewAad(preview)) {
+    throw new Error("The encrypted push-preview context was modified.");
+  }
+  const trustedBundle = await e2eeStoreGet(
+    "trust",
+    `${preview.userId}:${preview.senderUserId}:${preview.senderDeviceId}`
+  );
+  if (
+    trustedBundle?.identitySignPublic
+    && trustedBundle.identitySignPublic !== preview.senderIdentitySignPublic
+  ) {
+    throw new Error("The push-preview identity does not match the trusted E2EE bundle.");
+  }
+
+  const senderSigningKey = await crypto.subtle.importKey(
+    "raw",
+    base64UrlToBytes(preview.senderIdentitySignPublic),
+    { name: "Ed25519" },
+    false,
+    ["verify"]
+  );
+  const validSignature = await crypto.subtle.verify(
+    "Ed25519",
+    senderSigningKey,
+    base64UrlToBytes(preview.signature),
+    pushPreviewSignatureInput(preview)
+  );
+  if (!validSignature) throw new Error("The encrypted push-preview signature is invalid.");
+
+  const privateKey = await crypto.subtle.importKey(
+    "jwk",
+    keyRecord.privateJwk,
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    ["deriveBits"]
+  );
+  const ephemeralKey = await crypto.subtle.importKey(
+    "raw",
+    base64UrlToBytes(preview.ephemeralKey),
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    []
+  );
+  const shared = new Uint8Array(await crypto.subtle.deriveBits(
+    { name: "ECDH", public: ephemeralKey },
+    privateKey,
+    256
+  ));
+  const material = await crypto.subtle.importKey("raw", shared, "HKDF", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: base64UrlToBytes(preview.salt),
+      info: previewEncoder.encode(preview.aad)
+    },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+  const plaintext = new Uint8Array(await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: base64UrlToBytes(preview.iv),
+      additionalData: previewEncoder.encode(preview.aad)
+    },
+    key,
+    base64UrlToBytes(preview.ciphertext)
+  ));
+  if (plaintext.byteLength !== PUSH_PREVIEW_PLAINTEXT_BYTES) {
+    throw new Error("The encrypted push-preview size is invalid.");
+  }
+  const length = (plaintext[0] << 8) | plaintext[1];
+  if (length <= 0 || length > plaintext.byteLength - 2) {
+    throw new Error("The encrypted push-preview payload is invalid.");
+  }
+  const decoded = JSON.parse(previewDecoder.decode(plaintext.subarray(2, 2 + length)));
+  const createdAt = Number(decoded.createdAt || 0);
+  if (
+    Number(decoded.version || 0) !== 1
+    || String(decoded.messageId || "") !== String(preview.messageId || "")
+    || !createdAt
+    || createdAt > Date.now() + 10 * 60 * 1000
+    || Date.now() - createdAt > PUSH_PREVIEW_MAX_AGE_MS
+  ) {
+    throw new Error("The encrypted push-preview payload expired or has the wrong context.");
+  }
+  const body = String(decoded.body || "").trim();
+  if (!body) throw new Error("The encrypted push-preview body is empty.");
+  await pinPushPreviewIdentity(preview);
+  return body.slice(0, 300);
+}
+
+async function resolvePushBody(payload) {
+  if (payload?.e2eePreview) {
+    try {
+      return await decryptPushPreview(payload.e2eePreview);
+    } catch {
+      return "Новое сообщение";
+    }
+  }
+  return String(payload?.body || "Новое сообщение");
+}
+
 async function showPushNotification(payload = {}) {
   const targetUrl = normalizeAppTarget(payload.url);
   const title = payload.title || "ЯЧат";
-  const body = payload.body || "Новое сообщение";
+  const body = await resolvePushBody(payload);
   const tag = stableNotificationTag(payload, targetUrl, title, body);
   const now = Date.now();
 

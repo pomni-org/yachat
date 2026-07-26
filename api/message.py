@@ -49,6 +49,8 @@ _PHASE2_VERSION = 2
 _PHASE2_CAPABILITY = "server-blind-text-v1"
 _PHASE3_VERSION = 3
 _PHASE3_ATTACHMENT_CAPABILITY = "encrypted-attachments-v1"
+_PHASE4_VERSION = 4
+_PHASE4_PUSH_CAPABILITY = "encrypted-push-preview-v1"
 _ENCRYPTED_ATTACHMENT_MIME = "application/vnd.yachat.e2ee"
 _RECENT_SESSION_DAYS = 7
 _DEVICE_RETENTION_DAYS = 90
@@ -102,7 +104,9 @@ def validate_encrypted_attachment_transport(
             raise HTTPException(status_code=400, detail="Encrypted attachment transport is malformed.")
 
 
-async def deliver_pushes(deliveries: list[tuple[str, str, str, str, str]]) -> None:
+async def deliver_pushes(
+    deliveries: list[tuple[str, str, str, str, str, dict[str, dict[str, Any]]]],
+) -> None:
     if not deliveries:
         return
     await asyncio.gather(
@@ -114,14 +118,17 @@ async def deliver_pushes(deliveries: list[tuple[str, str, str, str, str]]) -> No
                 body,
                 url,
                 tag=tag,
+                encrypted_previews=encrypted_previews,
             )
-            for user_id, title, body, url, tag in deliveries
+            for user_id, title, body, url, tag, encrypted_previews in deliveries
         ],
         return_exceptions=True,
     )
 
 
-def deliver_pushes_background(deliveries: list[tuple[str, str, str, str, str]]) -> None:
+def deliver_pushes_background(
+    deliveries: list[tuple[str, str, str, str, str, dict[str, dict[str, Any]]]],
+) -> None:
     if deliveries:
         asyncio.run(deliver_pushes(deliveries))
 
@@ -153,6 +160,14 @@ def device_capabilities(value: Any) -> list[str]:
     if not isinstance(source, list):
         return []
     return [str(item) for item in source if isinstance(item, str)]
+
+
+def encrypted_previews_for_user(encrypted: dict[str, Any], user_id: str) -> dict[str, dict[str, Any]]:
+    return {
+        str(item["deviceId"]): item
+        for item in encrypted.get("pushPreviews", [])
+        if str(item.get("userId") or "") == user_id
+    }
 
 
 def authenticated_session_hash(request: Request) -> str:
@@ -517,6 +532,16 @@ def claim_bundle_prekeys(
             "algorithm": str(device["algorithm"]),
             "protocolVersion": int(device.get("protocol_version") or 1),
             "capabilities": device_capabilities(device.get("capabilities")),
+            "pushPreview": (
+                {
+                    "version": 1,
+                    "algorithm": "P-256-HKDF-SHA256-AESGCM",
+                    "publicKey": str(device.get("push_preview_public") or ""),
+                    "signature": str(device.get("push_preview_signature") or ""),
+                }
+                if device.get("push_preview_public") and device.get("push_preview_signature")
+                else None
+            ),
             "identityDhPublic": str(device["identity_dh_public"]),
             "identitySignPublic": str(device["identity_sign_public"]),
             "signedPreKey": {
@@ -580,6 +605,55 @@ def validate_encrypted_message(
                 )
 
     sender_identity = str(sender_device["identity_dh_public"])
+    sender_signing_identity = str(sender_device["identity_sign_public"])
+    sender_capabilities = device_capabilities(sender_device.get("capabilities"))
+    sender_supports_push_previews = (
+        int(sender_device.get("protocol_version") or 0) >= _PHASE4_VERSION
+        and _PHASE4_PUSH_CAPABILITY in sender_capabilities
+    )
+    preview_device_ids = {
+        str(preview["deviceId"])
+        for preview in encrypted.get("pushPreviews", [])
+    }
+    if sender_supports_push_previews:
+        expected_preview_device_ids = {
+            device_id
+            for device_id, device in device_rows.items()
+            if (
+                int(device.get("protocol_version") or 0) >= _PHASE4_VERSION
+                and _PHASE4_PUSH_CAPABILITY in device_capabilities(device.get("capabilities"))
+                and bool(device.get("push_preview_public"))
+                and bool(device.get("push_preview_signature"))
+            )
+        }
+        if preview_device_ids != expected_preview_device_ids:
+            raise HTTPException(
+                status_code=409,
+                detail="E2EE push previews do not cover every phase 4 device.",
+            )
+
+    for preview in encrypted.get("pushPreviews", []):
+        device_id = str(preview["deviceId"])
+        expected_user_id = roster_map.get(device_id)
+        device = device_rows.get(device_id)
+        if not expected_user_id or not device:
+            raise HTTPException(status_code=400, detail="E2EE push preview targets an unknown device.")
+        capabilities = device_capabilities(device.get("capabilities"))
+        if (
+            str(preview["userId"]) != expected_user_id
+            or str(preview["senderUserId"]) != user_id
+            or str(preview["senderDeviceId"]) != encrypted["senderDeviceId"]
+            or str(preview["senderIdentitySignPublic"]) != sender_signing_identity
+        ):
+            raise HTTPException(status_code=400, detail="E2EE push-preview ownership does not match the chat roster.")
+        if (
+            int(device.get("protocol_version") or 0) < _PHASE4_VERSION
+            or _PHASE4_PUSH_CAPABILITY not in capabilities
+            or not str(device.get("push_preview_public") or "")
+            or str(preview["recipientPushPreviewPublic"]) != str(device.get("push_preview_public") or "")
+        ):
+            raise HTTPException(status_code=409, detail="The push-preview key for a recipient device changed.")
+
     for device_id, expected_user_id in roster_map.items():
         envelope = envelope_map[device_id]
         device = device_rows[device_id]
@@ -641,6 +715,7 @@ async def register_e2ee_device(request: Request):
     user_id = str(user["id"])
     device_id = bundle["deviceId"]
     signed = bundle["signedPreKey"]
+    push_preview = bundle.get("pushPreview") or {}
     user_agent = str(request.headers.get("user-agent") or "")[:500]
 
     with connect_db() as connection:
@@ -666,11 +741,12 @@ async def register_e2ee_device(request: Request):
                         device_id, user_id, algorithm, identity_dh_public,
                         identity_sign_public, signed_prekey_id, signed_prekey_public,
                         signed_prekey_signature, protocol_version, capabilities,
+                        push_preview_public, push_preview_signature,
                         ready_at, user_agent, created_at, updated_at, last_seen_at, revoked_at
                     )
                     values (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
-                        case when %s then now() else null end, %s, now(), now(), now(), null
+                        %s, %s, case when %s then now() else null end, %s, now(), now(), now(), null
                     )
                     on conflict(device_id) do update
                     set algorithm = excluded.algorithm,
@@ -679,6 +755,8 @@ async def register_e2ee_device(request: Request):
                         signed_prekey_signature = excluded.signed_prekey_signature,
                         protocol_version = excluded.protocol_version,
                         capabilities = excluded.capabilities,
+                        push_preview_public = excluded.push_preview_public,
+                        push_preview_signature = excluded.push_preview_signature,
                         ready_at = case when excluded.protocol_version >= 2 then coalesce(yachat_e2ee_devices.ready_at, now()) else null end,
                         user_agent = excluded.user_agent,
                         updated_at = now(),
@@ -696,6 +774,8 @@ async def register_e2ee_device(request: Request):
                         signed["signature"],
                         bundle["protocolVersion"],
                         json.dumps(bundle["capabilities"]),
+                        str(push_preview.get("publicKey") or ""),
+                        str(push_preview.get("signature") or ""),
                         bundle["phase2Ready"],
                         user_agent,
                     ),
@@ -743,7 +823,9 @@ async def register_e2ee_device(request: Request):
         "availableOneTimePreKeys": available,
         "needsOneTimePreKeys": available < 12,
         "rolloutPhase": (
-            "phase3-ready"
+            "phase4-ready"
+            if bundle["phase4Ready"]
+            else "phase3-ready"
             if bundle["phase3Ready"]
             else "phase2-ready"
             if bundle["phase2Ready"]
@@ -774,7 +856,15 @@ async def heartbeat_e2ee_device(request: Request):
         "availableOneTimePreKeys": available,
         "needsOneTimePreKeys": available < 12,
         "rolloutPhase": (
-            "phase3-ready"
+            "phase4-ready"
+            if (
+                int(device.get("protocol_version") or 0) >= _PHASE4_VERSION
+                and _PHASE4_PUSH_CAPABILITY
+                in device_capabilities(device.get("capabilities"))
+                and bool(device.get("push_preview_public"))
+                and bool(device.get("push_preview_signature"))
+            )
+            else "phase3-ready"
             if (
                 int(device.get("protocol_version") or 0) >= _PHASE3_VERSION
                 and _PHASE3_ATTACHMENT_CAPABILITY
@@ -926,6 +1016,7 @@ async def send_message(request: Request, background_tasks: BackgroundTasks):
                 body[:240],
                 "/yachat_channel",
                 f"channel-message:{sender_message_id}:{target_user_id}",
+                {},
             )
             for target_user_id in user_ids
             if target_user_id != user_id
@@ -970,7 +1061,7 @@ async def send_message(request: Request, background_tasks: BackgroundTasks):
                     formatted_html = ""
                     reply_to_message_id = None
                     forwarded_from = ""
-                    push_plaintext = "Новое защищённое сообщение"
+                    push_plaintext = "Новое сообщение"
                 else:
                     if policy == "text_encrypted":
                         raise HTTPException(
@@ -1071,6 +1162,7 @@ async def send_message(request: Request, background_tasks: BackgroundTasks):
             push_body[:240],
             push_target,
             f"message:{message_id}:{recipient_id}",
+            encrypted_previews_for_user(encrypted, recipient_id),
         )
         for recipient_id in recipients
     ]

@@ -95,9 +95,13 @@ async function patchBrowserRuntime() {
   );
 
   const required = [
-    'const PROTOCOL_VERSION = 3;',
+    'const PROTOCOL_VERSION = 4;',
     '"server-blind-text-v1"',
     '"encrypted-attachments-v1"',
+    '"encrypted-push-preview-v1"',
+    'const DB_VERSION = 6;',
+    'createObjectStore("pushPreviewKeys"',
+    'createObjectStore("pushPreviewTrust"',
     'const ENCRYPTED_ATTACHMENT_MIME = "application/vnd.yachat.e2ee";',
     'const MAX_ATTACHMENT_DATA_URL_CHARS = 9000000;',
     'privateVault: await encryptPrivateVault(value)',
@@ -106,17 +110,18 @@ async function patchBrowserRuntime() {
     'attachmentEncryptionReady === true',
     'attachments-${attachmentMode}',
     'decryptAttachmentPayloads(',
+    'pushPreviewForBundle(',
     'assertContentContext(',
     'text: "",',
     'replyToMessageId: null,',
-    'headers.set("X-YaChat-E2EE-Runtime", "phase3")',
+    'headers.set("X-YaChat-E2EE-Runtime", "phase4")',
     'record.signedPreKeys = signed;',
     'const blocked = new Set(["SCRIPT"',
     'rawSource.startsWith("data:")',
     'parts[2] === "v3"'
   ];
   required.forEach((marker) => {
-    if (!runtime.includes(marker)) throw new Error(`Missing E2EE phase 3 runtime marker: ${marker}`);
+    if (!runtime.includes(marker)) throw new Error(`Missing E2EE phase 4 runtime marker: ${marker}`);
   });
 
   const forbidden = [
@@ -142,6 +147,8 @@ async function patchServerCompatibility() {
     !source.includes("accepted_legacy_shadow")
     || !source.includes('mode == "encrypted" and version < 2')
     || !source.includes("_PHASE3_ATTACHMENT_CAPABILITY")
+    || !source.includes("_PHASE4_PUSH_CAPABILITY")
+    || !source.includes("parse_push_previews")
     || !source.includes('attachment_mode=attachment_mode')
     || !source.includes('str(parsed["epochId"]) or None')
   ) {
@@ -152,11 +159,14 @@ async function patchServerCompatibility() {
 async function patchMessageApiSecurity() {
   const apiPath = path.join(root, "api", "message.py");
   const source = await fs.readFile(apiPath, "utf8");
+  const retiredProtectedPushLabel = ["Новое", "защищённое", "сообщение"].join(" ");
 
   if (
     !source.includes("This device identity changed. Revoke the old E2EE device before replacing it.")
     || !source.includes("attachmentEncryptionReady")
-    || !source.includes('push_plaintext = "Новое защищённое сообщение"')
+    || !source.includes('push_plaintext = "Новое сообщение"')
+    || !source.includes("encrypted_previews_for_user")
+    || source.includes(retiredProtectedPushLabel)
     || source.includes("and updated_at > now() - interval '{_DEVICE_RETENTION_DAYS} days'")
   ) {
     throw new Error("Message API E2EE device security patch is incomplete.");

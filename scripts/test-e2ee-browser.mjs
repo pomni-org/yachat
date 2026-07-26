@@ -14,14 +14,17 @@ let messageRequests = 0;
 let heartbeatRequests = 0;
 let attachmentEncryptionReady = true;
 const capturedMessageBodies = [];
-const epochId = "epoch-browser-phase2-test";
+const epochId = "epoch-browser-phase4-test";
 
 await page.route("**/api/e2ee/device/register", async (route) => {
   const body = JSON.parse(route.request().postData() || "{}");
   assert.equal(body.algorithm, "yachat-x3dh-v1");
-  assert.equal(body.protocolVersion, 3);
+  assert.equal(body.protocolVersion, 4);
   assert.equal(body.capabilities.includes("server-blind-text-v1"), true);
   assert.equal(body.capabilities.includes("encrypted-attachments-v1"), true);
+  assert.equal(body.capabilities.includes("encrypted-push-preview-v1"), true);
+  assert.equal(typeof body.pushPreviewPublic, "string");
+  assert.equal(typeof body.pushPreviewSignature, "string");
   assert.match(body.deviceId, /^[A-Za-z0-9._:-]{8,128}$/);
   assert.equal(typeof body.identityDhPublic, "string");
   assert.equal(typeof body.identitySignPublic, "string");
@@ -38,11 +41,11 @@ await page.route("**/api/e2ee/device/register", async (route) => {
       ok: true,
       deviceId: body.deviceId,
       algorithm: body.algorithm,
-      protocolVersion: 3,
+      protocolVersion: 4,
       capabilities: body.capabilities,
       availableOneTimePreKeys: body.oneTimePreKeys.length,
       needsOneTimePreKeys: false,
-      rolloutPhase: "phase3-ready"
+      rolloutPhase: "phase4-ready"
     })
   });
 });
@@ -57,10 +60,10 @@ await page.route("**/api/e2ee/device/heartbeat", async (route) => {
     body: JSON.stringify({
       ok: true,
       deviceId: body.deviceId,
-      protocolVersion: 3,
+      protocolVersion: 4,
       availableOneTimePreKeys: 32,
       needsOneTimePreKeys: false,
-      rolloutPhase: "phase3-ready"
+      rolloutPhase: "phase4-ready"
     })
   });
 });
@@ -77,7 +80,7 @@ await page.route("**/api/e2ee/bundles/claim", async (route) => {
       ok: true,
       chatId: request.chatId,
       algorithm: registeredBundle.algorithm,
-      protocolVersion: attachmentEncryptionReady ? 3 : 2,
+      protocolVersion: 4,
       rolloutPhase: "encrypted",
       attachmentEncryptionReady,
       epochId,
@@ -89,10 +92,14 @@ await page.route("**/api/e2ee/bundles/claim", async (route) => {
         deviceId: registeredBundle.deviceId,
         userId: "account-test",
         algorithm: registeredBundle.algorithm,
-        protocolVersion: attachmentEncryptionReady ? 3 : 2,
-        capabilities: attachmentEncryptionReady
-          ? registeredBundle.capabilities
-          : registeredBundle.capabilities.filter((item) => item !== "encrypted-attachments-v1"),
+        protocolVersion: 4,
+        capabilities: registeredBundle.capabilities,
+        pushPreview: {
+          version: 1,
+          algorithm: "P-256-HKDF-SHA256-AESGCM",
+          publicKey: registeredBundle.pushPreviewPublic,
+          signature: registeredBundle.pushPreviewSignature
+        },
         identityDhPublic: registeredBundle.identityDhPublic,
         identitySignPublic: registeredBundle.identitySignPublic,
         signedPreKey: registeredBundle.signedPreKey,
@@ -161,10 +168,13 @@ await page.route("**/api/message", async (route) => {
 async function browserDiagnostics() {
   return page.evaluate(async () => {
     const algorithms = {};
-    for (const name of ["X25519", "Ed25519"]) {
+    for (const name of ["X25519", "Ed25519", "P-256"]) {
       try {
-        const usages = name === "X25519" ? ["deriveBits"] : ["sign", "verify"];
-        const pair = await crypto.subtle.generateKey({ name }, true, usages);
+        const usages = name === "Ed25519" ? ["sign", "verify"] : ["deriveBits"];
+        const algorithm = name === "P-256"
+          ? { name: "ECDH", namedCurve: "P-256" }
+          : { name };
+        const pair = await crypto.subtle.generateKey(algorithm, true, usages);
         algorithms[name] = Boolean(pair?.privateKey);
       } catch (error) {
         algorithms[name] = `${error?.name || "Error"}: ${error?.message || error}`;
@@ -184,7 +194,7 @@ async function browserDiagnostics() {
 async function waitReady() {
   try {
     await page.waitForFunction(
-      () => window.__yachatE2EE?.ready === true && window.__yachatE2EE?.protocolVersion === 3,
+      () => window.__yachatE2EE?.ready === true && window.__yachatE2EE?.protocolVersion === 4,
       null,
       { timeout: 30_000 }
     );
@@ -227,13 +237,13 @@ const attachment = {
 };
 
 const first = await send({
-  text: "Сквозной этап два",
-  formattedHtml: "<strong>Сквозной</strong> этап два<script>alert(1)</script>",
+  text: "Реальный текст этапа четыре",
+  formattedHtml: "<strong>Реальный</strong> текст этапа четыре<script>alert(1)</script>",
   replyToMessageId: "reply-test-id",
   attachments: [attachment]
 });
-assert.equal(first.message.text, "Сквозной этап два");
-assert.equal(first.message.formattedHtml.includes("<strong>Сквозной</strong>"), true);
+assert.equal(first.message.text, "Реальный текст этапа четыре");
+assert.equal(first.message.formattedHtml.includes("<strong>Реальный</strong>"), true);
 assert.equal(first.message.formattedHtml.includes("<script"), false);
 assert.equal(first.message.replyToMessageId, "reply-test-id");
 assert.equal(first.message.forwardedFrom, "source-test");
@@ -259,6 +269,35 @@ assert.match(
   /^data:application\/vnd\.yachat\.e2ee;base64,/
 );
 assert.equal(JSON.stringify(encryptedRequest).includes(attachment.dataUrl), false);
+assert.equal(JSON.stringify(encryptedRequest).includes("Реальный текст этапа четыре"), false);
+assert.equal(encryptedRequest.e2ee.pushPreviews.length, 1);
+assert.equal(encryptedRequest.e2ee.pushPreviews[0].version, 1);
+assert.equal(encryptedRequest.e2ee.pushPreviews[0].deviceId, registeredBundle.deviceId);
+assert.equal(encryptedRequest.e2ee.pushPreviews[0].ciphertext.length > 1300, true);
+
+const serviceWorkerPromise = context.waitForEvent("serviceworker", { timeout: 15_000 }).catch(() => null);
+await page.evaluate(async () => {
+  await navigator.serviceWorker.register("/sw.js?e2ee-phase4-test=1", {
+    scope: "/",
+    updateViaCache: "none"
+  });
+  await navigator.serviceWorker.ready;
+});
+const previewWorker = await serviceWorkerPromise
+  || context.serviceWorkers().find((worker) => worker.url().includes("/sw.js"));
+assert.ok(previewWorker, "the phase 4 service worker must activate");
+const notificationBody = await previewWorker.evaluate(
+  async (preview) => decryptPushPreview(preview),
+  encryptedRequest.e2ee.pushPreviews[0]
+);
+assert.equal(notificationBody, "Реальный текст этапа четыре");
+
+const tamperedPushPreview = structuredClone(encryptedRequest.e2ee.pushPreviews[0]);
+tamperedPushPreview.ciphertext = `${tamperedPushPreview.ciphertext[0] === "A" ? "B" : "A"}${tamperedPushPreview.ciphertext.slice(1)}`;
+await assert.rejects(
+  previewWorker.evaluate(async (preview) => decryptPushPreview(preview), tamperedPushPreview),
+  "the service worker must reject a modified encrypted push preview"
+);
 
 const tamperedCiphertext = await send({ text: "Проверка подмены ciphertext", attachments: [attachment] });
 assert.equal(tamperedCiphertext.message.e2eeVerified, false, "tampered ciphertext must fail verification");
@@ -272,18 +311,25 @@ assert.equal(downgradedAttachmentMode.message.e2eeVerified, false, "attachment-m
 await page.waitForFunction(() => window.__yachatE2EE?.verificationFailures >= 3);
 
 const stored = await page.evaluate(async () => {
-  const request = indexedDB.open("yachat-e2ee-v1", 5);
+  const request = indexedDB.open("yachat-e2ee-v1", 6);
   const db = await new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-  const transaction = db.transaction("devices", "readonly");
-  const getAll = transaction.objectStore("devices").getAll();
+  const deviceTransaction = db.transaction("devices", "readonly");
+  const getAll = deviceTransaction.objectStore("devices").getAll();
   const records = await new Promise((resolve, reject) => {
     getAll.onsuccess = () => resolve(getAll.result);
     getAll.onerror = () => reject(getAll.error);
   });
+  const previewTransaction = db.transaction("pushPreviewKeys", "readonly");
+  const previewRequest = previewTransaction.objectStore("pushPreviewKeys").getAll();
+  const previewRecords = await new Promise((resolve, reject) => {
+    previewRequest.onsuccess = () => resolve(previewRequest.result);
+    previewRequest.onerror = () => reject(previewRequest.error);
+  });
   const record = records[0] || {};
+  const previewRecord = previewRecords[0] || {};
   const serialized = JSON.stringify(record);
   const vaultSecretKeys = Object.keys(localStorage).filter((key) => key.startsWith("yachat-e2ee-vault-secret-v1:"));
   return {
@@ -291,6 +337,12 @@ const stored = await page.evaluate(async () => {
     deviceStoreKeyPath: db.transaction("devices", "readonly").objectStore("devices").keyPath,
     hasLegacyCryptoKeyStore: db.objectStoreNames.contains("cryptoKeys"),
     hasChatStateStore: db.objectStoreNames.contains("chatState"),
+    hasPushPreviewKeyStore: db.objectStoreNames.contains("pushPreviewKeys"),
+    hasPushPreviewTrustStore: db.objectStoreNames.contains("pushPreviewTrust"),
+    pushPreviewRecordCount: previewRecords.length,
+    pushPreviewMatchesDevice: previewRecord.deviceId === record.deviceId
+      && previewRecord.publicKey === window.__yachatE2EE?.pushPreviewPublic,
+    pushPreviewHasPrivateKey: typeof previewRecord.privateJwk?.d === "string",
     hasVault: Number(record.privateVault?.version) === 2
       && typeof record.privateVault?.iv === "string"
       && typeof record.privateVault?.ciphertext === "string"
@@ -306,7 +358,12 @@ assert.equal(stored.recordCount, 1);
 assert.equal(stored.deviceStoreKeyPath, null);
 assert.equal(stored.hasLegacyCryptoKeyStore, false);
 assert.equal(stored.hasChatStateStore, true);
-assert.equal(stored.hasVault, true, "private JWK material must exist only inside the encrypted vault");
+assert.equal(stored.hasPushPreviewKeyStore, true);
+assert.equal(stored.hasPushPreviewTrustStore, true);
+assert.equal(stored.pushPreviewRecordCount, 1);
+assert.equal(stored.pushPreviewMatchesDevice, true);
+assert.equal(stored.pushPreviewHasPrivateKey, true, "the service worker needs its dedicated device-bound preview key");
+assert.equal(stored.hasVault, true, "message-history private JWK material must remain inside the encrypted vault");
 assert.equal(stored.metadataContainsPrivateJwk, false);
 assert.equal(stored.vaultSecretCount, 1);
 assert.ok(stored.vaultSecretLength >= 40);
@@ -333,4 +390,4 @@ assert.equal(capturedMessageBodies[5].attachments[0].dataUrl, attachment.dataUrl
 
 assert.equal(heartbeatRequests >= 0, true);
 await browser.close();
-console.log(`E2EE phase 3 ${browserName} test passed: encrypted attachments, phase 2 fallback, vault reload and tamper rejection.`);
+console.log(`E2EE phase 4 ${browserName} test passed: real encrypted notification text, attachments, fallback, reload and tamper rejection.`);
