@@ -275,28 +275,72 @@ assert.equal(encryptedRequest.e2ee.pushPreviews[0].version, 1);
 assert.equal(encryptedRequest.e2ee.pushPreviews[0].deviceId, registeredBundle.deviceId);
 assert.equal(encryptedRequest.e2ee.pushPreviews[0].ciphertext.length > 1300, true);
 
-const serviceWorkerPromise = context.waitForEvent("serviceworker", { timeout: 15_000 }).catch(() => null);
-await page.evaluate(async () => {
-  await navigator.serviceWorker.register("/sw.js?e2ee-phase4-test=1", {
-    scope: "/",
-    updateViaCache: "none"
+let evaluatePushPreview;
+if (browserName === "chromium") {
+  const serviceWorkerPromise = context.waitForEvent("serviceworker", { timeout: 15_000 }).catch(() => null);
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.register("/sw.js?e2ee-phase4-test=1", {
+      scope: "/",
+      updateViaCache: "none"
+    });
+    await navigator.serviceWorker.ready;
   });
-  await navigator.serviceWorker.ready;
-});
-const previewWorker = await serviceWorkerPromise
-  || context.serviceWorkers().find((worker) => worker.url().includes("/sw.js"));
-assert.ok(previewWorker, "the phase 4 service worker must activate");
-const notificationBody = await previewWorker.evaluate(
-  async (preview) => decryptPushPreview(preview),
-  encryptedRequest.e2ee.pushPreviews[0]
-);
+  const previewWorker = await serviceWorkerPromise
+    || context.serviceWorkers().find((worker) => worker.url().includes("/sw.js"));
+  assert.ok(previewWorker, "the phase 4 service worker must activate");
+  evaluatePushPreview = (preview) => previewWorker.evaluate(
+    async (value) => decryptPushPreview(value),
+    preview
+  );
+} else {
+  // Playwright can only expose ServiceWorker evaluation handles in Chromium.
+  // Run the exact production worker source as a classic same-origin Worker so
+  // WebKit still exercises its IndexedDB and Web Crypto notification path.
+  evaluatePushPreview = (preview) => page.evaluate(async (value) => {
+    const response = await fetch("/sw.js?e2ee-phase4-worker-test=1", { cache: "no-store" });
+    if (!response.ok) throw new Error(`Unable to load the notification worker: ${response.status}`);
+    const source = await response.text();
+    const harness = `
+      self.onmessage = async (event) => {
+        try {
+          self.postMessage({ ok: true, body: await decryptPushPreview(event.data) });
+        } catch (error) {
+          self.postMessage({ ok: false, error: String(error?.message || error) });
+        }
+      };
+    `;
+    const objectUrl = URL.createObjectURL(new Blob([source, harness], { type: "text/javascript" }));
+    const worker = new Worker(objectUrl);
+    return new Promise((resolve, reject) => {
+      const finish = () => {
+        worker.terminate();
+        URL.revokeObjectURL(objectUrl);
+      };
+      worker.onmessage = (event) => {
+        finish();
+        if (event.data?.ok) {
+          resolve(event.data.body);
+        } else {
+          reject(new Error(event.data?.error || "The notification worker rejected the preview."));
+        }
+      };
+      worker.onerror = (event) => {
+        finish();
+        reject(new Error(event.message || "The notification worker failed."));
+      };
+      worker.postMessage(value);
+    });
+  }, preview);
+}
+
+const notificationBody = await evaluatePushPreview(encryptedRequest.e2ee.pushPreviews[0]);
 assert.equal(notificationBody, "Реальный текст этапа четыре");
 
 const tamperedPushPreview = structuredClone(encryptedRequest.e2ee.pushPreviews[0]);
 tamperedPushPreview.ciphertext = `${tamperedPushPreview.ciphertext[0] === "A" ? "B" : "A"}${tamperedPushPreview.ciphertext.slice(1)}`;
 await assert.rejects(
-  previewWorker.evaluate(async (preview) => decryptPushPreview(preview), tamperedPushPreview),
-  "the service worker must reject a modified encrypted push preview"
+  evaluatePushPreview(tamperedPushPreview),
+  "the notification worker must reject a modified encrypted push preview"
 );
 
 const tamperedCiphertext = await send({ text: "Проверка подмены ciphertext", attachments: [attachment] });
