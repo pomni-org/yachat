@@ -59,7 +59,7 @@ def _load_custom_emoji_roles() -> dict[str, tuple[str, str]]:
     global _custom_emoji_cache, _custom_emoji_cache_expires_at
 
     now = time.monotonic()
-    if _custom_emoji_cache and now < _custom_emoji_cache_expires_at:
+    if now < _custom_emoji_cache_expires_at:
         return _custom_emoji_cache
 
     response = _telegram_api("getStickerSet", {"name": telegram_custom_emoji_set()})
