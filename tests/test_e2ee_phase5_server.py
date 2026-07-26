@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import pathlib
 import unittest
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -11,6 +12,7 @@ from fastapi import HTTPException
 from api.message import encrypted_previews_for_user
 from server.digital_id_vault import (
     digital_id_envelope_digest,
+    digital_id_lookup_hash,
     digital_id_signature_input,
     parse_digital_id_vault,
 )
@@ -246,6 +248,20 @@ class E2EEPhase5ServerTests(unittest.TestCase):
             field="Digital ID vault",
         )
         self.assertNotIn("РКН399", str(vault))
+
+    def test_digital_id_lookup_requires_a_non_database_server_secret(self):
+        with patch.dict(
+            "os.environ",
+            {"YACHAT_DIGITAL_ID_HMAC_SECRET": "h" * 32},
+            clear=True,
+        ):
+            self.assertEqual(
+                digital_id_lookup_hash("ркн399"),
+                digital_id_lookup_hash("РКН399"),
+            )
+        with patch.dict("os.environ", {}, clear=True):
+            with self.assertRaises(HTTPException):
+                digital_id_lookup_hash("РКН399")
 
     def test_phase5_push_outer_payload_is_generic(self):
         device_id = "e2ee-device-server-phase5"

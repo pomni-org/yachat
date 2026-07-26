@@ -1,11 +1,11 @@
 import base64
 import hashlib
 import hmac
+import os
 from typing import Any
 
 from fastapi import HTTPException
 
-from server.database import auth_secret
 from server.e2ee import (
     _decode_b64url,
     _text,
@@ -21,8 +21,18 @@ _MAX_VAULT_ENVELOPES = 32
 
 def digital_id_lookup_hash(value: str) -> str:
     normalized = str(value or "").strip().upper()
+    secret = (
+        os.getenv("YACHAT_DIGITAL_ID_HMAC_SECRET")
+        or os.getenv("YACHAT_AUTH_SECRET")
+        or ""
+    )
+    if len(secret) < 32:
+        raise HTTPException(
+            status_code=503,
+            detail="Digital ID private lookup is not configured.",
+        )
     return hmac.new(
-        auth_secret().encode("utf-8"),
+        secret.encode("utf-8"),
         b"yachat-digital-id-lookup-v1\x00" + normalized.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()

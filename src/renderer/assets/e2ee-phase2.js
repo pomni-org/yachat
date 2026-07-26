@@ -1945,9 +1945,10 @@
   async function decryptAttachmentPayloads(actualAttachments, expectedManifest, contentKey, context) {
     const actual = Array.isArray(actualAttachments) ? actualAttachments : [];
     const expected = Array.isArray(expectedManifest) ? expectedManifest : [];
-    if (actual.length !== expected.length || expected.length === 0) {
+    if (actual.length !== expected.length) {
       throw e2eeError("The encrypted attachment set is incomplete.");
     }
+    if (expected.length === 0) return [];
 
     const result = [];
     const prefix = `data:${ENCRYPTED_ATTACHMENT_MIME};base64,`;
