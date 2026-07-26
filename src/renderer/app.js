@@ -5714,7 +5714,16 @@ async function enablePushNotifications() {
     applicationServerKey: urlBase64ToUint8Array(config.publicKey)
   });
 
-  await yachatApi.notifications.subscribe(subscription.toJSON());
+  const serialized = subscription.toJSON();
+  const e2ee = window.__yachatE2EE;
+  if (
+    e2ee?.ready === true
+    && Number(e2ee.protocolVersion || 0) >= 4
+    && /^[A-Za-z0-9._:-]{8,128}$/.test(String(e2ee.deviceId || ""))
+  ) {
+    serialized.deviceId = String(e2ee.deviceId);
+  }
+  await yachatApi.notifications.subscribe(serialized);
   state.notificationsReady = true;
 }
 

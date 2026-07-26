@@ -21,6 +21,7 @@ Set these in Vercel Project Settings:
 
 - `SUPABASE_DB_URL`: Supabase Supavisor transaction-pooler connection string (port `6543`). This is the only database variable accepted by the API, so an old provider integration cannot be selected accidentally.
 - `YACHAT_AUTH_SECRET`: secret used to hash sessions, confirmation codes, and registration tokens.
+- `YACHAT_DIGITAL_ID_HMAC_SECRET`: optional dedicated 32+ character key for Digital ID lookup tokens. If omitted, the explicit `YACHAT_AUTH_SECRET` is used; database credentials are never accepted as a fallback for this lookup.
 - `YACHAT_DB_CONNECT_ATTEMPTS`: optional, defaults to `2`. Retries only transient Supavisor connection failures.
 - `YACHAT_DB_CONNECT_TIMEOUT_SECONDS`: optional, defaults to `3` seconds per connection attempt.
 - `YACHAT_RUNTIME_SCHEMA_BOOTSTRAP`: optional emergency/local switch. Keep `false` on Vercel because production DDL belongs in Supabase migrations.

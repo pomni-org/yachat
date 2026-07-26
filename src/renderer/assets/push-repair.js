@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const REPAIR_VERSION = "91";
+  const REPAIR_VERSION = "92";
   const AUTH_TOKEN_KEY = "yachat-http-auth-token";
   const INSTALLATION_ID_KEY = "yachat-push-installation-id-v1";
   const REPAIR_COOLDOWN_MS = 60_000;
@@ -41,6 +41,16 @@
       : `install-${Date.now()}-${Math.random().toString(36).slice(2, 14)}`;
     safeStorageSet(INSTALLATION_ID_KEY, generated);
     return generated;
+  }
+
+  function e2eeDeviceId() {
+    const e2ee = window.__yachatE2EE;
+    const value = String(e2ee?.deviceId || "");
+    return (
+      e2ee?.ready === true
+      && Number(e2ee?.protocolVersion || 0) >= 4
+      && /^[A-Za-z0-9._:-]{8,128}$/.test(value)
+    ) ? value : "";
   }
 
   function supported() {
@@ -158,7 +168,7 @@
       const subscription = await currentSubscription(readyRegistration || registration, config.publicKey);
       const serialized = subscription.toJSON();
       serialized.contentEncoding = contentEncoding();
-      serialized.deviceId = installationId();
+      serialized.deviceId = e2eeDeviceId() || installationId();
 
       const saved = await serverJson("/api/push/subscribe", {
         method: "POST",
@@ -208,6 +218,11 @@
   scheduleRepair();
   window.setTimeout(scheduleRepair, 3000);
   window.addEventListener("online", () => scheduleRepair({ force: true }));
+  window.addEventListener("yachat:e2ee-status", (event) => {
+    if (event.detail?.ready === true && Number(event.detail?.protocolVersion || 0) >= 4) {
+      scheduleRepair({ force: true });
+    }
+  });
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       scheduleRepair();

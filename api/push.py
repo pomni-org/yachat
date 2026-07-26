@@ -47,7 +47,7 @@ def normalize_device_id(value: Any) -> str:
 @app.get("/api/push/public-key")
 def push_public_key():
     key = vapid_public_key()
-    return {"enabled": bool(key), "publicKey": key, "version": 3}
+    return {"enabled": bool(key), "publicKey": key, "version": 4}
 
 
 @app.get("/api/push/status")

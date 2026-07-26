@@ -20,7 +20,7 @@ async function patchCoreApi() {
   }
   source = source.replaceAll(
     encryptedMarker,
-    '        "encrypted": False,\n        "e2eePhase": "phase2",'
+    '        "encrypted": False,\n        "e2eePhase": "phase5",'
   );
 
   source = replaceRequired(
@@ -79,8 +79,8 @@ async function patchCoreApi() {
         ),`
   );
 
-  if (source.split('"e2eePhase": "phase2"').length - 1 !== 2) {
-    throw new Error("The public API does not report the E2EE phase 2 rollout honestly.");
+  if (source.split('"e2eePhase": "phase5"').length - 1 !== 2) {
+    throw new Error("The public API does not report the E2EE phase 5 rollout honestly.");
   }
   if (source.split('"e2eePolicy"').length - 1 < 2) {
     throw new Error("Chat E2EE policy is missing from core API responses.");

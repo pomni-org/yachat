@@ -54,6 +54,7 @@ from api.index import (
     utc_now,
 )
 from server.push_delivery import send_push_to_user
+from server.digital_id_vault import digital_id_lookup_hash
 
 
 app = FastAPI(title="YaChat Digital ID API", version="1.1.0")
@@ -296,7 +297,16 @@ async def initiate_identity(request: Request):
         with connection.cursor(row_factory=dict_row) as cursor:
             client = load_client(cursor, request, client_id, browser_flow=True)
             client_name = clean_text(client.get("name"), 80) or client_id
-            cursor.execute("select id from public_users where digital_id = %s limit 1", (digital_id,))
+            cursor.execute(
+                """
+                select id
+                from public_users
+                where digital_id_lookup_hash = %s
+                   or digital_id = %s
+                limit 1
+                """,
+                (digital_id_lookup_hash(digital_id), digital_id),
+            )
             user = cursor.fetchone()
             if not user:
                 raise HTTPException(status_code=404, detail="YaChat Digital ID was not found.")

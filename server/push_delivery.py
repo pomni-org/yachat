@@ -172,6 +172,28 @@ def push_subscription_count(user_id: str) -> int:
             return int(row[0] if row else 0)
 
 
+def push_payload_for_subscription(
+    *,
+    title: str,
+    body: str,
+    url: str,
+    notification_tag: str,
+    subscription: dict[str, Any],
+    encrypted_previews: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    payload: dict[str, Any] = {
+        "title": str(title or "ЯЧат")[:120],
+        "body": str(body or "Новое сообщение")[:300],
+        "url": str(url or "/"),
+        "tag": notification_tag,
+    }
+    device_id = str(subscription.get("device_id") or "")
+    preview = (encrypted_previews or {}).get(device_id)
+    if isinstance(preview, dict):
+        payload["e2eePreview"] = preview
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 def send_push_to_user(
     user_id: str,
     title: str,
@@ -180,6 +202,7 @@ def send_push_to_user(
     *,
     tag: str = "",
     ttl_seconds: int = 86_400,
+    encrypted_previews: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     public_key, private_key = vapid_key_pair()
     result: dict[str, Any] = {
@@ -221,16 +244,6 @@ def send_push_to_user(
         _log_push("push_deduplicated", userId=user_id, tag=notification_tag)
         return result
 
-    payload = json.dumps(
-        {
-            "title": str(title or "ЯЧат")[:120],
-            "body": str(body or "Новое сообщение")[:300],
-            "url": str(url or "/"),
-            "tag": notification_tag,
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-    )
     claims = {"sub": vapid_subject()}
 
     for subscription in subscriptions:
@@ -245,6 +258,14 @@ def send_push_to_user(
                 "auth": str(subscription.get("auth") or ""),
             },
         }
+        payload = push_payload_for_subscription(
+            title=title,
+            body=body,
+            url=url,
+            notification_tag=notification_tag,
+            subscription=subscription,
+            encrypted_previews=encrypted_previews,
+        )
         try:
             response = webpush(
                 subscription_info=info,
