@@ -9,7 +9,9 @@ from server.database import auth_secret
 from server.e2ee import (
     _decode_b64url,
     _text,
+    identity_dh_signature_input,
     normalize_device_id,
+    verify_ed25519,
 )
 
 _ALGORITHM = "yachat-x3dh-v1"
@@ -30,6 +32,8 @@ def digital_id_envelope_digest(envelopes: list[dict[str, str]]) -> str:
     fields = (
         "deviceId",
         "recipientIdentityKey",
+        "recipientIdentitySignPublic",
+        "recipientIdentityDhSignature",
         "ephemeralKey",
         "salt",
         "iv",
@@ -79,36 +83,51 @@ def parse_digital_id_vault(raw: Any, *, user_id: str) -> dict[str, Any]:
         if device_id in device_ids:
             raise HTTPException(status_code=400, detail="Duplicate Digital ID recipient device.")
         device_ids.add(device_id)
-        envelopes.append(
-            {
-                "deviceId": device_id,
-                "recipientIdentityKey": _decode_b64url(
-                    item.get("recipientIdentityKey"),
-                    field="Digital ID recipient identity key",
-                    expected={32},
-                ),
-                "ephemeralKey": _decode_b64url(
-                    item.get("ephemeralKey"),
-                    field="Digital ID ephemeral key",
-                    expected={32},
-                ),
-                "salt": _decode_b64url(
-                    item.get("salt"),
-                    field="Digital ID envelope salt",
-                    expected={32},
-                ),
-                "iv": _decode_b64url(
-                    item.get("iv"),
-                    field="Digital ID envelope IV",
-                    expected={12},
-                ),
-                "ciphertext": _decode_b64url(
-                    item.get("ciphertext"),
-                    field="Digital ID wrapped content key",
-                    expected={48},
-                ),
-            }
+        envelope = {
+            "deviceId": device_id,
+            "recipientIdentityKey": _decode_b64url(
+                item.get("recipientIdentityKey"),
+                field="Digital ID recipient identity key",
+                expected={32},
+            ),
+            "recipientIdentitySignPublic": _decode_b64url(
+                item.get("recipientIdentitySignPublic"),
+                field="Digital ID recipient signing key",
+                expected={32},
+            ),
+            "recipientIdentityDhSignature": _decode_b64url(
+                item.get("recipientIdentityDhSignature"),
+                field="Digital ID recipient identity DH signature",
+                expected={64},
+            ),
+            "ephemeralKey": _decode_b64url(
+                item.get("ephemeralKey"),
+                field="Digital ID ephemeral key",
+                expected={32},
+            ),
+            "salt": _decode_b64url(
+                item.get("salt"),
+                field="Digital ID envelope salt",
+                expected={32},
+            ),
+            "iv": _decode_b64url(
+                item.get("iv"),
+                field="Digital ID envelope IV",
+                expected={12},
+            ),
+            "ciphertext": _decode_b64url(
+                item.get("ciphertext"),
+                field="Digital ID wrapped content key",
+                expected={48},
+            ),
+        }
+        verify_ed25519(
+            envelope["recipientIdentitySignPublic"],
+            envelope["recipientIdentityDhSignature"],
+            identity_dh_signature_input(device_id, envelope["recipientIdentityKey"]),
+            field="Digital ID recipient identity DH key",
         )
+        envelopes.append(envelope)
 
     calculated_digest = digital_id_envelope_digest(envelopes)
     envelope_digest = _text(raw.get("envelopeDigest"), 64)

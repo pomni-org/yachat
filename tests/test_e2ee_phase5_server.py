@@ -8,6 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import HTTPException
 
+from api.message import encrypted_previews_for_user
 from server.digital_id_vault import (
     digital_id_envelope_digest,
     digital_id_signature_input,
@@ -50,6 +51,7 @@ class E2EEPhase5ServerTests(unittest.TestCase):
 
     def registration_payload(self) -> dict[str, object]:
         device_id = "e2ee-device-server-phase5"
+        identity_dh_public = filled(32, 1)
         signed_prekey = filled(32, 3)
         push_public = p256_public()
         return {
@@ -77,7 +79,15 @@ class E2EEPhase5ServerTests(unittest.TestCase):
                     ).encode()
                 )
             ),
-            "identityDhPublic": filled(32, 1),
+            "identityDhPublic": identity_dh_public,
+            "identityDhSignature": b64url(
+                self.signing_private.sign(
+                    (
+                        "yachat-x3dh-v1|identity-dh-key|v1|"
+                        f"{device_id}|{identity_dh_public}"
+                    ).encode()
+                )
+            ),
             "identitySignPublic": self.signing_public,
             "signedPreKey": {
                 "id": "spk-server-phase5-test",
@@ -145,6 +155,16 @@ class E2EEPhase5ServerTests(unittest.TestCase):
             {
                 "deviceId": "e2ee-device-server-phase5",
                 "recipientIdentityKey": filled(32, 1),
+                "recipientIdentitySignPublic": self.signing_public,
+                "recipientIdentityDhSignature": b64url(
+                    self.signing_private.sign(
+                        (
+                            "yachat-x3dh-v1|identity-dh-key|v1|"
+                            "e2ee-device-server-phase5|"
+                            f"{filled(32, 1)}"
+                        ).encode()
+                    )
+                ),
                 "ephemeralKey": filled(32, 21),
                 "salt": filled(32, 22),
                 "iv": filled(12, 23),
@@ -179,6 +199,11 @@ class E2EEPhase5ServerTests(unittest.TestCase):
         }
         with self.assertRaises(HTTPException):
             parse_device_registration(tampered)
+
+        tampered_identity = self.registration_payload()
+        tampered_identity["identityDhPublic"] = filled(32, 98)
+        with self.assertRaises(HTTPException):
+            parse_device_registration(tampered_identity)
 
     def test_v5_message_requires_padding_digest_and_sender_signature(self):
         raw = self.encrypted_message()
@@ -223,21 +248,23 @@ class E2EEPhase5ServerTests(unittest.TestCase):
         self.assertNotIn("РКН399", str(vault))
 
     def test_phase5_push_outer_payload_is_generic(self):
+        device_id = "e2ee-device-server-phase5"
         preview = {
             "version": 2,
             "ciphertext": filled(1040, 30),
-            "deviceId": "e2ee-device-server-phase5",
+            "contextId": filled(32, 29),
         }
         payload = push_payload_for_subscription(
             title="ЯЧат",
             body="Новое сообщение",
             url="/web",
             notification_tag="e2ee:opaque",
-            subscription={"device_id": preview["deviceId"]},
-            encrypted_previews={preview["deviceId"]: preview},
+            subscription={"device_id": device_id},
+            encrypted_previews={device_id: preview},
         )
         self.assertNotIn("sender", payload.lower())
         self.assertNotIn("private-", payload)
+        self.assertNotIn("deviceId", payload)
         self.assertIn('"e2eePreview"', payload)
 
     def test_sealed_push_descriptor_rejects_route_metadata(self):
@@ -245,10 +272,7 @@ class E2EEPhase5ServerTests(unittest.TestCase):
         recipient_public = p256_public()
         sender_device = "e2ee-device-sender-phase5"
         recipient_device = "e2ee-device-server-phase5"
-        aad = (
-            "yachat-x3dh-v1|push-descriptor|v2|"
-            f"{context_id}|{sender_device}|{recipient_device}|{recipient_public}"
-        )
+        aad = f"yachat-x3dh-v1|push-descriptor|v2|{context_id}"
         preview = {
             "version": 2,
             "contextId": context_id,
@@ -272,6 +296,18 @@ class E2EEPhase5ServerTests(unittest.TestCase):
         self.assertEqual(parsed[0]["contextId"], context_id)
         self.assertEqual(parsed[0]["chatId"], "")
         self.assertEqual(parsed[0]["userId"], "")
+        parsed[0]["_recipientUserId"] = "recipient-user"
+        transport = encrypted_previews_for_user(
+            {"pushPreviews": parsed},
+            "recipient-user",
+        )[recipient_device]
+        self.assertNotIn("deviceId", transport)
+        self.assertNotIn("senderDeviceId", transport)
+        self.assertNotIn("recipientPushPreviewPublic", transport)
+        self.assertNotIn("senderIdentitySignPublic", transport)
+        self.assertNotIn("signature", transport)
+        self.assertNotIn(sender_device, transport["aad"])
+        self.assertNotIn(recipient_device, transport["aad"])
 
         leaked = {**preview, "chatId": "private-leaked"}
         with self.assertRaises(HTTPException):
@@ -292,6 +328,9 @@ class E2EEPhase5ServerTests(unittest.TestCase):
         self.assertIn("alter column digital_id drop not null", cutover)
         self.assertIn("drop column if exists digital_id", cutover)
         self.assertIn("drop trigger if exists public_users_digital_id_immutable", cutover)
+        foundation = (root / "20260726080000_e2ee_phase5_foundation.sql").read_text()
+        self.assertIn("identity_dh_signature", foundation)
+        self.assertIn("used_by_message_id", foundation)
 
 
 if __name__ == "__main__":

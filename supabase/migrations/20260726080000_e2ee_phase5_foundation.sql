@@ -14,6 +14,27 @@ alter table public.public_users
   add constraint public_users_e2ee_min_protocol_check
   check (e2ee_min_protocol between 2 and 16);
 
+alter table public.yachat_e2ee_devices
+  add column if not exists identity_dh_signature text not null default '';
+
+alter table public.yachat_e2ee_devices
+  drop constraint if exists yachat_e2ee_devices_phase5_identity_check;
+
+alter table public.yachat_e2ee_devices
+  add constraint yachat_e2ee_devices_phase5_identity_check
+  check (
+    protocol_version < 5
+    or length(identity_dh_signature) between 84 and 90
+  );
+
+alter table public.yachat_e2ee_one_time_prekeys
+  add column if not exists used_at timestamptz,
+  add column if not exists used_by_message_id text;
+
+create index if not exists yachat_e2ee_prekeys_message_use_idx
+  on public.yachat_e2ee_one_time_prekeys(used_by_message_id, device_id)
+  where used_by_message_id is not null;
+
 create unique index if not exists public_users_digital_id_lookup_hash_idx
   on public.public_users(digital_id_lookup_hash)
   where digital_id_lookup_hash is not null;
@@ -79,6 +100,10 @@ revoke all on table public.yachat_digital_id_vaults from public, anon, authentic
 
 comment on table public.yachat_digital_id_vaults is
   'Client-encrypted Digital ID vault. The authenticated backend stores and routes ciphertext only.';
+comment on column public.yachat_e2ee_devices.identity_dh_signature is
+  'Ed25519 attestation binding the static X25519 identity key to this device.';
+comment on column public.yachat_e2ee_one_time_prekeys.used_by_message_id is
+  'Idempotency binding that prevents a claimed one-time prekey from being reused by another message.';
 comment on column public.public_users.digital_id_lookup_hash is
   'Server-keyed HMAC lookup token. The Supabase database does not hold the HMAC key.';
 comment on column public.yachat_chats.e2ee_min_protocol is

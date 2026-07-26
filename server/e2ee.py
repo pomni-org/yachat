@@ -18,6 +18,9 @@ _PHASE2_CAPABILITY = "server-blind-text-v1"
 _PHASE3_ATTACHMENT_CAPABILITY = "encrypted-attachments-v1"
 _PHASE4_PUSH_CAPABILITY = "encrypted-push-preview-v1"
 _PHASE5_CAPABILITIES = {
+    _PHASE2_CAPABILITY,
+    _PHASE3_ATTACHMENT_CAPABILITY,
+    _PHASE4_PUSH_CAPABILITY,
     "mandatory-e2ee-v1",
     "signed-messages-v1",
     "padded-content-v1",
@@ -82,6 +85,12 @@ def verify_ed25519(public_key: str, signature: str, message: bytes, *, field: st
         )
     except (InvalidSignature, ValueError, TypeError) as error:
         raise HTTPException(status_code=400, detail=f"Invalid E2EE {field} signature.") from error
+
+
+def identity_dh_signature_input(device_id: str, identity_dh_public: str) -> bytes:
+    return (
+        f"{_ALGORITHM}|identity-dh-key|v1|{device_id}|{identity_dh_public}"
+    ).encode("utf-8")
 
 
 def _decode_p256_public(value: Any, *, field: str) -> str:
@@ -159,6 +168,7 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
     if protocol_version >= 5 and not _PHASE5_CAPABILITIES.issubset(set(capabilities)):
         raise HTTPException(status_code=400, detail="Phase 5 mandatory-E2EE capabilities are missing.")
 
+    device_id = normalize_device_id(payload.get("deviceId"))
     signed = payload.get("signedPreKey") if isinstance(payload.get("signedPreKey"), dict) else {}
     raw_prekeys = payload.get("oneTimePreKeys") if isinstance(payload.get("oneTimePreKeys"), list) else []
     prekeys: list[dict[str, str]] = []
@@ -194,6 +204,12 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
         field="identity signing key",
         expected={32},
     )
+    identity_dh_public = _decode_b64url(
+        payload.get("identityDhPublic"),
+        field="identity DH key",
+        expected={32},
+    )
+    identity_dh_signature = ""
     signed_prekey_public = _decode_b64url(
         signed.get("publicKey"),
         field="signed prekey",
@@ -205,6 +221,17 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
         expected={64},
     )
     if protocol_version >= 5:
+        identity_dh_signature = _decode_b64url(
+            payload.get("identityDhSignature"),
+            field="identity DH key signature",
+            expected={64},
+        )
+        verify_ed25519(
+            identity_sign_public,
+            identity_dh_signature,
+            identity_dh_signature_input(device_id, identity_dh_public),
+            field="identity DH key",
+        )
         verify_ed25519(
             identity_sign_public,
             signed_prekey_signature,
@@ -218,13 +245,13 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
             push_preview["signature"],
             (
                 f"{_ALGORITHM}|push-preview-key|v1|"
-                f"{normalize_device_id(payload.get('deviceId'))}|{push_preview['publicKey']}"
+                f"{device_id}|{push_preview['publicKey']}"
             ).encode("utf-8"),
             field="push-preview key",
         )
 
     return {
-        "deviceId": normalize_device_id(payload.get("deviceId")),
+        "deviceId": device_id,
         "algorithm": algorithm,
         "protocolVersion": protocol_version,
         "capabilities": capabilities,
@@ -247,7 +274,8 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
             and push_preview is not None
         ),
         "pushPreview": push_preview,
-        "identityDhPublic": _decode_b64url(payload.get("identityDhPublic"), field="identity DH key", expected={32}),
+        "identityDhPublic": identity_dh_public,
+        "identityDhSignature": identity_dh_signature,
         "identitySignPublic": identity_sign_public,
         "signedPreKey": {
             "id": normalize_key_id(signed.get("id"), "signed prekey id"),
@@ -285,10 +313,7 @@ def expected_push_preview_aad(
     context_id: str = "",
 ) -> str:
     if version >= 2:
-        return (
-            f"{_ALGORITHM}|push-descriptor|v2|{context_id}|{sender_device_id}|"
-            f"{recipient_device_id}|{recipient_push_preview_public}"
-        )
+        return f"{_ALGORITHM}|push-descriptor|v2|{context_id}"
     return (
         f"{_ALGORITHM}|push-preview|v1|{chat_id}|{message_id}|"
         f"{sender_user_id}|{sender_device_id}|{recipient_user_id}|{recipient_device_id}|"
@@ -470,6 +495,7 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
         "aad": "",
         "envelopes": [],
         "senderDeviceId": "",
+        "messageId": message_id,
         "plaintextDigest": "",
         "attachmentMode": "plaintext",
         "pushPreviews": [],
@@ -602,6 +628,7 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
         "aad": aad,
         "envelopes": envelopes,
         "senderDeviceId": sender_device_id,
+        "messageId": message_id,
         "plaintextDigest": _decode_b64url(raw.get("plaintextDigest"), field="plaintext digest", expected={32}),
         "attachmentMode": attachment_mode,
         "pushPreviews": push_previews,

@@ -34,6 +34,9 @@ CYRILLIC_DIGITAL_ID = re.compile(
     r"^(?:[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{2}[0-9]{4}|[АБВГДЕЖЗИКЛМНОПРСТУФХЦЧШЩЭЮЯ]{3}[0-9]{3})$"
 )
 PHASE5_CAPABILITIES = [
+    "server-blind-text-v1",
+    "encrypted-attachments-v1",
+    "encrypted-push-preview-v1",
     "mandatory-e2ee-v1",
     "signed-messages-v1",
     "padded-content-v1",
@@ -115,13 +118,15 @@ def require_phase5_device(cursor, request: Request, user_id: str) -> dict[str, A
 def account_device_bundles(cursor, user_id: str) -> list[dict[str, str]]:
     cursor.execute(
         """
-        select device_id, identity_dh_public, identity_sign_public
+        select device_id, identity_dh_public, identity_dh_signature,
+               identity_sign_public
         from yachat_e2ee_devices
         where user_id = %s
           and revoked_at is null
           and ready_at is not null
           and protocol_version >= 5
           and capabilities ?& %s
+          and identity_dh_signature <> ''
           and last_seen_at > now() - interval '90 days'
         order by device_id
         """,
@@ -131,6 +136,7 @@ def account_device_bundles(cursor, user_id: str) -> list[dict[str, str]]:
         {
             "deviceId": str(row["device_id"]),
             "identityDhPublic": str(row["identity_dh_public"]),
+            "identityDhSignature": str(row["identity_dh_signature"]),
             "identitySignPublic": str(row["identity_sign_public"]),
         }
         for row in cursor.fetchall()
@@ -154,9 +160,11 @@ def owned_digital_id(request: Request) -> dict[str, object]:
                         (user_id,),
                     )
                     vault = cursor.fetchone()
+                    bundles = account_device_bundles(cursor, user_id)
                     if vault:
                         return {
                             "e2eeVault": digital_id_vault_payload(dict(vault)),
+                            "deviceBundles": bundles,
                             "createdAt": user.get("created_at"),
                             "immutable": True,
                             "migrationComplete": True,
@@ -185,7 +193,6 @@ def owned_digital_id(request: Request) -> dict[str, object]:
                             status_code=503,
                             detail="Digital ID is temporarily unavailable.",
                         )
-                    bundles = account_device_bundles(cursor, user_id)
                     if not bundles:
                         raise HTTPException(status_code=426, detail="No phase 5 Digital ID device is active.")
                     return {
@@ -211,7 +218,8 @@ async def store_encrypted_owned_digital_id(request: Request):
     user = require_user(request)
     user_id = str(user.get("id") or "")
     payload = await read_json_payload(request, 80_000)
-    if payload.get("action") != "migrate":
+    action = str(payload.get("action") or "")
+    if action not in {"migrate", "rewrap"}:
         raise HTTPException(status_code=400, detail="Unsupported Digital ID vault action.")
     vault = parse_digital_id_vault(payload.get("vault"), user_id=user_id)
 
@@ -241,10 +249,17 @@ async def store_encrypted_owned_digital_id(request: Request):
                         detail="Digital ID vault does not cover every active phase 5 device.",
                     )
                 for device_id, envelope in envelope_map.items():
-                    if envelope["recipientIdentityKey"] != bundle_map[device_id]["identityDhPublic"]:
+                    if (
+                        envelope["recipientIdentityKey"]
+                        != bundle_map[device_id]["identityDhPublic"]
+                        or envelope["recipientIdentitySignPublic"]
+                        != bundle_map[device_id]["identitySignPublic"]
+                        or envelope["recipientIdentityDhSignature"]
+                        != bundle_map[device_id]["identityDhSignature"]
+                    ):
                         raise HTTPException(
                             status_code=409,
-                            detail="A Digital ID recipient identity key changed.",
+                            detail="A Digital ID recipient identity attestation changed.",
                         )
 
                 cursor.execute(
@@ -252,58 +267,119 @@ async def store_encrypted_owned_digital_id(request: Request):
                     (user_id,),
                 )
                 account = cursor.fetchone()
-                raw_id = normalize_digital_id(account.get("digital_id") if account else "")
-                if not raw_id or str(account.get("digital_id_lookup_hash") or ""):
-                    raise HTTPException(
-                        status_code=409,
-                        detail="The immutable Digital ID has already been migrated.",
+                if action == "rewrap":
+                    if (
+                        normalize_digital_id(account.get("digital_id") if account else "")
+                        or not str(
+                            account.get("digital_id_lookup_hash") if account else ""
+                        )
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="The Digital ID vault has not completed its initial migration.",
+                        )
+                    cursor.execute(
+                        """
+                        select *
+                        from yachat_digital_id_vaults
+                        where user_id = %s
+                        for update
+                        """,
+                        (user_id,),
                     )
-                lookup_hash = digital_id_lookup_hash(raw_id)
+                    current = cursor.fetchone()
+                    immutable_fields = (
+                        ("version", "version"),
+                        ("algorithm", "algorithm"),
+                        ("ciphertext", "ciphertext"),
+                        ("iv", "iv"),
+                        ("aad", "aad"),
+                        ("plaintext_digest", "plaintextDigest"),
+                    )
+                    if not current or any(
+                        str(current[row_field]) != str(vault[vault_field])
+                        for row_field, vault_field in immutable_fields
+                    ):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="A Digital ID rewrap cannot change the encrypted identifier.",
+                        )
+                    cursor.execute(
+                        """
+                        update yachat_digital_id_vaults
+                        set envelopes = %s::jsonb,
+                            sender_device_id = %s,
+                            sender_identity_sign_public = %s,
+                            envelope_digest = %s,
+                            signature = %s,
+                            updated_at = now()
+                        where user_id = %s
+                        returning *
+                        """,
+                        (
+                            json.dumps(vault["envelopes"], ensure_ascii=False),
+                            vault["senderDeviceId"],
+                            vault["senderIdentitySignPublic"],
+                            vault["envelopeDigest"],
+                            vault["signature"],
+                            user_id,
+                        ),
+                    )
+                    stored = dict(cursor.fetchone())
+                else:
+                    raw_id = normalize_digital_id(account.get("digital_id") if account else "")
+                    if not raw_id or str(account.get("digital_id_lookup_hash") or ""):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="The immutable Digital ID has already been migrated.",
+                        )
+                    lookup_hash = digital_id_lookup_hash(raw_id)
 
-                cursor.execute(
-                    """
-                    insert into yachat_digital_id_vaults(
-                        user_id, version, algorithm, ciphertext, iv, aad, envelopes,
-                        plaintext_digest, sender_device_id, sender_identity_sign_public,
-                        envelope_digest, signature, created_at, updated_at
+                    cursor.execute(
+                        """
+                        insert into yachat_digital_id_vaults(
+                            user_id, version, algorithm, ciphertext, iv, aad, envelopes,
+                            plaintext_digest, sender_device_id, sender_identity_sign_public,
+                            envelope_digest, signature, created_at, updated_at
+                        )
+                        values (
+                            %s, %s, %s, %s, %s, %s, %s::jsonb,
+                            %s, %s, %s, %s, %s, now(), now()
+                        )
+                        returning *
+                        """,
+                        (
+                            user_id,
+                            vault["version"],
+                            vault["algorithm"],
+                            vault["ciphertext"],
+                            vault["iv"],
+                            vault["aad"],
+                            json.dumps(vault["envelopes"], ensure_ascii=False),
+                            vault["plaintextDigest"],
+                            vault["senderDeviceId"],
+                            vault["senderIdentitySignPublic"],
+                            vault["envelopeDigest"],
+                            vault["signature"],
+                        ),
                     )
-                    values (
-                        %s, %s, %s, %s, %s, %s, %s::jsonb,
-                        %s, %s, %s, %s, %s, now(), now()
+                    stored = dict(cursor.fetchone())
+                    cursor.execute(
+                        """
+                        update public_users
+                        set digital_id = null,
+                            digital_id_lookup_hash = %s,
+                            e2ee_required = true,
+                            e2ee_min_protocol = greatest(e2ee_min_protocol, 5),
+                            e2ee_migrated_at = coalesce(e2ee_migrated_at, now()),
+                            updated_at = now()
+                        where id = %s
+                        """,
+                        (lookup_hash, user_id),
                     )
-                    returning *
-                    """,
-                    (
-                        user_id,
-                        vault["version"],
-                        vault["algorithm"],
-                        vault["ciphertext"],
-                        vault["iv"],
-                        vault["aad"],
-                        json.dumps(vault["envelopes"], ensure_ascii=False),
-                        vault["plaintextDigest"],
-                        vault["senderDeviceId"],
-                        vault["senderIdentitySignPublic"],
-                        vault["envelopeDigest"],
-                        vault["signature"],
-                    ),
-                )
-                stored = dict(cursor.fetchone())
-                cursor.execute(
-                    """
-                    update public_users
-                    set digital_id = null,
-                        digital_id_lookup_hash = %s,
-                        e2ee_required = true,
-                        e2ee_min_protocol = greatest(e2ee_min_protocol, 5),
-                        e2ee_migrated_at = coalesce(e2ee_migrated_at, now()),
-                        updated_at = now()
-                    where id = %s
-                    """,
-                    (lookup_hash, user_id),
-                )
     return {
         "e2eeVault": digital_id_vault_payload(stored),
+        "deviceBundles": bundles,
         "createdAt": user.get("created_at"),
         "immutable": True,
         "migrationComplete": True,

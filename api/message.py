@@ -56,6 +56,9 @@ _PHASE4_VERSION = 4
 _PHASE4_PUSH_CAPABILITY = "encrypted-push-preview-v1"
 _PHASE5_VERSION = 5
 _PHASE5_REQUIRED_CAPABILITIES = {
+    _PHASE2_CAPABILITY,
+    _PHASE3_ATTACHMENT_CAPABILITY,
+    _PHASE4_PUSH_CAPABILITY,
     "mandatory-e2ee-v1",
     "signed-messages-v1",
     "padded-content-v1",
@@ -176,13 +179,29 @@ def device_capabilities(value: Any) -> list[str]:
 
 
 def encrypted_previews_for_user(encrypted: dict[str, Any], user_id: str) -> dict[str, dict[str, Any]]:
-    return {
-        str(item["deviceId"]): {
+    previews: dict[str, dict[str, Any]] = {}
+    for item in encrypted.get("pushPreviews", []):
+        if str(item.get("_recipientUserId") or item.get("userId") or "") != user_id:
+            continue
+        device_id = str(item["deviceId"])
+        transport = {
             key: value for key, value in item.items() if not str(key).startswith("_")
         }
-        for item in encrypted.get("pushPreviews", [])
-        if str(item.get("_recipientUserId") or item.get("userId") or "") == user_id
-    }
+        if int(item.get("version") or 0) >= 2:
+            for field in (
+                "chatId",
+                "messageId",
+                "userId",
+                "senderUserId",
+                "deviceId",
+                "senderDeviceId",
+                "recipientPushPreviewPublic",
+                "senderIdentitySignPublic",
+                "signature",
+            ):
+                transport.pop(field, None)
+        previews[device_id] = transport
+    return previews
 
 
 def authenticated_session_hash(request: Request) -> str:
@@ -328,6 +347,7 @@ def eligible_phase5_devices(cursor, member_ids: list[str]) -> list[dict[str, Any
           and ready_at is not null
           and protocol_version >= %s
           and capabilities ?& %s
+          and identity_dh_signature <> ''
           and last_seen_at > now() - interval '{_DEVICE_RETENTION_DAYS} days'
         order by user_id, device_id
         """,
@@ -601,6 +621,7 @@ def claim_bundle_prekeys(
                 else None
             ),
             "identityDhPublic": str(device["identity_dh_public"]),
+            "identityDhSignature": str(device.get("identity_dh_signature") or ""),
             "identitySignPublic": str(device["identity_sign_public"]),
             "signedPreKey": {
                 "id": str(device["signed_prekey_id"]),
@@ -766,17 +787,29 @@ def validate_encrypted_message(
         if one_time_id:
             cursor.execute(
                 """
-                select 1
-                from yachat_e2ee_one_time_prekeys
+                update yachat_e2ee_one_time_prekeys
+                set used_at = coalesce(used_at, now()),
+                    used_by_message_id = coalesce(used_by_message_id, %s)
                 where device_id = %s and prekey_id = %s
                   and claimed_by_user_id = %s and claimed_by_device_id = %s
                   and claimed_at is not null
-                limit 1
+                  and (used_at is null or used_by_message_id = %s)
+                returning 1
                 """,
-                (device_id, one_time_id, user_id, encrypted["senderDeviceId"]),
+                (
+                    encrypted["messageId"],
+                    device_id,
+                    one_time_id,
+                    user_id,
+                    encrypted["senderDeviceId"],
+                    encrypted["messageId"],
+                ),
             )
             if not cursor.fetchone():
-                raise HTTPException(status_code=400, detail="E2EE one-time prekey claim is invalid.")
+                raise HTTPException(
+                    status_code=409,
+                    detail="The E2EE one-time prekey was already used by another message.",
+                )
 
 
 def validate_shadow_message(cursor, chat_id: str, user_id: str, encrypted: dict[str, Any]) -> None:
@@ -825,6 +858,11 @@ async def register_e2ee_device(request: Request):
                     if (
                         str(existing["identity_dh_public"]) != bundle["identityDhPublic"]
                         or str(existing["identity_sign_public"]) != bundle["identitySignPublic"]
+                        or (
+                            str(existing.get("identity_dh_signature") or "")
+                            and str(existing.get("identity_dh_signature") or "")
+                            != bundle["identityDhSignature"]
+                        )
                     ):
                         raise HTTPException(
                             status_code=409,
@@ -835,17 +873,23 @@ async def register_e2ee_device(request: Request):
                     """
                     insert into yachat_e2ee_devices(
                         device_id, user_id, algorithm, identity_dh_public,
-                        identity_sign_public, signed_prekey_id, signed_prekey_public,
+                        identity_dh_signature, identity_sign_public,
+                        signed_prekey_id, signed_prekey_public,
                         signed_prekey_signature, protocol_version, capabilities,
                         push_preview_public, push_preview_signature,
                         ready_at, user_agent, created_at, updated_at, last_seen_at, revoked_at
                     )
                     values (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb,
                         %s, %s, case when %s then now() else null end, %s, now(), now(), now(), null
                     )
                     on conflict(device_id) do update
                     set algorithm = excluded.algorithm,
+                        identity_dh_signature = case
+                            when yachat_e2ee_devices.identity_dh_signature = ''
+                            then excluded.identity_dh_signature
+                            else yachat_e2ee_devices.identity_dh_signature
+                        end,
                         signed_prekey_id = excluded.signed_prekey_id,
                         signed_prekey_public = excluded.signed_prekey_public,
                         signed_prekey_signature = excluded.signed_prekey_signature,
@@ -864,6 +908,7 @@ async def register_e2ee_device(request: Request):
                         user_id,
                         bundle["algorithm"],
                         bundle["identityDhPublic"],
+                        bundle["identityDhSignature"],
                         bundle["identitySignPublic"],
                         signed["id"],
                         signed["publicKey"],

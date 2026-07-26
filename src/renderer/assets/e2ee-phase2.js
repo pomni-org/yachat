@@ -19,6 +19,9 @@
     "encrypted-digital-id-v1"
   ];
   const PHASE5_CAPABILITIES = [
+    "server-blind-text-v1",
+    "encrypted-attachments-v1",
+    "encrypted-push-preview-v1",
     "mandatory-e2ee-v1",
     "signed-messages-v1",
     "padded-content-v1",
@@ -371,6 +374,10 @@
     return `${ALGORITHM}|push-preview-key|v1|${currentDeviceId}|${publicKey}`;
   }
 
+  function identityDhKeyAttestation(currentDeviceId, publicKey) {
+    return `${ALGORITHM}|identity-dh-key|v1|${currentDeviceId}|${publicKey}`;
+  }
+
   function pushPreviewPublicFromJwk(jwk) {
     try {
       if (!jwk?.x || !jwk?.y) return "";
@@ -473,6 +480,11 @@
   async function createDeviceRecord(accountId, currentDeviceId) {
     const identityDh = await hardenedKeyPair("X25519", [], ["deriveBits"]);
     const identitySign = await hardenedKeyPair("Ed25519", ["verify"], ["sign"]);
+    const identityDhSignature = bytesToBase64Url(new Uint8Array(await crypto.subtle.sign(
+      "Ed25519",
+      identitySign.privateKey,
+      encoder.encode(identityDhKeyAttestation(currentDeviceId, identityDh.publicKey))
+    )));
     const signedPreKey = await createSignedPreKey(identitySign.privateKey);
     return {
       key: `${accountId}:${currentDeviceId}`,
@@ -482,6 +494,7 @@
       protocolVersion: PROTOCOL_VERSION,
       capabilities: CAPABILITIES,
       identityDhPublic: identityDh.publicKey,
+      identityDhSignature,
       identityDhPrivate: identityDh.privateKey,
       identityDhPrivateJwk: identityDh.privateJwk,
       identitySignPublic: identitySign.publicKey,
@@ -510,6 +523,13 @@
     }
     record.protocolVersion = PROTOCOL_VERSION;
     record.capabilities = CAPABILITIES;
+    if (!record.identityDhSignature) {
+      record.identityDhSignature = bytesToBase64Url(new Uint8Array(await crypto.subtle.sign(
+        "Ed25519",
+        record.identitySignPrivate,
+        encoder.encode(identityDhKeyAttestation(record.deviceId, record.identityDhPublic))
+      )));
+    }
     record.updatedAt = Date.now();
     await storePut("devices", record);
     return record;
@@ -548,6 +568,7 @@
       pushPreviewPublic: pushPreview.publicKey,
       pushPreviewSignature: pushPreview.signature,
       identityDhPublic: record.identityDhPublic,
+      identityDhSignature: record.identityDhSignature,
       identitySignPublic: record.identitySignPublic,
       signedPreKey: {
         id: signed.id,
@@ -594,6 +615,8 @@
     const fields = [
       "deviceId",
       "recipientIdentityKey",
+      "recipientIdentitySignPublic",
+      "recipientIdentityDhSignature",
       "ephemeralKey",
       "salt",
       "iv",
@@ -648,32 +671,23 @@
     return String(decoded.digitalId);
   }
 
-  async function encryptDigitalIdVault(record, rawDigitalId, bundles) {
+  async function digitalIdEnvelopes(record, contentKeyBytes, bundles) {
     if (!Array.isArray(bundles) || !bundles.length) {
       throw e2eeError("No phase 5 device can receive the Digital ID vault.", true);
     }
-    const contentKeyBytes = randomBytes(32);
-    const contentKey = await crypto.subtle.importKey(
-      "raw",
-      contentKeyBytes,
-      { name: "AES-GCM" },
-      false,
-      ["encrypt"]
-    );
-    const aad = digitalIdAad(record.accountId);
-    const plaintext = paddedDigitalId(rawDigitalId, record.accountId);
-    const plaintextDigest = await digestBytes(plaintext);
-    const iv = randomBytes(12);
-    const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv, additionalData: encoder.encode(aad) },
-      contentKey,
-      plaintext
-    ));
     const envelopes = [];
     for (const bundle of bundles) {
       const recipientIdentityKey = String(bundle?.identityDhPublic || "");
+      const recipientIdentitySignPublic = String(bundle?.identitySignPublic || "");
+      const recipientIdentityDhSignature = String(bundle?.identityDhSignature || "");
       const recipientDeviceId = String(bundle?.deviceId || "");
-      if (!recipientIdentityKey || !recipientDeviceId) {
+      if (
+        !recipientIdentityKey
+        || !recipientIdentitySignPublic
+        || !recipientIdentityDhSignature
+        || !recipientDeviceId
+        || !await verifyIdentityDhKey(bundle)
+      ) {
         throw e2eeError("A Digital ID recipient bundle is invalid.", true);
       }
       const ephemeral = await hardenedKeyPair("X25519", [], ["deriveBits"]);
@@ -699,12 +713,36 @@
       envelopes.push({
         deviceId: recipientDeviceId,
         recipientIdentityKey,
+        recipientIdentitySignPublic,
+        recipientIdentityDhSignature,
         ephemeralKey: ephemeral.publicKey,
         salt: bytesToBase64Url(salt),
         iv: bytesToBase64Url(envelopeIv),
         ciphertext: bytesToBase64Url(wrapped)
       });
     }
+    return envelopes;
+  }
+
+  async function encryptDigitalIdVault(record, rawDigitalId, bundles) {
+    const contentKeyBytes = randomBytes(32);
+    const contentKey = await crypto.subtle.importKey(
+      "raw",
+      contentKeyBytes,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt"]
+    );
+    const aad = digitalIdAad(record.accountId);
+    const plaintext = paddedDigitalId(rawDigitalId, record.accountId);
+    const plaintextDigest = await digestBytes(plaintext);
+    const iv = randomBytes(12);
+    const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv, additionalData: encoder.encode(aad) },
+      contentKey,
+      plaintext
+    ));
+    const envelopes = await digitalIdEnvelopes(record, contentKeyBytes, bundles);
     const vault = {
       version: 1,
       algorithm: ALGORITHM,
@@ -760,7 +798,12 @@
     const envelope = (vault.envelopes || []).find(
       (item) => String(item?.deviceId || "") === record.deviceId
     );
-    if (!envelope || envelope.recipientIdentityKey !== record.identityDhPublic) {
+    if (
+      !envelope
+      || envelope.recipientIdentityKey !== record.identityDhPublic
+      || envelope.recipientIdentitySignPublic !== record.identitySignPublic
+      || envelope.recipientIdentityDhSignature !== record.identityDhSignature
+    ) {
       throw e2eeError("This device has no Digital ID vault envelope.", true);
     }
     const shared = await deriveX25519(record.identityDhPrivate, envelope.ephemeralKey);
@@ -813,7 +856,49 @@
       firstSeenAt: Number(previous?.firstSeenAt || Date.now()),
       lastSeenAt: Date.now()
     });
-    return openPaddedDigitalId(plaintext, record.accountId);
+    return {
+      rawDigitalId: openPaddedDigitalId(plaintext, record.accountId),
+      contentKeyBytes
+    };
+  }
+
+  function digitalIdVaultCoversBundles(vault, bundles) {
+    const envelopeMap = new Map(
+      (Array.isArray(vault?.envelopes) ? vault.envelopes : [])
+        .map((item) => [String(item?.deviceId || ""), item])
+    );
+    const bundleList = Array.isArray(bundles) ? bundles : [];
+    if (envelopeMap.size !== bundleList.length) return false;
+    return bundleList.every((bundle) => {
+      const envelope = envelopeMap.get(String(bundle?.deviceId || ""));
+      return Boolean(
+        envelope
+        && envelope.recipientIdentityKey === bundle.identityDhPublic
+        && envelope.recipientIdentitySignPublic === bundle.identitySignPublic
+        && envelope.recipientIdentityDhSignature === bundle.identityDhSignature
+      );
+    });
+  }
+
+  async function rewrapDigitalIdVault(record, currentVault, contentKeyBytes, bundles) {
+    const vault = {
+      version: 1,
+      algorithm: ALGORITHM,
+      ciphertext: String(currentVault.ciphertext || ""),
+      iv: String(currentVault.iv || ""),
+      aad: String(currentVault.aad || ""),
+      envelopes: await digitalIdEnvelopes(record, contentKeyBytes, bundles),
+      plaintextDigest: String(currentVault.plaintextDigest || ""),
+      senderDeviceId: record.deviceId,
+      senderIdentitySignPublic: record.identitySignPublic
+    };
+    vault.envelopeDigest = await digitalIdEnvelopeDigest(vault.envelopes);
+    vault.signature = bytesToBase64Url(new Uint8Array(await crypto.subtle.sign(
+      "Ed25519",
+      record.identitySignPrivate,
+      digitalIdSignatureInput(vault)
+    )));
+    return vault;
   }
 
   function formatDigitalId(rawDigitalId) {
@@ -860,9 +945,22 @@
     if (!payload.e2eeVault) {
       throw e2eeError("The server did not return an encrypted Digital ID vault.", true);
     }
-    const rawDigitalId = await decryptDigitalIdVault(record, payload.e2eeVault);
+    let opened = await decryptDigitalIdVault(record, payload.e2eeVault);
+    if (
+      Array.isArray(payload.deviceBundles)
+      && !digitalIdVaultCoversBundles(payload.e2eeVault, payload.deviceBundles)
+    ) {
+      const vault = await rewrapDigitalIdVault(
+        record,
+        payload.e2eeVault,
+        opened.contentKeyBytes,
+        payload.deviceBundles
+      );
+      payload = await digitalIdRequest(record, "POST", { action: "rewrap", vault });
+      opened = await decryptDigitalIdVault(record, payload.e2eeVault);
+    }
     return {
-      digitalId: formatDigitalId(rawDigitalId),
+      digitalId: formatDigitalId(opened.rawDigitalId),
       createdAt: payload.createdAt || null,
       immutable: true,
       encrypted: true
@@ -1157,6 +1255,34 @@
     );
   }
 
+  async function verifyIdentityDhKey(bundle) {
+    if (
+      Number(bundle?.protocolVersion || PROTOCOL_VERSION) < 5
+      || !bundle?.deviceId
+      || !bundle?.identityDhPublic
+      || !bundle?.identityDhSignature
+      || !bundle?.identitySignPublic
+    ) {
+      return false;
+    }
+    const publicKey = await crypto.subtle.importKey(
+      "raw",
+      base64UrlToBytes(bundle.identitySignPublic),
+      { name: "Ed25519" },
+      false,
+      ["verify"]
+    );
+    return crypto.subtle.verify(
+      "Ed25519",
+      publicKey,
+      base64UrlToBytes(bundle.identityDhSignature),
+      encoder.encode(identityDhKeyAttestation(
+        String(bundle.deviceId || ""),
+        String(bundle.identityDhPublic || "")
+      ))
+    );
+  }
+
   async function verifyPushPreviewKey(bundle) {
     const preview = bundle?.pushPreview;
     if (
@@ -1242,10 +1368,7 @@
     recipientPushPreviewPublic
   }) {
     if (version >= 2) {
-      return (
-        `${ALGORITHM}|push-descriptor|v2|${contextId}|${senderDeviceId}|`
-        + `${recipientDeviceId}|${recipientPushPreviewPublic}`
-      );
+      return `${ALGORITHM}|push-descriptor|v2|${contextId}`;
     }
     return (
       `${ALGORITHM}|push-preview|v1|${chatId}|${messageId}|${senderUserId}|`
@@ -1264,7 +1387,25 @@
     ].join("|"));
   }
 
-  function paddedPushPreview(descriptor, messageId) {
+  function sealedPushDescriptorSignatureInput(descriptor) {
+    return encoder.encode(JSON.stringify([
+      ALGORITHM,
+      "push-descriptor-content",
+      1,
+      descriptor.contextId,
+      descriptor.messageId,
+      descriptor.title,
+      descriptor.body,
+      descriptor.url,
+      descriptor.tag,
+      descriptor.clientCreatedAt,
+      descriptor.createdAt,
+      descriptor.senderDeviceId,
+      descriptor.senderIdentitySignPublic
+    ]));
+  }
+
+  async function paddedPushPreview(record, descriptor, messageId) {
     const safe = {
       title: String(descriptor?.title || "ЯЧат").slice(0, 120),
       body: String(descriptor?.body || "Новое сообщение").slice(0, 200),
@@ -1275,14 +1416,26 @@
     };
     let encoded;
     while (true) {
-      encoded = encoder.encode(JSON.stringify({
+      const sealed = {
         version: 2,
         messageId,
         ...safe,
-        createdAt: Date.now()
-      }));
+        createdAt: Date.now(),
+        senderDeviceId: record.deviceId,
+        senderIdentitySignPublic: record.identitySignPublic
+      };
+      sealed.signature = bytesToBase64Url(new Uint8Array(await crypto.subtle.sign(
+        "Ed25519",
+        record.identitySignPrivate,
+        sealedPushDescriptorSignatureInput(sealed)
+      )));
+      encoded = encoder.encode(JSON.stringify(sealed));
       if (encoded.byteLength <= PUSH_PREVIEW_PLAINTEXT_BYTES - 2) break;
-      safe.body = safe.body.slice(0, Math.max(0, safe.body.length - 8));
+      if (safe.body.length > 32) safe.body = safe.body.slice(0, -8);
+      else if (safe.url.length > 80) safe.url = safe.url.slice(0, -8);
+      else if (safe.tag.length > 80) safe.tag = safe.tag.slice(0, -8);
+      else if (safe.title.length > 32) safe.title = safe.title.slice(0, -8);
+      else throw e2eeError("The sealed push descriptor is too large.", true);
     }
     const padded = randomBytes(PUSH_PREVIEW_PLAINTEXT_BYTES);
     padded[0] = (encoded.byteLength >>> 8) & 0xff;
@@ -1335,7 +1488,7 @@
     const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
       { name: "AES-GCM", iv, additionalData: encoder.encode(aad) },
       key,
-      paddedPushPreview({ ...descriptor, contextId }, messageId)
+      await paddedPushPreview(record, { ...descriptor, contextId }, messageId)
     ));
     const preview = {
       version,
@@ -1359,6 +1512,9 @@
   }
 
   async function trustBundle(accountId, bundle) {
+    if (Number(bundle?.protocolVersion || 0) >= 5 && !await verifyIdentityDhKey(bundle)) {
+      throw e2eeError(`The identity key attestation for device ${bundle?.deviceId || "unknown"} is invalid.`, true);
+    }
     const key = `${accountId}:${bundle.userId}:${bundle.deviceId}`;
     const fingerprintBytes = new Uint8Array(await crypto.subtle.digest(
       "SHA-256",
@@ -1366,7 +1522,13 @@
     ));
     const fingerprint = bytesToBase64Url(fingerprintBytes);
     const previous = await storeGet("trust", key);
-    if (previous && previous.fingerprint !== fingerprint) {
+    if (
+      (previous?.fingerprint && previous.fingerprint !== fingerprint)
+      || (
+        previous?.identitySignPublic
+        && previous.identitySignPublic !== String(bundle.identitySignPublic || "")
+      )
+    ) {
       throw e2eeError(`The identity key for device ${bundle.deviceId} changed.`, true);
     }
     await storePut("trust", {
@@ -1559,6 +1721,13 @@
     ));
     if (phase5Required && !phase5BundlesReady) {
       throw e2eeError("Every participant must finish the phase 5 E2EE migration.", true);
+    }
+    if (
+      phase5Required
+      && sourceAttachments.length > 0
+      && claimed.attachmentEncryptionReady !== true
+    ) {
+      throw e2eeError("Phase 5 refused to expose an attachment without E2EE.", true);
     }
     const encryptAttachments = (
       mode === "encrypted"

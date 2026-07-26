@@ -33,6 +33,7 @@ await page.route("**/api/e2ee/device/register", async (route) => {
   assert.equal(typeof body.pushPreviewSignature, "string");
   assert.match(body.deviceId, /^[A-Za-z0-9._:-]{8,128}$/);
   assert.equal(typeof body.identityDhPublic, "string");
+  assert.equal(typeof body.identityDhSignature, "string");
   assert.equal(typeof body.identitySignPublic, "string");
   assert.ok(Array.isArray(body.oneTimePreKeys));
   assert.ok(body.oneTimePreKeys.length >= 24);
@@ -87,6 +88,12 @@ await page.route("**/api/digital-id", async (route) => {
         contentType: "application/json",
         body: JSON.stringify({
           e2eeVault: encryptedDigitalIdVault,
+          deviceBundles: [{
+            deviceId: registeredBundle.deviceId,
+            identityDhPublic: registeredBundle.identityDhPublic,
+            identityDhSignature: registeredBundle.identityDhSignature,
+            identitySignPublic: registeredBundle.identitySignPublic
+          }],
           migrationComplete: true,
           immutable: true
         })
@@ -102,6 +109,7 @@ await page.route("**/api/digital-id", async (route) => {
         deviceBundles: [{
           deviceId: registeredBundle.deviceId,
           identityDhPublic: registeredBundle.identityDhPublic,
+          identityDhSignature: registeredBundle.identityDhSignature,
           identitySignPublic: registeredBundle.identitySignPublic
         }],
         immutable: true
@@ -122,6 +130,12 @@ await page.route("**/api/digital-id", async (route) => {
     contentType: "application/json",
     body: JSON.stringify({
       e2eeVault: encryptedDigitalIdVault,
+      deviceBundles: [{
+        deviceId: registeredBundle.deviceId,
+        identityDhPublic: registeredBundle.identityDhPublic,
+        identityDhSignature: registeredBundle.identityDhSignature,
+        identitySignPublic: registeredBundle.identitySignPublic
+      }],
       migrationComplete: true,
       immutable: true
     })
@@ -162,6 +176,7 @@ await page.route("**/api/e2ee/bundles/claim", async (route) => {
           signature: registeredBundle.pushPreviewSignature
         },
         identityDhPublic: registeredBundle.identityDhPublic,
+        identityDhSignature: registeredBundle.identityDhSignature,
         identitySignPublic: registeredBundle.identitySignPublic,
         signedPreKey: registeredBundle.signedPreKey,
         oneTimePreKey: null
@@ -406,13 +421,27 @@ if (browserName === "chromium") {
   }, preview);
 }
 
-const notificationDescriptor = await evaluatePushPreview(encryptedRequest.e2ee.pushPreviews[0]);
+const transportedPushPreview = structuredClone(encryptedRequest.e2ee.pushPreviews[0]);
+for (const field of [
+  "chatId",
+  "messageId",
+  "userId",
+  "senderUserId",
+  "deviceId",
+  "senderDeviceId",
+  "recipientPushPreviewPublic",
+  "senderIdentitySignPublic",
+  "signature"
+]) {
+  delete transportedPushPreview[field];
+}
+const notificationDescriptor = await evaluatePushPreview(transportedPushPreview);
 assert.equal(notificationDescriptor.body, "Реальный текст этапа четыре");
 assert.equal(notificationDescriptor.title, "test");
 assert.equal(notificationDescriptor.url, "/test");
 assert.equal(notificationDescriptor.tag, `message:${encryptedRequest.clientMessageId}`);
 
-const tamperedPushPreview = structuredClone(encryptedRequest.e2ee.pushPreviews[0]);
+const tamperedPushPreview = structuredClone(transportedPushPreview);
 tamperedPushPreview.ciphertext = `${tamperedPushPreview.ciphertext[0] === "A" ? "B" : "A"}${tamperedPushPreview.ciphertext.slice(1)}`;
 await assert.rejects(
   evaluatePushPreview(tamperedPushPreview),
@@ -498,16 +527,16 @@ const afterReload = await send({ text: "После перезагрузки", at
 assert.equal(afterReload.message.text, "После перезагрузки");
 assert.equal(afterReload.message.e2eeVerified, true, "restored vault keys must complete a real encrypted round trip");
 assert.equal(afterReload.message.e2ee.mode, "encrypted");
-assert.equal(capturedMessageBodies[4].e2ee.version, 2, "text-only messages remain readable by phase 2 devices");
+assert.equal(capturedMessageBodies[4].e2ee.version, 5, "mandatory phase 5 must survive a reload");
 
 attachmentEncryptionReady = false;
-const phase2Fallback = await send({ text: "Совместимое вложение", attachments: [attachment] });
-assert.equal(phase2Fallback.message.e2eeVerified, true);
-assert.equal(phase2Fallback.message.attachments[0].dataUrl, attachment.dataUrl);
-assert.equal(capturedMessageBodies[5].e2ee.version, 2);
-assert.equal(capturedMessageBodies[5].e2ee.attachmentMode, "plaintext");
-assert.equal(capturedMessageBodies[5].attachments[0].dataUrl, attachment.dataUrl);
+await assert.rejects(
+  send({ text: "Нельзя раскрыть вложение", attachments: [attachment] }),
+  /refused to expose an attachment without E2EE/,
+  "phase 5 must fail closed before a plaintext attachment reaches the server"
+);
+assert.equal(capturedMessageBodies.length, 5);
 
 assert.equal(heartbeatRequests >= 0, true);
 await browser.close();
-console.log(`E2EE phase 4 ${browserName} test passed: real encrypted notification text, attachments, fallback, reload and tamper rejection.`);
+console.log(`E2EE phase 5 ${browserName} test passed: notification text, encrypted attachments, reload, fail-closed downgrade and tamper rejection.`);
