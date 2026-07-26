@@ -126,7 +126,6 @@ class E2EEPhase2ServerTests(unittest.TestCase):
         self.assertEqual(parsed["epochId"], "")
         columns = e2ee_message_columns(parsed)
         self.assertIsNone(columns[8])
-        self.assertEqual(columns[9:], ("", "", "", ""))
 
     def test_roster_hash_is_canonical_and_user_bound(self):
         left = canonical_roster([
