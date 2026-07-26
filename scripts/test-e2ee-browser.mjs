@@ -12,13 +12,16 @@ let registeredBundle = null;
 let firstIdentityKey = "";
 let messageRequests = 0;
 let heartbeatRequests = 0;
+let attachmentEncryptionReady = true;
+const capturedMessageBodies = [];
 const epochId = "epoch-browser-phase2-test";
 
 await page.route("**/api/e2ee/device/register", async (route) => {
   const body = JSON.parse(route.request().postData() || "{}");
   assert.equal(body.algorithm, "yachat-x3dh-v1");
-  assert.equal(body.protocolVersion, 2);
+  assert.equal(body.protocolVersion, 3);
   assert.equal(body.capabilities.includes("server-blind-text-v1"), true);
+  assert.equal(body.capabilities.includes("encrypted-attachments-v1"), true);
   assert.match(body.deviceId, /^[A-Za-z0-9._:-]{8,128}$/);
   assert.equal(typeof body.identityDhPublic, "string");
   assert.equal(typeof body.identitySignPublic, "string");
@@ -35,11 +38,11 @@ await page.route("**/api/e2ee/device/register", async (route) => {
       ok: true,
       deviceId: body.deviceId,
       algorithm: body.algorithm,
-      protocolVersion: 2,
+      protocolVersion: 3,
       capabilities: body.capabilities,
       availableOneTimePreKeys: body.oneTimePreKeys.length,
       needsOneTimePreKeys: false,
-      rolloutPhase: "phase2-ready"
+      rolloutPhase: "phase3-ready"
     })
   });
 });
@@ -54,10 +57,10 @@ await page.route("**/api/e2ee/device/heartbeat", async (route) => {
     body: JSON.stringify({
       ok: true,
       deviceId: body.deviceId,
-      protocolVersion: 2,
+      protocolVersion: 3,
       availableOneTimePreKeys: 32,
       needsOneTimePreKeys: false,
-      rolloutPhase: "phase2-ready"
+      rolloutPhase: "phase3-ready"
     })
   });
 });
@@ -74,8 +77,9 @@ await page.route("**/api/e2ee/bundles/claim", async (route) => {
       ok: true,
       chatId: request.chatId,
       algorithm: registeredBundle.algorithm,
-      protocolVersion: 2,
+      protocolVersion: attachmentEncryptionReady ? 3 : 2,
       rolloutPhase: "encrypted",
+      attachmentEncryptionReady,
       epochId,
       epochVersion: 1,
       requiredDeviceIds: [registeredBundle.deviceId],
@@ -85,7 +89,10 @@ await page.route("**/api/e2ee/bundles/claim", async (route) => {
         deviceId: registeredBundle.deviceId,
         userId: "account-test",
         algorithm: registeredBundle.algorithm,
-        protocolVersion: 2,
+        protocolVersion: attachmentEncryptionReady ? 3 : 2,
+        capabilities: attachmentEncryptionReady
+          ? registeredBundle.capabilities
+          : registeredBundle.capabilities.filter((item) => item !== "encrypted-attachments-v1"),
         identityDhPublic: registeredBundle.identityDhPublic,
         identitySignPublic: registeredBundle.identitySignPublic,
         signedPreKey: registeredBundle.signedPreKey,
@@ -98,9 +105,9 @@ await page.route("**/api/e2ee/bundles/claim", async (route) => {
 await page.route("**/api/message", async (route) => {
   messageRequests += 1;
   const body = JSON.parse(route.request().postData() || "{}");
+  capturedMessageBodies.push(structuredClone(body));
   assert.equal(body.chatId, "private-test-chat");
   assert.equal(body.e2ee?.mode, "encrypted");
-  assert.equal(body.e2ee?.version, 2);
   assert.equal(body.e2ee?.epochId, epochId);
   assert.equal(body.text, "", "encrypted request must not contain plaintext text");
   assert.equal(body.message, "", "encrypted request must not contain a plaintext alias");
@@ -120,7 +127,12 @@ await page.route("**/api/message", async (route) => {
     e2ee.ciphertext = `${first === "A" ? "B" : "A"}${e2ee.ciphertext.slice(1)}`;
   }
   if (messageRequests === 3 && attachments[0]) {
-    attachments[0].dataUrl = "data:text/plain;base64,VGFtcGVyZWQ=";
+    const [prefix, encoded = ""] = String(attachments[0].dataUrl || "").split(",", 2);
+    const first = encoded[0] || "A";
+    attachments[0].dataUrl = `${prefix},${first === "A" ? "B" : "A"}${encoded.slice(1)}`;
+  }
+  if (messageRequests === 4) {
+    e2ee.attachmentMode = "plaintext";
   }
 
   await route.fulfill({
@@ -172,7 +184,7 @@ async function browserDiagnostics() {
 async function waitReady() {
   try {
     await page.waitForFunction(
-      () => window.__yachatE2EE?.ready === true && window.__yachatE2EE?.protocolVersion === 2,
+      () => window.__yachatE2EE?.ready === true && window.__yachatE2EE?.protocolVersion === 3,
       null,
       { timeout: 30_000 }
     );
@@ -228,6 +240,25 @@ assert.equal(first.message.forwardedFrom, "source-test");
 assert.equal(first.message.e2eeVerified, true);
 assert.equal(first.message.e2ee.mode, "encrypted");
 assert.equal(first.message.e2ee.epochId, epochId);
+assert.equal(first.message.e2ee.version, 3);
+assert.equal(first.message.e2ee.attachmentMode, "encrypted");
+assert.equal(first.message.attachments[0].name, attachment.name);
+assert.equal(first.message.attachments[0].mime, attachment.mime);
+assert.equal(first.message.attachments[0].kind, attachment.kind);
+assert.equal(first.message.attachments[0].dataUrl, attachment.dataUrl);
+assert.equal(first.message.attachments[0].e2eeEncrypted, true);
+
+const encryptedRequest = capturedMessageBodies[0];
+assert.equal(encryptedRequest.e2ee.version, 3);
+assert.equal(encryptedRequest.e2ee.attachmentMode, "encrypted");
+assert.equal(encryptedRequest.attachments[0].name, "encrypted");
+assert.equal(encryptedRequest.attachments[0].mime, "application/vnd.yachat.e2ee");
+assert.equal(encryptedRequest.attachments[0].kind, "file");
+assert.match(
+  encryptedRequest.attachments[0].dataUrl,
+  /^data:application\/vnd\.yachat\.e2ee;base64,/
+);
+assert.equal(JSON.stringify(encryptedRequest).includes(attachment.dataUrl), false);
 
 const tamperedCiphertext = await send({ text: "Проверка подмены ciphertext", attachments: [attachment] });
 assert.equal(tamperedCiphertext.message.e2eeVerified, false, "tampered ciphertext must fail verification");
@@ -235,7 +266,10 @@ assert.equal(tamperedCiphertext.message.text, "Не удалось провер�
 
 const tamperedAttachment = await send({ text: "Проверка подмены вложения", attachments: [attachment] });
 assert.equal(tamperedAttachment.message.e2eeVerified, false, "tampered attachment must fail integrity verification");
-await page.waitForFunction(() => window.__yachatE2EE?.verificationFailures >= 2);
+
+const downgradedAttachmentMode = await send({ text: "Проверка downgrade", attachments: [attachment] });
+assert.equal(downgradedAttachmentMode.message.e2eeVerified, false, "attachment-mode downgrade must fail verification");
+await page.waitForFunction(() => window.__yachatE2EE?.verificationFailures >= 3);
 
 const stored = await page.evaluate(async () => {
   const request = indexedDB.open("yachat-e2ee-v1", 5);
@@ -287,7 +321,16 @@ const afterReload = await send({ text: "После перезагрузки", at
 assert.equal(afterReload.message.text, "После перезагрузки");
 assert.equal(afterReload.message.e2eeVerified, true, "restored vault keys must complete a real encrypted round trip");
 assert.equal(afterReload.message.e2ee.mode, "encrypted");
+assert.equal(capturedMessageBodies[4].e2ee.version, 2, "text-only messages remain readable by phase 2 devices");
+
+attachmentEncryptionReady = false;
+const phase2Fallback = await send({ text: "Совместимое вложение", attachments: [attachment] });
+assert.equal(phase2Fallback.message.e2eeVerified, true);
+assert.equal(phase2Fallback.message.attachments[0].dataUrl, attachment.dataUrl);
+assert.equal(capturedMessageBodies[5].e2ee.version, 2);
+assert.equal(capturedMessageBodies[5].e2ee.attachmentMode, "plaintext");
+assert.equal(capturedMessageBodies[5].attachments[0].dataUrl, attachment.dataUrl);
 
 assert.equal(heartbeatRequests >= 0, true);
 await browser.close();
-console.log(`E2EE phase 2 ${browserName} test passed: no plaintext, encrypted vault, reload, ciphertext and attachment tamper rejection.`);
+console.log(`E2EE phase 3 ${browserName} test passed: encrypted attachments, phase 2 fallback, vault reload and tamper rejection.`);

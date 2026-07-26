@@ -13,6 +13,8 @@ _B64URL_RE = re.compile(r"^[A-Za-z0-9_-]+={0,2}$")
 _CAPABILITY_RE = re.compile(r"^[a-z0-9._:-]{2,80}$")
 _ALGORITHM = "yachat-x3dh-v1"
 _PHASE2_CAPABILITY = "server-blind-text-v1"
+_PHASE3_ATTACHMENT_CAPABILITY = "encrypted-attachments-v1"
+_ATTACHMENT_MODES = {"plaintext", "encrypted"}
 _MAX_CIPHERTEXT_CHARS = 12_000_000
 _MAX_ENVELOPES = 64
 
@@ -93,6 +95,8 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
     capabilities = normalize_capabilities(payload.get("capabilities"))
     if protocol_version >= 2 and _PHASE2_CAPABILITY not in capabilities:
         raise HTTPException(status_code=400, detail="Phase 2 E2EE capability is missing.")
+    if protocol_version >= 3 and _PHASE3_ATTACHMENT_CAPABILITY not in capabilities:
+        raise HTTPException(status_code=400, detail="Phase 3 encrypted-attachment capability is missing.")
 
     signed = payload.get("signedPreKey") if isinstance(payload.get("signedPreKey"), dict) else {}
     raw_prekeys = payload.get("oneTimePreKeys") if isinstance(payload.get("oneTimePreKeys"), list) else []
@@ -116,6 +120,11 @@ def parse_device_registration(payload: Any) -> dict[str, Any]:
         "protocolVersion": protocol_version,
         "capabilities": capabilities,
         "phase2Ready": protocol_version >= 2 and _PHASE2_CAPABILITY in capabilities,
+        "phase3Ready": (
+            protocol_version >= 3
+            and _PHASE2_CAPABILITY in capabilities
+            and _PHASE3_ATTACHMENT_CAPABILITY in capabilities
+        ),
         "identityDhPublic": _decode_b64url(payload.get("identityDhPublic"), field="identity DH key", expected={32}),
         "identitySignPublic": _decode_b64url(payload.get("identitySignPublic"), field="identity signing key", expected={32}),
         "signedPreKey": {
@@ -134,9 +143,11 @@ def expected_content_aad(
     message_id: str,
     sender_device_id: str,
     epoch_id: str,
+    attachment_mode: str = "plaintext",
 ) -> str:
     epoch = epoch_id or "shadow"
-    return f"{_ALGORITHM}|content|v{version}|{chat_id}|{message_id}|{sender_device_id}|{epoch}"
+    base = f"{_ALGORITHM}|content|v{version}|{chat_id}|{message_id}|{sender_device_id}|{epoch}"
+    return f"{base}|attachments-{attachment_mode}" if version >= 3 else base
 
 
 def canonical_roster(devices: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -168,6 +179,7 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
         "envelopes": [],
         "senderDeviceId": "",
         "plaintextDigest": "",
+        "attachmentMode": "plaintext",
     }
     if raw in (None, "", {}):
         return legacy
@@ -176,12 +188,20 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
 
     version = _integer(raw.get("version"), 0)
     mode = _text(raw.get("mode"), 16).lower()
-    if version not in {1, 2} or mode not in {"shadow", "encrypted"}:
+    if version not in {1, 2, 3} or mode not in {"shadow", "encrypted"}:
         raise HTTPException(status_code=400, detail="Unsupported E2EE message version.")
     if mode == "encrypted" and version < 2:
         raise HTTPException(status_code=400, detail="Server-blind messages require E2EE protocol version 2.")
     if _text(raw.get("chatId"), 160) != chat_id or _text(raw.get("messageId"), 64) != message_id:
         raise HTTPException(status_code=400, detail="E2EE message context does not match the request.")
+
+    attachment_mode = _text(raw.get("attachmentMode"), 24).lower() or "plaintext"
+    if attachment_mode not in _ATTACHMENT_MODES:
+        raise HTTPException(status_code=400, detail="Unsupported E2EE attachment mode.")
+    if version >= 3 and (mode != "encrypted" or attachment_mode != "encrypted"):
+        raise HTTPException(status_code=400, detail="E2EE protocol version 3 requires encrypted attachments.")
+    if version < 3 and attachment_mode != "plaintext":
+        raise HTTPException(status_code=400, detail="Encrypted attachments require E2EE protocol version 3.")
 
     epoch_id = normalize_epoch_id(raw.get("epochId"), required=mode == "encrypted")
     sender_device_id = normalize_device_id(raw.get("senderDeviceId"))
@@ -191,9 +211,12 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
         message_id=message_id,
         sender_device_id=sender_device_id,
         epoch_id=epoch_id,
+        attachment_mode=attachment_mode,
     )
     aad = _text(raw.get("aad"), 900)
-    if aad != expected_aad:
+    legacy_shadow_aad = f"{_ALGORITHM}|content|{chat_id}|{message_id}|{sender_device_id}"
+    accepted_legacy_shadow = mode == "shadow" and version == 1 and aad == legacy_shadow_aad
+    if aad != expected_aad and not accepted_legacy_shadow:
         raise HTTPException(status_code=400, detail="E2EE associated data does not match the message context.")
 
     ciphertext = _text(raw.get("ciphertext"), _MAX_CIPHERTEXT_CHARS)
@@ -250,6 +273,7 @@ def parse_e2ee_message(raw: Any, *, chat_id: str, message_id: str) -> dict[str, 
         "envelopes": envelopes,
         "senderDeviceId": sender_device_id,
         "plaintextDigest": _decode_b64url(raw.get("plaintextDigest"), field="plaintext digest", expected={32}),
+        "attachmentMode": attachment_mode,
     }
 
 
@@ -263,7 +287,7 @@ def e2ee_message_columns(parsed: dict[str, Any]) -> tuple[Any, ...]:
         json.dumps(parsed["envelopes"], ensure_ascii=False),
         str(parsed["senderDeviceId"]),
         str(parsed["plaintextDigest"]),
-        str(parsed["epochId"]),
+        str(parsed["epochId"]) or None,
     )
 
 
@@ -290,6 +314,7 @@ def e2ee_payload_from_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
         "envelopes": envelopes if isinstance(envelopes, list) else [],
         "senderDeviceId": str(row.get("e2ee_sender_device_id") or ""),
         "plaintextDigest": str(row.get("e2ee_plaintext_digest") or ""),
+        "attachmentMode": "encrypted" if version >= 3 else "plaintext",
     }
 
 

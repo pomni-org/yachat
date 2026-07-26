@@ -125,8 +125,40 @@ async function roundTrip(useOneTimePreKey) {
     ),
     "AES-GCM must reject modified ciphertext"
   );
+
+  const attachment = encoder.encode("binary attachment fixture");
+  const attachmentIv = randomBytes(12);
+  const attachmentAad = encoder.encode(
+    `${ALGORITHM}|attachment|v1|private-test|${messageId}|attachment-0`
+  );
+  const encryptedAttachment = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: attachmentIv, additionalData: attachmentAad },
+    encryptKey,
+    attachment
+  );
+  const openedAttachment = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: attachmentIv, additionalData: attachmentAad },
+    decryptKey,
+    encryptedAttachment
+  );
+  assert.deepEqual(
+    new Uint8Array(openedAttachment),
+    attachment,
+    "the message content key must also open its authenticated attachment container"
+  );
+
+  const tamperedAttachment = new Uint8Array(encryptedAttachment);
+  tamperedAttachment[tamperedAttachment.length - 1] ^= 1;
+  await assert.rejects(
+    crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: attachmentIv, additionalData: attachmentAad },
+      decryptKey,
+      tamperedAttachment
+    ),
+    "AES-GCM must reject a modified attachment container"
+  );
 }
 
 await roundTrip(true);
 await roundTrip(false);
-console.log("E2EE crypto tests passed: signatures, 3DH/4DH, HKDF, AES-GCM and tamper rejection.");
+console.log("E2EE crypto tests passed: signatures, 3DH/4DH, HKDF, message and attachment AES-GCM tamper rejection.");

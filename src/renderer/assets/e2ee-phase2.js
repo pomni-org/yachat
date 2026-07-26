@@ -5,8 +5,15 @@
   window.__yachatE2EEPhase2Installed = true;
 
   const ALGORITHM = "yachat-x3dh-v1";
-  const PROTOCOL_VERSION = 2;
-  const CAPABILITIES = ["shadow-v1", "server-blind-text-v1", "attachment-integrity-v1"];
+  const PROTOCOL_VERSION = 3;
+  const CAPABILITIES = [
+    "shadow-v1",
+    "server-blind-text-v1",
+    "attachment-integrity-v1",
+    "encrypted-attachments-v1"
+  ];
+  const ENCRYPTED_ATTACHMENT_MIME = "application/vnd.yachat.e2ee";
+  const MAX_ATTACHMENT_DATA_URL_CHARS = 9000000;
   const AUTH_TOKEN_KEY = "yachat-http-auth-token";
   const DEVICE_ID_KEY_PREFIX = "yachat-e2ee-device-id-v1:";
   const VAULT_SECRET_KEY_PREFIX = "yachat-e2ee-vault-secret-v1:";
@@ -93,6 +100,15 @@
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
     return bytes;
+  }
+
+  function bytesToBase64(bytes) {
+    const value = bytesToBase64Url(bytes).replace(/-/g, "+").replace(/_/g, "/");
+    return value + "=".repeat((4 - value.length % 4) % 4);
+  }
+
+  function base64ToBytes(value) {
+    return base64UrlToBytes(String(value || "").replace(/\+/g, "-").replace(/\//g, "_"));
   }
 
   function concatBytes(parts) {
@@ -471,7 +487,7 @@
         ready: true,
         accountId,
         deviceId: currentDeviceId,
-        phase: "phase2-ready",
+        phase: "phase3-ready",
         lastError: ""
       });
       return record;
@@ -551,30 +567,142 @@
     return bytesToBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(String(value || "")))));
   }
 
+  async function digestBytes(value) {
+    const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+    return bytesToBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+  }
+
+  function canonicalAttachment(item) {
+    const mime = String(item?.mime || item?.type || "application/octet-stream").slice(0, 120)
+      || "application/octet-stream";
+    let kind = String(item?.kind || "").slice(0, 20);
+    if (!["image", "video", "file"].includes(kind)) {
+      kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "file";
+    }
+    const rawSource = String(item?.dataUrl || "").slice(0, 9000000);
+    return {
+      id: String(item?.id || "").slice(0, 80),
+      kind,
+      name: String(item?.name || "file").slice(0, 180) || "file",
+      mime,
+      size: Math.max(0, Math.min(Number(item?.size) || 0, 9000000)),
+      source: rawSource.startsWith("data:") ? rawSource : ""
+    };
+  }
+
   async function attachmentManifest(attachments) {
     const result = [];
     for (const item of (Array.isArray(attachments) ? attachments : []).slice(0, 8)) {
-      const stable = {
-        kind: String(item?.kind || "file").slice(0, 24),
-        name: String(item?.name || "").slice(0, 240),
-        mime: String(item?.mime || item?.type || "").slice(0, 160),
-        size: Math.max(0, Number(item?.size) || 0),
-        source: String(item?.dataUrl || item?.url || item?.src || "")
-      };
+      const stable = canonicalAttachment(item);
       result.push({
         kind: stable.kind,
         name: stable.name,
         mime: stable.mime,
         size: stable.size,
-        digest: await digestText(JSON.stringify(stable))
+        digest: await digestText(JSON.stringify({
+          kind: stable.kind,
+          name: stable.name,
+          mime: stable.mime,
+          size: stable.size,
+          source: stable.source
+        }))
       });
     }
     return result;
   }
 
-  async function plaintextObject(payload, accountId) {
+  function decodeAttachmentDataUrl(value) {
+    const source = String(value || "");
+    const comma = source.indexOf(",");
+    if (!source.startsWith("data:") || comma < 6) {
+      throw e2eeError("An attachment has no local binary payload.");
+    }
+    const header = source.slice(5, comma);
+    if (!/(?:^|;)base64$/i.test(header)) {
+      throw e2eeError("Only base64 attachment payloads can be encrypted.");
+    }
+    const declaredMime = String(header.split(";")[0] || "").slice(0, 120);
+    const dataMime = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(declaredMime)
+      ? declaredMime
+      : "application/octet-stream";
     return {
-      version: PROTOCOL_VERSION,
+      bytes: base64ToBytes(source.slice(comma + 1)),
+      dataMime
+    };
+  }
+
+  function attachmentAad({ chatId, messageId, index, metadata }) {
+    return `${ALGORITHM}|attachment|v1|${bytesToBase64Url(encoder.encode(JSON.stringify({
+      chatId,
+      messageId,
+      index,
+      id: metadata.id,
+      kind: metadata.kind,
+      name: metadata.name,
+      mime: metadata.mime,
+      dataMime: metadata.dataMime,
+      size: metadata.size,
+      byteLength: metadata.byteLength
+    })))}`;
+  }
+
+  async function encryptAttachmentPayloads(attachments, contentKey, { chatId, messageId }) {
+    const transport = [];
+    const manifest = [];
+    const sourceAttachments = (Array.isArray(attachments) ? attachments : []).slice(0, 8);
+    for (let index = 0; index < sourceAttachments.length; index += 1) {
+      const original = sourceAttachments[index];
+      if (String(original?.dataUrl || "").length > MAX_ATTACHMENT_DATA_URL_CHARS) {
+        throw e2eeError("The attachment is too large for encrypted transport.");
+      }
+      const stable = canonicalAttachment(original);
+      if (!stable.id) stable.id = randomId("attachment");
+      const decoded = decodeAttachmentDataUrl(stable.source);
+      const metadata = {
+        id: stable.id,
+        kind: stable.kind,
+        name: stable.name,
+        mime: stable.mime,
+        dataMime: decoded.dataMime,
+        size: stable.size,
+        byteLength: decoded.bytes.byteLength
+      };
+      const aad = attachmentAad({ chatId, messageId, index, metadata });
+      const iv = randomBytes(12);
+      const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv, additionalData: encoder.encode(aad) },
+        contentKey,
+        decoded.bytes
+      ));
+      const encryptedDataUrl = `data:${ENCRYPTED_ATTACHMENT_MIME};base64,${bytesToBase64(ciphertext)}`;
+      if (encryptedDataUrl.length > MAX_ATTACHMENT_DATA_URL_CHARS) {
+        throw e2eeError("The encrypted attachment exceeds the transport limit.");
+      }
+      transport.push({
+        id: stable.id,
+        name: "encrypted",
+        mime: ENCRYPTED_ATTACHMENT_MIME,
+        kind: "file",
+        size: ciphertext.byteLength,
+        dataUrl: encryptedDataUrl
+      });
+      manifest.push({
+        ...metadata,
+        digest: await digestBytes(decoded.bytes),
+        encryption: {
+          version: 1,
+          algorithm: "AES-GCM",
+          iv: bytesToBase64Url(iv),
+          aad
+        }
+      });
+    }
+    return { transport, manifest };
+  }
+
+  async function plaintextObject(payload, accountId, version, attachments) {
+    return {
+      version,
       messageId: String(payload.clientMessageId || ""),
       chatId: String(payload.chatId || ""),
       senderId: accountId,
@@ -582,7 +710,7 @@
       formattedHtml: sanitizeRichHtml(payload.formattedHtml || payload.formatted_html || ""),
       replyToMessageId: String(payload.replyToMessageId || ""),
       forwardedFrom: String(payload.forwardedFrom || "").slice(0, 160),
-      attachments: await attachmentManifest(payload.attachments)
+      attachments
     };
   }
 
@@ -677,8 +805,9 @@
     };
   }
 
-  function contentAad({ chatId, messageId, senderDeviceId, epochId }) {
-    return `${ALGORITHM}|content|v${PROTOCOL_VERSION}|${chatId}|${messageId}|${senderDeviceId}|${epochId || "shadow"}`;
+  function contentAad({ version, chatId, messageId, senderDeviceId, epochId, attachmentMode }) {
+    const base = `${ALGORITHM}|content|v${version}|${chatId}|${messageId}|${senderDeviceId}|${epochId || "shadow"}`;
+    return version >= 3 ? `${base}|attachments-${attachmentMode}` : base;
   }
 
   async function buildProtectedPayload(payload, record) {
@@ -705,13 +834,48 @@
       }
     }
 
-    const plaintext = await plaintextObject(payload, record.accountId);
+    const sourceAttachments = (Array.isArray(payload.attachments) ? payload.attachments : []).slice(0, 8);
+    const phase3BundlesReady = bundles.every((bundle) => (
+      Number(bundle?.protocolVersion || 0) >= 3
+      && Array.isArray(bundle?.capabilities)
+      && bundle.capabilities.includes("encrypted-attachments-v1")
+    ));
+    const encryptAttachments = (
+      mode === "encrypted"
+      && sourceAttachments.length > 0
+      && claimed.attachmentEncryptionReady === true
+      && phase3BundlesReady
+    );
+    const version = encryptAttachments ? 3 : 2;
+    const attachmentMode = encryptAttachments ? "encrypted" : "plaintext";
+    const contentKeyBytes = randomBytes(32);
+    const contentKey = await crypto.subtle.importKey(
+      "raw",
+      contentKeyBytes,
+      { name: "AES-GCM" },
+      false,
+      ["encrypt"]
+    );
+    const protectedAttachments = encryptAttachments
+      ? await encryptAttachmentPayloads(sourceAttachments, contentKey, { chatId, messageId })
+      : { transport: sourceAttachments, manifest: await attachmentManifest(sourceAttachments) };
+    const plaintext = await plaintextObject(
+      payload,
+      record.accountId,
+      version,
+      protectedAttachments.manifest
+    );
     const plaintextBytes = encoder.encode(JSON.stringify(plaintext));
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", plaintextBytes));
-    const contentKeyBytes = randomBytes(32);
-    const contentKey = await crypto.subtle.importKey("raw", contentKeyBytes, { name: "AES-GCM" }, false, ["encrypt"]);
     const iv = randomBytes(12);
-    const aad = contentAad({ chatId, messageId, senderDeviceId: record.deviceId, epochId });
+    const aad = contentAad({
+      version,
+      chatId,
+      messageId,
+      senderDeviceId: record.deviceId,
+      epochId,
+      attachmentMode
+    });
     const ciphertext = new Uint8Array(await crypto.subtle.encrypt(
       { name: "AES-GCM", iv, additionalData: encoder.encode(aad) },
       contentKey,
@@ -722,9 +886,11 @@
     for (const bundle of bundles) envelopes.push(await envelopeForBundle(record, bundle, contentKeyBytes, messageId));
     return {
       mode,
+      attachments: protectedAttachments.transport,
       e2ee: {
-        version: PROTOCOL_VERSION,
+        version,
         mode,
+        attachmentMode,
         epochId,
         messageId,
         chatId,
@@ -769,9 +935,10 @@
             formatted_html: "",
             replyToMessageId: null,
             forwardedFrom: "",
+            attachments: protectedPayload.attachments,
             e2ee: protectedPayload.e2ee
           }
-        : { ...payload, e2ee: protectedPayload.e2ee };
+        : { ...payload, attachments: protectedPayload.attachments, e2ee: protectedPayload.e2ee };
       publishStatus({ phase: protectedPayload.mode, lastError: "" });
       return { input, init: { ...init, headers, body: JSON.stringify(nextPayload) } };
     } catch (error) {
@@ -783,7 +950,12 @@
 
   function messageIdFromAad(value) {
     const parts = String(value || "").split("|");
-    return parts.length === 7 && parts[0] === ALGORITHM && parts[1] === "content" ? parts[4] : "";
+    if (parts[0] !== ALGORITHM || parts[1] !== "content") return "";
+    if (parts.length === 7 && /^v[12]$/.test(parts[2])) return parts[4];
+    if (parts.length === 8 && parts[2] === "v3" && parts[7] === "attachments-encrypted") return parts[4];
+    // Phase 1 used algorithm|content|chat|message|device.
+    if (parts.length === 5) return parts[3];
+    return "";
   }
 
   async function unwrapContentKey(record, e2ee, envelope) {
@@ -819,22 +991,136 @@
     ));
   }
 
-  async function verifyAttachmentManifest(actualAttachments, expectedManifest) {
+  async function verifyAttachmentManifest(actualAttachments, expectedManifest, e2eeVersion) {
     const actual = await attachmentManifest(actualAttachments);
     const expected = Array.isArray(expectedManifest) ? expectedManifest : [];
     if (actual.length !== expected.length) return false;
-    return actual.every((item, index) => (
-      item.kind === String(expected[index]?.kind || "")
-      && item.name === String(expected[index]?.name || "")
-      && item.mime === String(expected[index]?.mime || "")
-      && item.size === Number(expected[index]?.size || 0)
-      && item.digest === String(expected[index]?.digest || "")
-    ));
+    return actual.every((item, index) => {
+      const expectedItem = expected[index] || {};
+      const baseMatches = item.kind === String(expectedItem.kind || "")
+        && item.name === String(expectedItem.name || "")
+        && item.mime === String(expectedItem.mime || "")
+        && item.size === Number(expectedItem.size || 0);
+      // Phase 1 authenticated only the manifest fields. Phase 2 also binds
+      // the canonical server attachment to the encrypted digest.
+      return baseMatches && (Number(e2eeVersion) === 1 || item.digest === String(expectedItem.digest || ""));
+    });
+  }
+
+  async function decryptAttachmentPayloads(actualAttachments, expectedManifest, contentKey, context) {
+    const actual = Array.isArray(actualAttachments) ? actualAttachments : [];
+    const expected = Array.isArray(expectedManifest) ? expectedManifest : [];
+    if (actual.length !== expected.length || expected.length === 0) {
+      throw e2eeError("The encrypted attachment set is incomplete.");
+    }
+
+    const result = [];
+    const prefix = `data:${ENCRYPTED_ATTACHMENT_MIME};base64,`;
+    for (let index = 0; index < expected.length; index += 1) {
+      const transport = actual[index] || {};
+      const source = String(transport.dataUrl || "");
+      const encrypted = expected[index] || {};
+      const encryption = encrypted.encryption || {};
+      if (
+        String(transport.id || "") !== String(encrypted.id || "")
+        || String(transport.name || "") !== "encrypted"
+        || String(transport.mime || "") !== ENCRYPTED_ATTACHMENT_MIME
+        || String(transport.kind || "") !== "file"
+        || !source.startsWith(prefix)
+        || Number(encryption.version || 0) !== 1
+        || String(encryption.algorithm || "") !== "AES-GCM"
+      ) {
+        throw e2eeError("The encrypted attachment transport is invalid.");
+      }
+
+      const metadata = {
+        id: String(encrypted.id || "").slice(0, 80),
+        kind: ["image", "video", "file"].includes(String(encrypted.kind || ""))
+          ? String(encrypted.kind)
+          : "file",
+        name: String(encrypted.name || "file").slice(0, 180) || "file",
+        mime: /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(String(encrypted.mime || ""))
+          ? String(encrypted.mime).slice(0, 120)
+          : "application/octet-stream",
+        dataMime: /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(String(encrypted.dataMime || ""))
+          ? String(encrypted.dataMime).slice(0, 120)
+          : "application/octet-stream",
+        size: Math.max(0, Math.min(Number(encrypted.size) || 0, 9000000)),
+        byteLength: Math.max(0, Math.min(Number(encrypted.byteLength) || 0, 9000000))
+      };
+      const aad = attachmentAad({ ...context, index, metadata });
+      if (aad !== String(encryption.aad || "")) {
+        throw e2eeError("The encrypted attachment context was modified.");
+      }
+
+      const ciphertext = base64ToBytes(source.slice(prefix.length));
+      if (Number(transport.size || 0) !== ciphertext.byteLength) {
+        throw e2eeError("The encrypted attachment size was modified.");
+      }
+      const plaintext = new Uint8Array(await crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: base64UrlToBytes(encryption.iv),
+          additionalData: encoder.encode(aad)
+        },
+        contentKey,
+        ciphertext
+      ));
+      if (plaintext.byteLength !== metadata.byteLength || await digestBytes(plaintext) !== String(encrypted.digest || "")) {
+        throw e2eeError("The encrypted attachment failed its integrity check.");
+      }
+      result.push({
+        id: metadata.id,
+        kind: metadata.kind,
+        name: metadata.name,
+        mime: metadata.mime,
+        size: metadata.size,
+        dataUrl: `data:${metadata.dataMime};base64,${bytesToBase64(plaintext)}`,
+        encrypted: true,
+        e2eeEncrypted: true
+      });
+    }
+    return result;
+  }
+
+  function assertContentContext(message, e2ee) {
+    const version = Number(e2ee.version || 0);
+    const mode = String(e2ee.mode || "");
+    const attachmentMode = String(e2ee.attachmentMode || "plaintext");
+    if (!["shadow", "encrypted"].includes(mode)) {
+      throw e2eeError("The encrypted message mode is invalid.");
+    }
+    if (version === 1 && mode !== "shadow") {
+      throw e2eeError("Protocol version 1 is limited to shadow messages.");
+    }
+    if (version >= 3 && (mode !== "encrypted" || attachmentMode !== "encrypted")) {
+      throw e2eeError("The encrypted attachment mode was downgraded.");
+    }
+    if (version < 3 && attachmentMode !== "plaintext") {
+      throw e2eeError("The encrypted attachment mode does not match the protocol version.");
+    }
+
+    const chatId = String(message.chatId || "");
+    const messageId = String(message.id || "");
+    const senderDeviceId = String(e2ee.senderDeviceId || "");
+    const actual = String(e2ee.aad || "");
+    const expected = contentAad({
+      version,
+      chatId,
+      messageId,
+      senderDeviceId,
+      epochId: String(e2ee.epochId || ""),
+      attachmentMode
+    });
+    const legacyShadow = `${ALGORITHM}|content|${chatId}|${messageId}|${senderDeviceId}`;
+    if (actual !== expected && !(version === 1 && mode === "shadow" && actual === legacyShadow)) {
+      throw e2eeError("The encrypted message context was modified.");
+    }
   }
 
   async function decryptMessage(message, record) {
     const e2ee = message?.e2ee;
-    if (!e2ee || ![1, 2].includes(Number(e2ee.version)) || !Array.isArray(e2ee.envelopes)) return message;
+    if (!e2ee || ![1, 2, 3].includes(Number(e2ee.version)) || !Array.isArray(e2ee.envelopes)) return message;
     const envelope = e2ee.envelopes.find((item) => String(item?.deviceId || "") === record.deviceId);
     if (!envelope) {
       if (e2ee.mode === "encrypted") {
@@ -850,6 +1136,7 @@
     }
 
     try {
+      assertContentContext(message, e2ee);
       const contentKeyBytes = await unwrapContentKey(record, e2ee, envelope);
       const contentKey = await crypto.subtle.importKey("raw", contentKeyBytes, { name: "AES-GCM" }, false, ["decrypt"]);
       const plaintextBytes = new Uint8Array(await crypto.subtle.decrypt(
@@ -864,10 +1151,24 @@
       const digest = bytesToBase64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", plaintextBytes)));
       if (digest !== String(e2ee.plaintextDigest || "")) throw e2eeError("E2EE plaintext digest mismatch.");
       const plaintext = JSON.parse(decoder.decode(plaintextBytes));
-      if (String(plaintext.messageId || "") !== String(message.id || "") || String(plaintext.chatId || "") !== String(message.chatId || "")) {
+      if (
+        Number(plaintext.version || 0) !== Number(e2ee.version)
+        || String(plaintext.messageId || "") !== String(message.id || "")
+        || String(plaintext.chatId || "") !== String(message.chatId || "")
+        || String(plaintext.senderId || "") !== String(message.authorId || "")
+      ) {
         throw e2eeError("The decrypted message context is invalid.");
       }
-      if (!await verifyAttachmentManifest(message.attachments, plaintext.attachments)) {
+      const attachments = Number(e2ee.version) >= 3 && e2ee.attachmentMode === "encrypted"
+        ? await decryptAttachmentPayloads(message.attachments, plaintext.attachments, contentKey, {
+            chatId: String(message.chatId || ""),
+            messageId: String(message.id || "")
+          })
+        : message.attachments;
+      if (
+        Number(e2ee.version) < 3
+        && !await verifyAttachmentManifest(message.attachments, plaintext.attachments, e2ee.version)
+      ) {
         throw e2eeError("The message attachment metadata was modified.");
       }
 
@@ -884,6 +1185,7 @@
         result.formattedHtml = sanitizeRichHtml(plaintext.formattedHtml || "");
         result.replyToMessageId = String(plaintext.replyToMessageId || "") || null;
         result.forwardedFrom = String(plaintext.forwardedFrom || "");
+        result.attachments = attachments;
       }
       publishStatus({
         verifiedMessages: status.verifiedMessages + 1,
@@ -946,7 +1248,7 @@
       const decrypted = await decryptResponsePayload(payload);
       const headers = new Headers(response.headers);
       headers.delete("content-length");
-      headers.set("X-YaChat-E2EE-Runtime", "phase2");
+      headers.set("X-YaChat-E2EE-Runtime", "phase3");
       return new Response(JSON.stringify(decrypted), {
         status: response.status,
         statusText: response.statusText,
