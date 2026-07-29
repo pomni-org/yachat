@@ -12,6 +12,7 @@ SUPABASE_DATABASE_ENV = "SUPABASE_DB_URL"
 DATABASE_NOT_CONFIGURED_DETAIL = (
     "Supabase database is not configured. Set SUPABASE_DB_URL in Vercel."
 )
+SERVER_ONLY_POLICY = "yachat_server_only_deny_all"
 
 
 def database_url() -> str:
@@ -118,5 +119,31 @@ def secure_server_tables(cursor, table_names: tuple[str, ...]) -> None:
         table = sql.Identifier("public", table_name)
         cursor.execute(sql.SQL("alter table {} enable row level security").format(table))
         cursor.execute(
-            sql.SQL("revoke all privileges on table {} from anon, authenticated").format(table)
+            sql.SQL(
+                "revoke all privileges on table {} from public, anon, authenticated"
+            ).format(table)
+        )
+        cursor.execute(
+            """
+            select 1
+            from pg_policies
+            where schemaname = 'public'
+              and tablename = %s
+              and policyname = %s
+            """,
+            (table_name, SERVER_ONLY_POLICY),
+        )
+        if cursor.fetchone():
+            continue
+        cursor.execute(
+            sql.SQL(
+                """
+                create policy {} on {}
+                as restrictive
+                for all
+                to anon, authenticated
+                using (false)
+                with check (false)
+                """
+            ).format(sql.Identifier(SERVER_ONLY_POLICY), table)
         )
