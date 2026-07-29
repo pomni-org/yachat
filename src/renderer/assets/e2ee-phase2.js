@@ -2057,7 +2057,7 @@
     }
   }
 
-  async function decryptMessage(message, record) {
+  async function decryptMessage(message, record, options = {}) {
     const e2ee = message?.e2ee;
     if (!e2ee || ![1, 2, 3, 5].includes(Number(e2ee.version)) || !Array.isArray(e2ee.envelopes)) return message;
     const envelope = e2ee.envelopes.find((item) => String(item?.deviceId || "") === record.deviceId);
@@ -2103,10 +2103,19 @@
         throw e2eeError("The decrypted message context is invalid.");
       }
       const attachments = Number(e2ee.version) >= 3 && e2ee.attachmentMode === "encrypted"
-        ? await decryptAttachmentPayloads(message.attachments, plaintext.attachments, contentKey, {
-            chatId: String(message.chatId || ""),
-            messageId: String(message.id || "")
-          })
+        ? options.metadataOnlyAttachments
+          ? (Array.isArray(plaintext.attachments) ? plaintext.attachments : []).slice(0, 8).map((item, index) => ({
+              id: String(message.attachments?.[index]?.id || ""),
+              kind: String(item?.kind || "file"),
+              name: String(item?.name || "file"),
+              mime: String(item?.mime || "application/octet-stream"),
+              size: Math.max(0, Number(item?.size) || 0),
+              dataUrl: ""
+            }))
+          : await decryptAttachmentPayloads(message.attachments, plaintext.attachments, contentKey, {
+              chatId: String(message.chatId || ""),
+              messageId: String(message.id || "")
+            })
         : message.attachments;
       if (
         Number(e2ee.version) < 3
@@ -2152,14 +2161,14 @@
     }
   }
 
-  async function decryptResponsePayload(payload) {
+  async function decryptResponsePayload(payload, options = {}) {
     const record = await ensureInitialized();
     if (!record || !payload) return payload;
-    if (Array.isArray(payload)) return Promise.all(payload.map((item) => decryptMessage(item, record)));
+    if (Array.isArray(payload)) return Promise.all(payload.map((item) => decryptMessage(item, record, options)));
     if (typeof payload !== "object") return payload;
     const output = { ...payload };
-    if (output.message && typeof output.message === "object") output.message = await decryptMessage(output.message, record);
-    if (Array.isArray(output.messages)) output.messages = await Promise.all(output.messages.map((item) => decryptMessage(item, record)));
+    if (output.message && typeof output.message === "object") output.message = await decryptMessage(output.message, record, options);
+    if (Array.isArray(output.messages)) output.messages = await Promise.all(output.messages.map((item) => decryptMessage(item, record, options)));
     return output;
   }
 
@@ -2180,7 +2189,7 @@
   function shouldInspectResponse(meta, response) {
     return meta.sameOrigin
       && response?.ok
-      && ["/api/message", "/api/messages", "/api/bootstrap", "/api/messenger"].includes(meta.pathname)
+      && ["/api/message", "/api/messages", "/api/bootstrap", "/api/messenger", "/api/report/evidence"].includes(meta.pathname)
       && String(response.headers.get("content-type") || "").includes("application/json");
   }
 
@@ -2208,7 +2217,9 @@
     if (!shouldInspectResponse(meta, response)) return response;
     try {
       const payload = await response.clone().json();
-      const decrypted = await decryptResponsePayload(payload);
+      const decrypted = await decryptResponsePayload(payload, {
+        metadataOnlyAttachments: meta.pathname === "/api/report/evidence"
+      });
       const headers = new Headers(response.headers);
       headers.delete("content-length");
       headers.set("X-YaChat-E2EE-Runtime", "phase5");

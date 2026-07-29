@@ -13,6 +13,7 @@ from api.index import (
     configured_cors_origins,
     connect_db,
     ensure_saved_chat,
+    enforce_rate_limit,
     hash_secret,
     is_murochko_profile,
     message_payload,
@@ -39,6 +40,7 @@ from server.e2ee import (
     verify_ed25519,
 )
 from server.push_delivery import send_push_to_user
+from server.moderation import send_moderation_report
 
 app = FastAPI(title="YaChat message API", version="2.0.0")
 app.add_middleware(
@@ -164,6 +166,108 @@ def message_ids(payload: dict[str, Any]) -> list[str]:
     if not result:
         raise HTTPException(status_code=400, detail="Select a message first.")
     return result
+
+
+def report_person(row: dict[str, Any] | None) -> tuple[str, str]:
+    source = row or {}
+    return (
+        str(row_value(source, "display_name", "preview_name", "username")) or "Без имени",
+        str(row_value(source, "username")),
+    )
+
+
+def report_target_for_chat(cursor, chat_id: str, reporter_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    chat = require_chat_member(cursor, chat_id, reporter_id)
+    if str(row_value(chat, "kind")) != "private":
+        raise HTTPException(status_code=400, detail="Жалоба на переписку доступна только в личном чате.")
+    cursor.execute(
+        """
+        select u.*
+        from yachat_chat_members cm
+        join public_users u on u.id = cm.user_id
+        where cm.chat_id = %s and cm.user_id <> %s
+        order by cm.joined_at
+        limit 2
+        """,
+        (chat_id, reporter_id),
+    )
+    peers = [dict(row) for row in cursor.fetchall()]
+    if len(peers) != 1:
+        raise HTTPException(status_code=409, detail="Не удалось определить собеседника.")
+    return chat, peers[0]
+
+
+def report_attachment_summary(value: Any) -> list[dict[str, Any]]:
+    source = value if isinstance(value, list) else []
+    result: list[dict[str, Any]] = []
+    for item in source[:8]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            size = max(0, int(item.get("size") or 0))
+        except (TypeError, ValueError):
+            size = 0
+        result.append({
+            "id": str(item.get("id") or "")[:80],
+            "kind": str(item.get("kind") or "file")[:20],
+            "name": str(item.get("name") or "file")[:180],
+            "mime": str(item.get("mime") or "application/octet-stream")[:120],
+            "size": size,
+        })
+    return result
+
+
+def report_message_payload(row: dict[str, Any], current_user_id: str) -> dict[str, Any]:
+    payload = attach_e2ee_payload(message_payload(row, current_user_id), row)
+    payload["deletedAt"] = row_value(row, "deleted_at") or None
+    payload["attachments"] = [
+        {**item, "dataUrl": ""}
+        for item in report_attachment_summary(payload.get("attachments"))
+    ]
+    return payload
+
+
+def report_text(value: Any) -> str:
+    return str(value or "").replace("\x00", "").strip()[:4000]
+
+
+def report_evidence_line(row: dict[str, Any]) -> str:
+    sent_at = row_value(row, "sent_at")
+    sent_text = sent_at.isoformat() if hasattr(sent_at, "isoformat") else str(sent_at or "")
+    author_name = str(row_value(row, "author_display_name", "author_username")) or "Без имени"
+    username = str(row_value(row, "author_username"))
+    author = f"{author_name} (@{username})" if username else author_name
+    deleted = " [удалено пользователем]" if row_value(row, "deleted_at") else ""
+    text = str(row_value(row, "text")) or "Без текста"
+    attachments = row_value(row, "attachment_summary")
+    attachment_lines = []
+    if isinstance(attachments, list):
+        for item in attachments:
+            if isinstance(item, dict):
+                attachment_lines.append(
+                    f"[вложение: {item.get('name') or 'file'}; {item.get('mime') or 'application/octet-stream'}]"
+                )
+    suffix = f"\n{chr(10).join(attachment_lines)}" if attachment_lines else ""
+    return f"[{sent_text}] {author}{deleted}\n{text}{suffix}"
+
+
+def set_report_delivery(report_id: str, delivery: tuple[str, int] | None) -> None:
+    with connect_db() as connection:
+        with connection.cursor() as cursor:
+            if delivery:
+                cursor.execute(
+                    """
+                    update yachat_reports
+                    set status = 'pending', telegram_chat_id = %s, telegram_message_id = %s
+                    where id = %s
+                    """,
+                    (delivery[0], delivery[1], report_id),
+                )
+            else:
+                cursor.execute(
+                    "update yachat_reports set status = 'delivery_failed' where id = %s",
+                    (report_id,),
+                )
 
 
 def device_capabilities(value: Any) -> list[str]:
@@ -1363,6 +1467,373 @@ async def send_message(request: Request, background_tasks: BackgroundTasks):
     }
 
 
+@app.post("/api/report/message")
+async def report_message(request: Request):
+    enforce_rate_limit(request, "report-message", 8, 3600)
+    user = require_user(request)
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
+    message_id = str(payload.get("messageId") or "").strip()
+    if not message_id:
+        raise HTTPException(status_code=400, detail="Выберите сообщение.")
+    user_id = str(user["id"])
+    report_id = str(uuid.uuid4())
+
+    with connect_db() as connection:
+        with connection.transaction():
+            with connection.cursor(row_factory=dict_row) as cursor:
+                require_chat_member(cursor, chat_id, user_id)
+                cursor.execute(
+                    """
+                    select m.*, u.username as author_username,
+                           coalesce(u.display_name, u.preview_name, u.username, 'Без имени') as author_display_name
+                    from yachat_messages m
+                    left join public_users u on u.id = m.sender_id
+                    where m.chat_id = %s and m.id = %s
+                    limit 1
+                    """,
+                    (chat_id, message_id),
+                )
+                message = cursor.fetchone()
+                if not message:
+                    raise HTTPException(status_code=404, detail="Сообщение не найдено.")
+                target_id = str(row_value(message, "sender_id"))
+                if not target_id or target_id == user_id:
+                    raise HTTPException(status_code=400, detail="Нельзя пожаловаться на своё сообщение.")
+
+                encrypted = str(row_value(message, "e2ee_mode")) == "encrypted"
+                if encrypted and payload.get("e2eeVerified") is not True:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Защищённое сообщение не удалось проверить перед отправкой жалобы.",
+                    )
+                evidence_text = (
+                    report_text(payload.get("text"))
+                    if encrypted
+                    else report_text(row_value(message, "text"))
+                )
+                attachments = (
+                    report_attachment_summary(payload.get("attachments"))
+                    if encrypted
+                    else report_attachment_summary(row_value(message, "attachments"))
+                )
+                reporter_name, reporter_username = report_person(user)
+                target_name = str(row_value(message, "author_display_name")) or "Без имени"
+                target_username = str(row_value(message, "author_username"))
+                cursor.execute(
+                    """
+                    insert into yachat_reports(
+                        id, kind, status, reporter_user_id, reported_user_id,
+                        chat_id, message_id, reporter_display_name, reporter_username,
+                        reported_display_name, reported_username, evidence_cutoff,
+                        expected_message_count
+                    )
+                    values (
+                        %s, 'message', 'collecting', %s, %s, %s, %s, %s, %s,
+                        %s, %s, now(), 1
+                    )
+                    returning *
+                    """,
+                    (
+                        report_id,
+                        user_id,
+                        target_id,
+                        chat_id,
+                        message_id,
+                        reporter_name,
+                        reporter_username,
+                        target_name,
+                        target_username,
+                    ),
+                )
+                report = dict(cursor.fetchone())
+                cursor.execute(
+                    """
+                    insert into yachat_report_evidence(
+                        report_id, message_id, author_user_id, author_display_name,
+                        author_username, sent_at, deleted_at, text,
+                        attachment_summary, e2ee_verified
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                    returning *
+                    """,
+                    (
+                        report_id,
+                        message_id,
+                        target_id,
+                        target_name,
+                        target_username,
+                        row_value(message, "created_at"),
+                        row_value(message, "deleted_at") or None,
+                        evidence_text,
+                        json.dumps(attachments, ensure_ascii=False),
+                        bool(payload.get("e2eeVerified")) if encrypted else True,
+                    ),
+                )
+                evidence = dict(cursor.fetchone())
+
+    transcript = report_evidence_line(evidence)
+    delivery = await asyncio.to_thread(send_moderation_report, report, transcript)
+    set_report_delivery(report_id, delivery)
+    if not delivery:
+        raise HTTPException(status_code=502, detail="Не удалось отправить жалобу модератору.")
+    return {"ok": True, "reportId": report_id}
+
+
+@app.post("/api/report/chat/start")
+async def start_chat_report(request: Request):
+    enforce_rate_limit(request, "report-chat", 4, 3600)
+    user = require_user(request)
+    payload = await read_json_payload(request)
+    chat_id = clean_chat_id(payload.get("chatId"))
+    user_id = str(user["id"])
+    report_id = str(uuid.uuid4())
+
+    with connect_db() as connection:
+        with connection.transaction():
+            with connection.cursor(row_factory=dict_row) as cursor:
+                _, target = report_target_for_chat(cursor, chat_id, user_id)
+                reporter_name, reporter_username = report_person(user)
+                target_name, target_username = report_person(target)
+                cursor.execute(
+                    """
+                    with cutoff as (select now() as value)
+                    insert into yachat_reports(
+                        id, kind, status, reporter_user_id, reported_user_id,
+                        chat_id, reporter_display_name, reporter_username,
+                        reported_display_name, reported_username, evidence_cutoff,
+                        expected_message_count
+                    )
+                    select
+                        %s, 'chat', 'collecting', %s, %s, %s, %s, %s, %s, %s,
+                        cutoff.value,
+                        (
+                            select count(*)
+                            from yachat_messages m
+                            where m.chat_id = %s and m.created_at <= cutoff.value
+                        )
+                    from cutoff
+                    returning id, expected_message_count
+                    """,
+                    (
+                        report_id,
+                        user_id,
+                        str(target["id"]),
+                        chat_id,
+                        reporter_name,
+                        reporter_username,
+                        target_name,
+                        target_username,
+                        chat_id,
+                    ),
+                )
+                report = cursor.fetchone()
+    return {
+        "ok": True,
+        "reportId": report_id,
+        "messageCount": int(row_value(report, "expected_message_count") or 0),
+    }
+
+
+@app.post("/api/report/evidence")
+async def report_evidence(request: Request):
+    user = require_user(request)
+    payload = await read_json_payload(request)
+    report_id = str(payload.get("reportId") or "").strip()
+    try:
+        offset = max(0, int(payload.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    if not report_id:
+        raise HTTPException(status_code=400, detail="Жалоба не найдена.")
+    user_id = str(user["id"])
+    page_size = 100
+
+    with connect_db() as connection:
+        with connection.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(
+                """
+                select *
+                from yachat_reports
+                where id = %s and reporter_user_id = %s
+                  and kind = 'chat' and status = 'collecting'
+                limit 1
+                """,
+                (report_id, user_id),
+            )
+            report = cursor.fetchone()
+            if not report:
+                raise HTTPException(status_code=404, detail="Жалоба не найдена или уже отправлена.")
+            require_chat_member(cursor, str(report["chat_id"]), user_id)
+            cursor.execute(
+                """
+                select m.*
+                from yachat_messages m
+                where m.chat_id = %s and m.created_at <= %s
+                order by m.created_at, m.id
+                offset %s limit %s
+                """,
+                (str(report["chat_id"]), report["evidence_cutoff"], offset, page_size),
+            )
+            messages = [
+                report_message_payload(dict(row), user_id)
+                for row in cursor.fetchall()
+            ]
+    next_offset = offset + len(messages)
+    expected = int(row_value(report, "expected_message_count") or 0)
+    return {
+        "ok": True,
+        "reportId": report_id,
+        "messages": messages,
+        "nextOffset": next_offset if next_offset < expected else None,
+        "messageCount": expected,
+    }
+
+
+@app.post("/api/report/evidence/append")
+async def append_report_evidence(request: Request):
+    user = require_user(request)
+    payload = await read_json_payload(request)
+    report_id = str(payload.get("reportId") or "").strip()
+    raw_entries = payload.get("messages")
+    entries = raw_entries if isinstance(raw_entries, list) else []
+    if not report_id or not entries or len(entries) > 100:
+        raise HTTPException(status_code=400, detail="Некорректная порция переписки.")
+    user_id = str(user["id"])
+    ids = [str(item.get("id") or "") for item in entries if isinstance(item, dict)]
+    if len(ids) != len(entries) or len(set(ids)) != len(ids) or any(not item for item in ids):
+        raise HTTPException(status_code=400, detail="Некорректные сообщения в жалобе.")
+
+    with connect_db() as connection:
+        with connection.transaction():
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    select *
+                    from yachat_reports
+                    where id = %s and reporter_user_id = %s
+                      and kind = 'chat' and status = 'collecting'
+                    for update
+                    """,
+                    (report_id, user_id),
+                )
+                report = cursor.fetchone()
+                if not report:
+                    raise HTTPException(status_code=404, detail="Жалоба не найдена или уже отправлена.")
+                require_chat_member(cursor, str(report["chat_id"]), user_id)
+                cursor.execute(
+                    """
+                    select m.*, u.username as author_username,
+                           coalesce(u.display_name, u.preview_name, u.username, 'Удалённый аккаунт') as author_display_name
+                    from yachat_messages m
+                    left join public_users u on u.id = m.sender_id
+                    where m.chat_id = %s and m.created_at <= %s and m.id::text = any(%s)
+                    """,
+                    (str(report["chat_id"]), report["evidence_cutoff"], ids),
+                )
+                actual = {str(row["id"]): dict(row) for row in cursor.fetchall()}
+                if len(actual) != len(ids):
+                    raise HTTPException(status_code=409, detail="Состав переписки изменился.")
+
+                for item in entries:
+                    message_id = str(item["id"])
+                    row = actual[message_id]
+                    encrypted = str(row_value(row, "e2ee_mode")) == "encrypted"
+                    if encrypted and item.get("e2eeVerified") is not True:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Не удалось проверить одно из защищённых сообщений.",
+                        )
+                    text = (
+                        report_text(item.get("text"))
+                        if encrypted
+                        else report_text(row_value(row, "text"))
+                    )
+                    attachments = (
+                        report_attachment_summary(item.get("attachments"))
+                        if encrypted
+                        else report_attachment_summary(row_value(row, "attachments"))
+                    )
+                    cursor.execute(
+                        """
+                        insert into yachat_report_evidence(
+                            report_id, message_id, author_user_id, author_display_name,
+                            author_username, sent_at, deleted_at, text,
+                            attachment_summary, e2ee_verified
+                        )
+                        values (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                        on conflict(report_id, message_id) do update
+                        set text = excluded.text,
+                            attachment_summary = excluded.attachment_summary,
+                            e2ee_verified = excluded.e2ee_verified
+                        """,
+                        (
+                            report_id,
+                            message_id,
+                            str(row_value(row, "sender_id")),
+                            str(row_value(row, "author_display_name")) or "Удалённый аккаунт",
+                            str(row_value(row, "author_username")),
+                            row_value(row, "created_at"),
+                            row_value(row, "deleted_at") or None,
+                            text,
+                            json.dumps(attachments, ensure_ascii=False),
+                            bool(item.get("e2eeVerified")) if encrypted else True,
+                        ),
+                    )
+    return {"ok": True, "accepted": len(entries)}
+
+
+@app.post("/api/report/chat/complete")
+async def complete_chat_report(request: Request):
+    user = require_user(request)
+    payload = await read_json_payload(request)
+    report_id = str(payload.get("reportId") or "").strip()
+    user_id = str(user["id"])
+
+    with connect_db() as connection:
+        with connection.transaction():
+            with connection.cursor(row_factory=dict_row) as cursor:
+                cursor.execute(
+                    """
+                    select *
+                    from yachat_reports
+                    where id = %s and reporter_user_id = %s
+                      and kind = 'chat' and status = 'collecting'
+                    for update
+                    """,
+                    (report_id, user_id),
+                )
+                report_row = cursor.fetchone()
+                if not report_row:
+                    raise HTTPException(status_code=404, detail="Жалоба не найдена или уже отправлена.")
+                report = dict(report_row)
+                cursor.execute(
+                    """
+                    select *
+                    from yachat_report_evidence
+                    where report_id = %s
+                    order by sent_at, message_id
+                    """,
+                    (report_id,),
+                )
+                evidence = [dict(row) for row in cursor.fetchall()]
+                expected = int(row_value(report, "expected_message_count") or 0)
+                if len(evidence) != expected:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Передана не вся переписка: {len(evidence)} из {expected}.",
+                    )
+
+    transcript = "\n\n".join(report_evidence_line(row) for row in evidence) or "Переписка пуста."
+    if len(transcript.encode("utf-8")) > 45_000_000:
+        raise HTTPException(status_code=413, detail="Переписка слишком большая для отправки в Telegram.")
+    delivery = await asyncio.to_thread(send_moderation_report, report, transcript)
+    set_report_delivery(report_id, delivery)
+    if not delivery:
+        raise HTTPException(status_code=502, detail="Не удалось отправить жалобу модератору.")
+    return {"ok": True, "reportId": report_id, "messageCount": len(evidence)}
+
+
 @app.post("/api/message/delete")
 async def delete_message(request: Request):
     user = require_user(request)
@@ -1378,7 +1849,6 @@ async def delete_message(request: Request):
     if requested_chat_id.startswith("yachat-") and requested_chat_id != "yachat-favorites":
         raise HTTPException(status_code=403, detail="This message cannot be deleted.")
 
-    physically_deleted: list[str] = []
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
             chat_id = resolve_message_chat_id(cursor, requested_chat_id, user_id)
@@ -1402,20 +1872,15 @@ async def delete_message(request: Request):
                 if any(str(row_value(rows_by_id[message_id], "sender_id")) != user_id for message_id in ids):
                     raise HTTPException(status_code=403, detail="You can delete only your own messages for everyone.")
                 cursor.execute(
-                    "update yachat_messages set reply_to_message_id = null where reply_to_message_id = any(%s)",
-                    (ids,),
-                )
-                cursor.execute(
                     """
-                    delete from yachat_messages
+                    update yachat_messages
+                    set deleted_at = now()
                     where chat_id = %s
                       and sender_id = %s
                       and id::text = any(%s)
-                    returning id
                     """,
                     (chat_id, user_id, ids),
                 )
-                physically_deleted = [str(row["id"]) for row in cursor.fetchall()]
             else:
                 cursor.execute(
                     """
@@ -1428,40 +1893,11 @@ async def delete_message(request: Request):
                     """,
                     (user_id, chat_id, ids),
                 )
-                cursor.execute(
-                    """
-                    select m.id
-                    from yachat_messages m
-                    where m.chat_id = %s
-                      and m.id::text = any(%s)
-                      and (
-                          select count(*)
-                          from yachat_message_hidden h
-                          where h.message_id = m.id
-                      ) >= (
-                          select count(*)
-                          from yachat_chat_members cm
-                          where cm.chat_id = m.chat_id
-                      )
-                    """,
-                    (chat_id, ids),
-                )
-                garbage_ids = [str(row["id"]) for row in cursor.fetchall()]
-                if garbage_ids:
-                    cursor.execute(
-                        "update yachat_messages set reply_to_message_id = null where reply_to_message_id = any(%s)",
-                        (garbage_ids,),
-                    )
-                    cursor.execute(
-                        "delete from yachat_messages where id::text = any(%s) returning id",
-                        (garbage_ids,),
-                    )
-                    physically_deleted = [str(row["id"]) for row in cursor.fetchall()]
-
     return {
         "ok": True,
         "chatId": requested_chat_id,
         "deletedIds": ids,
-        "physicallyDeletedIds": physically_deleted,
+        "physicallyDeletedIds": [],
+        "purgeAfterDays": 30,
         "scope": scope,
     }

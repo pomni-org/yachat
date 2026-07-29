@@ -118,7 +118,7 @@ class MessagePerformanceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(connection.transaction_entries, 1)
         self.assertTrue(any("with touched_chat as" in query for query in cursor.queries))
 
-    async def test_delete_for_everyone_physically_deletes_rows(self):
+    async def test_delete_for_everyone_retains_rows_for_thirty_days(self):
         cursor = FakeCursor("delete-everyone")
         payload = {"chatId": "chat-1", "messageIds": ["m1"], "scope": "everyone"}
         with (
@@ -131,13 +131,14 @@ class MessagePerformanceTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await message_api.delete_message(object())
 
-        self.assertEqual(result["physicallyDeletedIds"], ["m1"])
-        self.assertTrue(any(query.startswith("delete from yachat_messages") for query in cursor.queries))
-        self.assertFalse(any("set deleted_at" in query for query in cursor.queries))
+        self.assertEqual(result["physicallyDeletedIds"], [])
+        self.assertEqual(result["purgeAfterDays"], 30)
+        self.assertFalse(any(query.startswith("delete from yachat_messages") for query in cursor.queries))
+        self.assertTrue(any("set deleted_at = now()" in query for query in cursor.queries))
         self.assertNotIn("chats", result)
         self.assertNotIn("messages", result)
 
-    async def test_delete_for_self_collects_message_after_every_member_hides_it(self):
+    async def test_delete_for_self_retains_hidden_message_for_thirty_days(self):
         cursor = FakeCursor("delete-self")
         payload = {"chatId": "chat-1", "messageIds": ["m1"], "scope": "self"}
         with (
@@ -150,9 +151,10 @@ class MessagePerformanceTests(unittest.IsolatedAsyncioTestCase):
         ):
             result = await message_api.delete_message(object())
 
-        self.assertEqual(result["physicallyDeletedIds"], ["m1"])
+        self.assertEqual(result["physicallyDeletedIds"], [])
+        self.assertEqual(result["purgeAfterDays"], 30)
         self.assertTrue(any("insert into yachat_message_hidden" in query for query in cursor.queries))
-        self.assertTrue(any(query.startswith("delete from yachat_messages") for query in cursor.queries))
+        self.assertFalse(any(query.startswith("delete from yachat_messages") for query in cursor.queries))
 
 
 if __name__ == "__main__":
