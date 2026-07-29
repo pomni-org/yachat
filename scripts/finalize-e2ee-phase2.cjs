@@ -109,7 +109,7 @@ async function patchBrowserRuntime() {
     'createObjectStore("pushPreviewTrust"',
     'createObjectStore("messageKeys"',
     'const ENCRYPTED_ATTACHMENT_MIME = "application/vnd.yachat.e2ee";',
-    'const MAX_ATTACHMENT_DATA_URL_CHARS = 9000000;',
+    'const MAX_ATTACHMENT_DATA_URL_CHARS = 11300000;',
     'privateVault: await encryptPrivateVault(value)',
     'if (key.extractable !== false)',
     'rolloutPhase === "encrypted"',

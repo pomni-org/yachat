@@ -348,6 +348,9 @@
       const encoded = !documentMode && mime.startsWith("image/")
         ? await encodePhotoWithoutBlocking(file)
         : { dataUrl: await readFileAsDataUrl(file), spoiled: false };
+      if (encoded.dataUrl.length > ATTACHMENT_DATA_URL_LIMIT_CHARS) {
+        throw new Error(t("attachLimit"));
+      }
       const current = state.pendingAttachments.find((candidate) => candidate.id === item.id);
       if (!current) return;
 

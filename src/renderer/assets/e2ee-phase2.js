@@ -29,7 +29,7 @@
     "encrypted-digital-id-v1"
   ];
   const ENCRYPTED_ATTACHMENT_MIME = "application/vnd.yachat.e2ee";
-  const MAX_ATTACHMENT_DATA_URL_CHARS = 9000000;
+  const MAX_ATTACHMENT_DATA_URL_CHARS = 11300000;
   const AUTH_TOKEN_KEY = "yachat-http-auth-token";
   const DEVICE_ID_KEY_PREFIX = "yachat-e2ee-device-id-v1:";
   const VAULT_SECRET_KEY_PREFIX = "yachat-e2ee-vault-secret-v1:";
@@ -1094,13 +1094,13 @@
     if (!["image", "video", "file"].includes(kind)) {
       kind = mime.startsWith("image/") ? "image" : mime.startsWith("video/") ? "video" : "file";
     }
-    const rawSource = String(item?.dataUrl || "").slice(0, 9000000);
+    const rawSource = String(item?.dataUrl || "").slice(0, MAX_ATTACHMENT_DATA_URL_CHARS);
     return {
       id: String(item?.id || "").slice(0, 80),
       kind,
       name: String(item?.name || "file").slice(0, 180) || "file",
       mime,
-      size: Math.max(0, Math.min(Number(item?.size) || 0, 9000000)),
+      size: Math.max(0, Math.min(Number(item?.size) || 0, MAX_ATTACHMENT_DATA_URL_CHARS)),
       source: rawSource.startsWith("data:") ? rawSource : ""
     };
   }
@@ -1981,8 +1981,8 @@
         dataMime: /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(String(encrypted.dataMime || ""))
           ? String(encrypted.dataMime).slice(0, 120)
           : "application/octet-stream",
-        size: Math.max(0, Math.min(Number(encrypted.size) || 0, 9000000)),
-        byteLength: Math.max(0, Math.min(Number(encrypted.byteLength) || 0, 9000000))
+        size: Math.max(0, Math.min(Number(encrypted.size) || 0, MAX_ATTACHMENT_DATA_URL_CHARS)),
+        byteLength: Math.max(0, Math.min(Number(encrypted.byteLength) || 0, MAX_ATTACHMENT_DATA_URL_CHARS))
       };
       const aad = attachmentAad({ ...context, index, metadata });
       if (aad !== String(encryption.aad || "")) {

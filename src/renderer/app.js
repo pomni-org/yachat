@@ -20,6 +20,7 @@ const PROTECTED_HISTORY_CHAT_IDS = new Set(["yachat-codes"]);
 const TELEGRAM_BOT_URL = "https://t.me/code_yachatBot";
 const PHOTO_RULE_LIMIT_BYTES = 20 * 1024 * 1024 * 1024;
 const DOCUMENT_TRANSPORT_LIMIT_BYTES = 8 * 1024 * 1024;
+const ATTACHMENT_DATA_URL_LIMIT_CHARS = 11_300_000;
 const PHOTO_OUTPUT_MAX_SIDE = 2048;
 const systemThemeQuery = window.matchMedia?.("(prefers-color-scheme: dark)") || null;
 let actionFeedbackTimer = null;
@@ -607,7 +608,6 @@ const translations = {
     deleteGroupConfirm: "Удалить эту группу для всех участников?",
     groupOwner: "Вы владелец группы",
     ownerOnly: "Редактировать группу может только владелец.",
-    privateManagedByProfiles: "Название личного чата берётся из профиля собеседника.",
     invitePeople: "Пригласить людей",
     inviteCode: "Код приглашения",
     copyInvite: "Скопировать приглашение",
@@ -636,7 +636,7 @@ const translations = {
     chatProfileQrTitle: "QR профиля",
     chatProfileMoreEmpty: "Дополнительных действий пока нет.",
     chatProfileAttachmentsEmpty: "В этом чате пока нет вложений.",
-    attachLimit: "Этот файл пока нельзя отправить через сервер ЯЧата. Лимит документа — 8 МБ.",
+    attachLimit: "Максимальный размер видео или файла — 8 МБ.",
     attachmentPhoto: "Фото",
     attachmentVideo: "Видео",
     attachmentDocument: "Документ без потерь",
@@ -706,9 +706,7 @@ const translations = {
     feedbackForwardFailed: "Не удалось переслать сообщение",
     feedbackMarkUnreadFailed: "Не удалось отметить чат непрочитанным",
     reportUser: "Пожаловаться",
-    reportUserHint: "Модератор получит всю переписку, включая удалённые сообщения.",
     reportMessageConfirm: "Отправить жалобу на это сообщение?",
-    reportChatConfirm: "Отправить модератору всю переписку с {name}, включая удалённые сообщения?",
     reportReasonTitle: "Причина жалобы",
     reportReasonMessageHint: "Коротко объясните, что нарушено в этом сообщении.",
     reportReasonChatHint: "Коротко объясните, что нарушено в переписке с {name}.",
@@ -973,7 +971,6 @@ const translations = {
     deleteGroupConfirm: "Delete this group for all members?",
     groupOwner: "You own this group",
     ownerOnly: "Only the group owner can edit it.",
-    privateManagedByProfiles: "The private chat name comes from the other person's profile.",
     invitePeople: "Invite people",
     inviteCode: "Invite code",
     copyInvite: "Copy invite",
@@ -1002,7 +999,7 @@ const translations = {
     chatProfileQrTitle: "Profile QR",
     chatProfileMoreEmpty: "No extra actions yet.",
     chatProfileAttachmentsEmpty: "This chat has no attachments yet.",
-    attachLimit: "This file cannot yet pass through the YaChat server. Document limit is 8 MB.",
+    attachLimit: "The maximum video or file size is 8 MB.",
     attachmentPhoto: "Photo",
     attachmentVideo: "Video",
     attachmentDocument: "Lossless document",
@@ -1072,9 +1069,7 @@ const translations = {
     feedbackForwardFailed: "Could not forward the message",
     feedbackMarkUnreadFailed: "Could not mark the chat unread",
     reportUser: "Report",
-    reportUserHint: "A moderator will receive the full conversation, including deleted messages.",
     reportMessageConfirm: "Report this message?",
-    reportChatConfirm: "Send the full conversation with {name}, including deleted messages, to a moderator?",
     reportReasonTitle: "Reason for report",
     reportReasonMessageHint: "Briefly explain what this message violates.",
     reportReasonChatHint: "Briefly explain what the conversation with {name} violates.",
@@ -3272,6 +3267,7 @@ async function readAttachmentFile(file, mode = "media") {
   const encoded = !documentMode && mime.startsWith("image/")
     ? await encodePhotoAttachment(file)
     : { dataUrl: await readFileAsDataUrl(file), spoiled: false };
+  if (encoded.dataUrl.length > ATTACHMENT_DATA_URL_LIMIT_CHARS) throw new Error(t("attachLimit"));
   return {
     id: globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `att-${Date.now()}-${Math.random()}`,
     name: file.name || "file", mime, size: file.size, originalSize: file.size,
@@ -5030,7 +5026,6 @@ function renderPanel() {
     const chat = getActiveChat();
     const canEdit = canEditActiveChat(chat);
     const ownsGroup = canOwnActiveGroup(chat);
-    const privateProfileManaged = chat?.kind === "private";
     const invite = chat?.inviteUrl || chat?.inviteCode || "";
     const displayChat = chat
       ? {
@@ -5102,7 +5097,6 @@ function renderPanel() {
     const reportSection = chat.kind === "private" && !chat.pendingSearchUserId && !chat.deletedAccount ? `
       <section class="panel-section">
         <h3>${t("reportUser")}</h3>
-        <p>${t("reportUserHint")}</p>
         <button class="panel-primary is-danger" type="button" data-panel-action="report-user">
           ${iconSvg("flag", "button-icon")}<span>${t("reportUser")}</span>
         </button>
@@ -5112,7 +5106,7 @@ function renderPanel() {
     const leaveSection = chat.locked ? "" : `
       <section class="panel-section">
         <h3>${t("leaveChat")}</h3>
-        <p>${privateProfileManaged ? t("privateManagedByProfiles") : getChatTitle(chat)}</p>
+        <p>${getChatTitle(chat)}</p>
         <button class="panel-primary is-danger" type="button" data-panel-action="leave-chat">${iconSvg("log-out", "button-icon")}<span>${t("leaveChat")}</span></button>
       </section>
     `;

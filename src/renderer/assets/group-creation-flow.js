@@ -234,7 +234,7 @@
       </main>
       <footer class="group-flow-footer">
         <p class="group-flow-message" data-message="create-chat"></p>
-        <button class="group-flow-primary" type="submit" ${flow.creating ? "disabled" : ""}>
+        <button class="group-flow-primary" type="submit" data-group-primary ${flow.creating ? "disabled" : ""}>
           <span>${escape(count ? tr("continue") : tr("emptyGroup"))}</span>
           ${count ? `<b class="group-flow-count">${count}</b>` : ""}
         </button>
@@ -255,7 +255,7 @@
       </main>
       <footer class="group-flow-footer">
         <p class="group-flow-message" data-message="create-chat"></p>
-        <button class="group-flow-primary" type="submit" ${!flow.title.trim() || flow.creating ? "disabled" : ""}>
+        <button class="group-flow-primary" type="submit" data-group-primary ${!flow.title.trim() || flow.creating ? "disabled" : ""}>
           <span>${escape(tr("createGroup"))}</span>
         </button>
       </footer>
@@ -407,6 +407,17 @@
     }
   }
 
+  function advanceFlow() {
+    if (flow.creating) return;
+    if (flow.step === "participants") {
+      flow.step = "details";
+      render();
+      requestAnimationFrame(() => createChatForm.querySelector("[data-group-title]")?.focus());
+      return;
+    }
+    void createGroup();
+  }
+
   function prepare() {
     if (flow.ready) return;
     flow.ready = true;
@@ -417,13 +428,7 @@
     createChatForm.addEventListener("submit", (event) => {
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (flow.step === "participants") {
-        flow.step = "details";
-        render();
-        requestAnimationFrame(() => createChatForm.querySelector("[data-group-title]")?.focus());
-        return;
-      }
-      void createGroup();
+      advanceFlow();
     }, true);
 
     createChatForm.addEventListener("input", (event) => {
@@ -447,6 +452,14 @@
     }, true);
 
     createChatForm.addEventListener("click", (event) => {
+      const primary = event.target.closest("[data-group-primary]");
+      if (primary && !primary.disabled) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        advanceFlow();
+        return;
+      }
+
       const back = event.target.closest("[data-group-back]");
       if (back) {
         event.preventDefault();
