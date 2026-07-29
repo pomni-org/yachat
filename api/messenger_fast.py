@@ -9,6 +9,8 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 
+from server.e2ee import attach_e2ee_payload
+
 from api.index import (
     clean_chat_id,
     configured_cors_origins,
@@ -108,7 +110,8 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                 select
                     c.id, c.kind, c.title, c.description, c.avatar_url,
                     c.avatar_accent, c.owner_id, c.locked, c.verified,
-                    c.pinned, c.can_send, c.invite_code, c.created_at, c.updated_at
+                    c.pinned, c.can_send, c.invite_code, c.created_at, c.updated_at,
+                    c.e2ee_policy, c.e2ee_epoch_id, c.e2ee_enabled_at
                 from yachat_chats c
                 join yachat_chat_members cm on cm.chat_id = c.id
                 where cm.user_id = %s
@@ -156,6 +159,7 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                 select distinct on (m.chat_id)
                     m.chat_id,
                     m.text,
+                    m.e2ee_mode,
                     m.created_at,
                     coalesce(m.attachments -> 0 ->> 'kind', '') as attachment_kind
                 from yachat_messages m
@@ -271,6 +275,9 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                         "title": title or "ЯЧат",
                         "subtitle": subtitle,
                         "description": str(row_value(chat, "description")),
+                        "e2eePolicy": str(row_value(chat, "e2ee_policy")) or "legacy",
+                        "e2eeEpochId": str(row_value(chat, "e2ee_epoch_id")),
+                        "e2eeEnabledAt": row_value(chat, "e2ee_enabled_at") or None,
                         "participantIds": [str(row_value(member, "id")) for member in members],
                         "participantProfiles": profiles,
                         "ownerId": str(row_value(chat, "owner_id")),
@@ -295,8 +302,13 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                         "inviteCode": str(row_value(chat, "invite_code")),
                         "createdAt": row_value(chat, "created_at"),
                         "lastAt": row_value(last, "created_at") or row_value(chat, "updated_at") or row_value(chat, "created_at"),
-                        "lastMessage": str(row_value(last, "text"))
-                        or _attachment_label(str(row_value(last, "attachment_kind"))),
+                        "lastMessage": (
+                            _attachment_label(str(row_value(last, "attachment_kind")))
+                            or "Защищённое сообщение"
+                            if str(row_value(last, "e2ee_mode")) == "encrypted"
+                            else str(row_value(last, "text"))
+                            or _attachment_label(str(row_value(last, "attachment_kind")))
+                        ),
                         "unread": unread_by_chat.get(chat_id, 0),
                     }
                 )
@@ -399,7 +411,7 @@ def get_messages_fast(
                 (actual_chat_id, user_id),
             )
             recipient_read_times = [row["last_read_at"] for row in cursor.fetchall()]
-            return [message_payload(row, user_id, recipient_read_times) for row in rows]
+            return [attach_e2ee_payload(message_payload(row, user_id, recipient_read_times), row) for row in rows]
 
 
 def _snapshot(

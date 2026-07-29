@@ -119,6 +119,23 @@
   }
 
   function installIosPickerFix() {
+    const mediaAccept = [
+      "image/*",
+      "video/*",
+      ".heic",
+      ".heif",
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".gif",
+      ".webp",
+      ".mp4",
+      ".mov",
+      ".m4v",
+      ".webm"
+    ].join(",");
+    const isIosWebKit = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     const pickerForButton = (button) => button?.matches?.('[data-action="attach-file"]')
       ? document.querySelector("[data-attachment-input]")
       : button?.matches?.('[data-action="attach-document"]')
@@ -127,6 +144,10 @@
 
     function preparePicker(input) {
       if (!input) return;
+      if (input.matches("[data-attachment-input]")) {
+        input.accept = mediaAccept;
+        input.removeAttribute("capture");
+      }
       input.style.setProperty("display", "block", "important");
       input.style.setProperty("position", "fixed", "important");
       input.style.setProperty("left", "-10000px", "important");
@@ -152,7 +173,7 @@
       preparePicker(input);
       if (input.disabled) input.disabled = false;
       input.value = "";
-      if (typeof input.showPicker === "function") {
+      if (!isIosWebKit && typeof input.showPicker === "function") {
         try {
           input.showPicker();
           return;

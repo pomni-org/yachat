@@ -682,6 +682,7 @@ const translations = {
     menuForward: "Переслать",
     menuMarkUnread: "Отметить непрочитанным",
     menuCopyText: "Скопировать текст",
+    menuReport: "Пожаловаться",
     menuSelect: "Выбрать",
     menuDelete: "Удалить",
     deleteMessageTitle: "Удалить сообщение",
@@ -703,6 +704,13 @@ const translations = {
     feedbackDeleteFailed: "Не удалось удалить сообщение",
     feedbackForwardFailed: "Не удалось переслать сообщение",
     feedbackMarkUnreadFailed: "Не удалось отметить чат непрочитанным",
+    reportUser: "Пожаловаться",
+    reportUserHint: "Модератор получит всю переписку, включая удалённые сообщения.",
+    reportMessageConfirm: "Отправить жалобу на это сообщение?",
+    reportChatConfirm: "Отправить модератору всю переписку с {name}, включая удалённые сообщения?",
+    reportSending: "Отправляем жалобу…",
+    reportSent: "Жалоба отправлена",
+    reportFailed: "Не удалось отправить жалобу",
     feedbackActionFailed: "Не удалось выполнить действие",
     feedbackSendFailed: "Сообщение не отправлено",
     messageSending: "Отправляется",
@@ -1028,6 +1036,7 @@ const translations = {
     menuForward: "Forward",
     menuMarkUnread: "Mark unread",
     menuCopyText: "Copy text",
+    menuReport: "Report",
     menuSelect: "Select",
     menuDelete: "Delete",
     deleteMessageTitle: "Delete message",
@@ -1049,6 +1058,13 @@ const translations = {
     feedbackDeleteFailed: "Could not delete the message",
     feedbackForwardFailed: "Could not forward the message",
     feedbackMarkUnreadFailed: "Could not mark the chat unread",
+    reportUser: "Report",
+    reportUserHint: "A moderator will receive the full conversation, including deleted messages.",
+    reportMessageConfirm: "Report this message?",
+    reportChatConfirm: "Send the full conversation with {name}, including deleted messages, to a moderator?",
+    reportSending: "Sending report…",
+    reportSent: "Report sent",
+    reportFailed: "Could not send the report",
     feedbackActionFailed: "Could not complete the action",
     feedbackSendFailed: "Message was not sent",
     messageSending: "Sending",
@@ -1847,7 +1863,7 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
   const kindLabel = chatProfileKindLabel(chat);
   const aboutText = chatProfileAboutText(chat);
   const muted = isChatMuted(chat?.id);
-  const hasMore = Boolean(sections.editSection || sections.groupSection || sections.historySection || sections.blockSection || sections.leaveSection || sections.deleteGroupSection);
+  const hasMore = Boolean(sections.editSection || sections.groupSection || sections.historySection || sections.blockSection || sections.reportSection || sections.leaveSection || sections.deleteGroupSection);
   const ownerProfile = chat?.ownerName || chat?.ownerUsername || chat?.ownerAvatarDataUrl
     ? decorateVerifiedEntity({
         id: chat.ownerId || SYSTEM_OWNER.id,
@@ -1937,6 +1953,7 @@ function renderChatProfilePanel(chat, displayChat, sections = {}) {
         ${sections.groupSection || ""}
         ${sections.historySection || ""}
         ${sections.blockSection || ""}
+        ${sections.reportSection || ""}
         ${sections.leaveSection || ""}
         ${sections.deleteGroupSection || ""}
         ${hasMore ? "" : `<section class="panel-section"><p>${t("chatProfileMoreEmpty")}</p></section>`}
@@ -2499,12 +2516,22 @@ function openMessageMenu(messageId, x, y) {
   }
 
   const transient = ["sending", "failed"].includes(messageDeliveryStatus(message));
+  const activeChat = getActiveChat();
+  const canReportMessage = Boolean(
+    !transient
+    && message.author !== "user"
+    && !message.clientOnly
+    && activeChat
+    && !String(activeChat.id || "").startsWith("yachat-")
+    && ["private", "group"].includes(activeChat.kind)
+  );
   const items = [
     !transient ? ["reply", "reply", t("menuReply")] : null,
     canEditMessage(message) ? ["edit", "pencil", t("menuEdit")] : null,
     !transient ? ["forward", "forward", t("menuForward")] : null,
     !transient ? ["unread", "message-unread", t("menuMarkUnread")] : null,
     ["copy", "copy", t("menuCopyText")],
+    canReportMessage ? ["report", "flag", t("menuReport"), "is-danger"] : null,
     ["delete", "trash", t("menuDelete"), "is-danger"],
     ["select", "circle-check", t("menuSelect"), "is-separated"]
   ].filter(Boolean);
@@ -2725,6 +2752,90 @@ async function markMessageUnread(messageId) {
   renderChatList();
 }
 
+async function reportSingleMessage(message) {
+  const chat = getActiveChat();
+  if (!chat || !message || message.author === "user" || !yachatApi.messenger?.reportMessage) {
+    return false;
+  }
+  if (!window.confirm(t("reportMessageConfirm"))) {
+    return false;
+  }
+  await yachatApi.messenger.reportMessage({
+    chatId: chat.id,
+    messageId: message.id,
+    text: String(message.text || ""),
+    attachments: Array.isArray(message.attachments) ? message.attachments.map((item) => ({
+      id: item.id || "",
+      kind: item.kind || "file",
+      name: item.name || "file",
+      mime: item.mime || "application/octet-stream",
+      size: Number(item.size) || 0
+    })) : [],
+    e2eeVerified: message.e2eeVerified === true
+  });
+  return true;
+}
+
+async function reportActiveChat(button) {
+  const chat = getActiveChat();
+  if (!chat || chat.kind !== "private" || chat.pendingSearchUserId) {
+    return;
+  }
+  if (!window.confirm(t("reportChatConfirm", { name: getChatTitle(chat) }))) {
+    return;
+  }
+
+  const originalHtml = button?.innerHTML || "";
+  if (button) {
+    button.disabled = true;
+    button.textContent = t("reportSending");
+  }
+  try {
+    const started = await yachatApi.messenger.startChatReport({ chatId: chat.id });
+    let offset = 0;
+    while (offset !== null) {
+      const page = await yachatApi.messenger.reportEvidence({
+        reportId: started.reportId,
+        offset
+      });
+      const messages = (Array.isArray(page.messages) ? page.messages : []).map((message) => ({
+        id: message.id,
+        text: String(message.text || ""),
+        attachments: Array.isArray(message.attachments) ? message.attachments.map((item) => ({
+          id: item.id || "",
+          kind: item.kind || "file",
+          name: item.name || "file",
+          mime: item.mime || "application/octet-stream",
+          size: Number(item.size) || 0
+        })) : [],
+        e2eeVerified: message.e2eeVerified === true
+      }));
+      if (messages.length > 0) {
+        await yachatApi.messenger.appendReportEvidence({
+          reportId: started.reportId,
+          messages
+        });
+      }
+      offset = page.nextOffset === null || page.nextOffset === undefined
+        ? null
+        : Number(page.nextOffset);
+    }
+    await yachatApi.messenger.completeChatReport({ reportId: started.reportId });
+    showActionFeedback(t("reportSent"), { icon: "flag" });
+  } catch (error) {
+    showActionFeedback(translatedServerMessage(error.message, "reportFailed"), {
+      tone: "error",
+      icon: "circle-alert"
+    });
+  } finally {
+    if (button?.isConnected) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      hydrateIcons(button);
+    }
+  }
+}
+
 function ensureForwardPicker() {
   let layer = document.querySelector("[data-forward-picker]");
   if (layer) {
@@ -2841,6 +2952,10 @@ async function handleMessageAction(action) {
     } else if (action === "copy") {
       await copyTextToClipboard(messagePreviewText(message));
       showActionFeedback(t("feedbackCopiedText"), { icon: "copy" });
+    } else if (action === "report") {
+      if (await reportSingleMessage(message)) {
+        showActionFeedback(t("reportSent"), { icon: "flag" });
+      }
     } else if (action === "select") {
       toggleSelectedMessage(message.id);
     } else if (action === "delete-self" || action === "delete-everyone") {
@@ -2856,7 +2971,8 @@ async function handleMessageAction(action) {
       "delete-self": "feedbackDeleteFailed",
       "delete-everyone": "feedbackDeleteFailed",
       forward: "feedbackForwardFailed",
-      unread: "feedbackMarkUnreadFailed"
+      unread: "feedbackMarkUnreadFailed",
+      report: "reportFailed"
     }[action] || "feedbackActionFailed";
     showActionFeedback(translatedServerMessage(error.message, fallbackKey), {
       tone: "error",
@@ -4807,6 +4923,16 @@ function renderPanel() {
       </section>
     ` : "";
 
+    const reportSection = chat.kind === "private" && !chat.pendingSearchUserId ? `
+      <section class="panel-section">
+        <h3>${t("reportUser")}</h3>
+        <p>${t("reportUserHint")}</p>
+        <button class="panel-primary is-danger" type="button" data-panel-action="report-user">
+          ${iconSvg("flag", "button-icon")}<span>${t("reportUser")}</span>
+        </button>
+      </section>
+    ` : "";
+
     const leaveSection = chat.locked ? "" : `
       <section class="panel-section">
         <h3>${t("leaveChat")}</h3>
@@ -4828,6 +4954,7 @@ function renderPanel() {
       groupSection,
       historySection,
       blockSection,
+      reportSection,
       leaveSection,
       deleteGroupSection
     });
@@ -6238,6 +6365,11 @@ function createHttpYachatApi(fallbackApi = null) {
         () => post("/api/message/delete", payload),
         () => fallbackApi?.messenger?.deleteMessage?.(payload)
       ),
+      reportMessage: (payload) => post("/api/report/message", payload),
+      startChatReport: (payload) => post("/api/report/chat/start", payload),
+      reportEvidence: (payload) => post("/api/report/evidence", payload),
+      appendReportEvidence: (payload) => post("/api/report/evidence/append", payload),
+      completeChatReport: (payload) => post("/api/report/chat/complete", payload),
       markUnread: (payload) => withFallback(
         () => post("/api/message/mark-unread", payload),
         () => fallbackApi?.messenger?.markUnread?.(payload)
@@ -9073,6 +9205,11 @@ panelBody?.addEventListener("click", async (event) => {
 
   if (action === "unblock-user") {
     await setActiveChatBlocked(false, actionButton);
+    return;
+  }
+
+  if (action === "report-user") {
+    await reportActiveChat(actionButton);
     return;
   }
 

@@ -30,6 +30,8 @@ Set these in Vercel Project Settings:
 - `YACHAT_RETURN_DEV_CODE`: optional, defaults to `false`. Enable only for isolated test builds.
 - `YACHAT_TELEGRAM_BOT_TOKEN`: optional Telegram bot token for confirmation-code delivery.
 - `YACHAT_TELEGRAM_WEBHOOK_SECRET`: optional secret passed to Telegram `setWebhook` as `secret_token`.
+- `YACHAT_MODERATION_CHAT_ID`: Telegram chat that receives reports. Defaults to `5893181200`.
+- `YACHAT_MODERATOR_TELEGRAM_IDS`: optional comma-separated Telegram user IDs allowed to dismiss reports or issue bans. Defaults to `YACHAT_MODERATION_CHAT_ID`.
 - `YACHAT_VAPID_PUBLIC_KEY`: public VAPID key for browser push notifications.
 - `YACHAT_VAPID_PRIVATE_KEY`: private VAPID key for browser push notifications.
 - `YACHAT_VAPID_SUBJECT`: optional VAPID subject, for example `mailto:admin@example.com`.

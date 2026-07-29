@@ -30,6 +30,7 @@ from server.database import (
     require_database,
     secure_server_tables,
 )
+from server.moderation import ensure_account_allowed, handle_moderation_callback
 
 
 def configured_cors_origins() -> list[str]:
@@ -138,6 +139,10 @@ SERVER_TABLES = (
     "yachat_developer_clients",
     "yachat_identity_challenges",
     "yachat_identity_transactions",
+    "yachat_reports",
+    "yachat_report_evidence",
+    "yachat_account_bans",
+    "yachat_banned_contacts",
 )
 
 
@@ -632,6 +637,70 @@ def ensure_schema() -> None:
         "create index if not exists yachat_identity_transactions_client_idx on yachat_identity_transactions(client_id, created_at desc)",
         "create unique index if not exists yachat_identity_transactions_reference_idx on yachat_identity_transactions(client_id, external_reference) where external_reference <> ''",
         """
+        create table if not exists yachat_reports (
+            id text primary key,
+            kind text not null check (kind in ('message', 'chat')),
+            status text not null default 'collecting'
+                check (status in ('collecting', 'pending', 'dismissed', 'banned', 'delivery_failed')),
+            reporter_user_id text not null,
+            reported_user_id text not null,
+            chat_id text not null,
+            message_id text,
+            reporter_display_name text not null default '',
+            reporter_username text not null default '',
+            reported_display_name text not null default '',
+            reported_username text not null default '',
+            created_at timestamptz not null default now(),
+            evidence_cutoff timestamptz not null default now(),
+            expected_message_count integer not null default 0,
+            telegram_chat_id text,
+            telegram_message_id bigint,
+            resolution text not null default '',
+            moderator_telegram_id text not null default '',
+            resolved_at timestamptz
+        )
+        """,
+        """
+        create table if not exists yachat_report_evidence (
+            id bigserial primary key,
+            report_id text not null references yachat_reports(id) on delete cascade,
+            message_id text not null,
+            author_user_id text not null default '',
+            author_display_name text not null default '',
+            author_username text not null default '',
+            sent_at timestamptz not null,
+            deleted_at timestamptz,
+            text text not null default '',
+            attachment_summary jsonb not null default '[]'::jsonb,
+            e2ee_verified boolean not null default false,
+            created_at timestamptz not null default now(),
+            unique(report_id, message_id)
+        )
+        """,
+        """
+        create table if not exists yachat_account_bans (
+            id text primary key,
+            user_id text not null,
+            contact_key text not null default '',
+            permanent boolean not null default false,
+            expires_at timestamptz,
+            report_id text references yachat_reports(id) on delete set null,
+            reason text not null default '',
+            created_at timestamptz not null default now(),
+            banned_by_telegram_id text not null default ''
+        )
+        """,
+        """
+        create table if not exists yachat_banned_contacts (
+            contact_key text primary key,
+            contact text not null default '',
+            report_id text references yachat_reports(id) on delete set null,
+            reason text not null default '',
+            banned_at timestamptz not null default now(),
+            banned_by_telegram_id text not null default ''
+        )
+        """,
+        """
         insert into yachat_developer_clients(id, name, public_pkce, allowed_origins, scopes, active, updated_at)
         values (
             'digital-bar',
@@ -1097,7 +1166,8 @@ def public_user(row: dict[str, Any], matched_contact: str = "") -> dict[str, Any
         "avatarAccent": str(row_value(row, "avatar_accent")) or "#471AFF",
         "createdAt": row_value(row, "created_at"),
         "matchedContact": matched_contact,
-        "encrypted": True,
+        "encrypted": False,
+        "e2eePhase": "phase5",
         "publicKeyType": str(row_value(row, "public_key_type")) or "x25519",
         **verification_fields(row),
     }
@@ -1122,7 +1192,8 @@ def public_account(row: dict[str, Any], session_token: str = "") -> dict[str, An
         "digitalId": format_digital_id(digital_id),
         "rawDigitalId": digital_id,
         "status": "account-created",
-        "encrypted": True,
+        "encrypted": False,
+        "e2eePhase": "phase5",
         **verification_fields(row),
     }
     if session_token:
@@ -1175,6 +1246,21 @@ def current_user(request: Request) -> dict[str, Any] | None:
                     (hash_secret(token),),
                 )
                 row = cursor.fetchone()
+                if row:
+                    ensure_account_allowed(
+                        cursor,
+                        user_id=str(row["id"]),
+                        contact_key=str(row_value(row, "contact_key")),
+                    )
+                    cursor.execute(
+                        """
+                        update yachat_sessions
+                        set last_seen_at = now()
+                        where token_hash = %s
+                          and last_seen_at < now() - interval '5 minutes'
+                        """,
+                        (hash_secret(token),),
+                    )
                 return dict(row) if row else None
     except psycopg.Error as error:
         raise HTTPException(status_code=503, detail="Users database is unavailable.") from error
@@ -1188,6 +1274,18 @@ def require_user(request: Request) -> dict[str, Any]:
 
 
 def insert_session(cursor, user_id: str) -> str:
+    cursor.execute(
+        "select id, contact_key from public_users where id = %s limit 1",
+        (user_id,),
+    )
+    account = cursor.fetchone()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found.")
+    ensure_account_allowed(
+        cursor,
+        user_id=str(account["id"]),
+        contact_key=str(row_value(account, "contact_key")),
+    )
     token = generate_token()
     expires_at = utc_now() + timedelta(days=90)
     cursor.execute(
@@ -1789,7 +1887,7 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
 
     cursor.execute(
         """
-        select m.text, m.attachments, m.created_at
+        select m.text, m.attachments, m.e2ee_mode, m.created_at
         from yachat_messages m
         where m.chat_id = %s and m.deleted_at is null
           and not exists (
@@ -1859,6 +1957,9 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         "title": title or "ЯЧат",
         "subtitle": subtitle or "",
         "description": str(row_value(chat, "description")),
+        "e2eePolicy": str(row_value(chat, "e2ee_policy")) or "legacy",
+        "e2eeEpochId": str(row_value(chat, "e2ee_epoch_id")),
+        "e2eeEnabledAt": row_value(chat, "e2ee_enabled_at") or None,
         "participantIds": [str(row["id"]) for row in members],
         "participantProfiles": profiles,
         "ownerId": str(row_value(chat, "owner_id")),
@@ -1881,7 +1982,13 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         "inviteCode": str(row_value(chat, "invite_code")),
         "createdAt": row_value(chat, "created_at"),
         "lastAt": row_value(last, "created_at") or row_value(chat, "created_at"),
-        "lastMessage": str(row_value(last, "text")) or attachment_text,
+        "lastMessage": (
+            attachment_text
+            if attachment_text
+            else "Защищённое сообщение"
+            if str(row_value(last, "e2ee_mode")) == "encrypted"
+            else str(row_value(last, "text"))
+        ),
         "unread": unread,
     }
 
@@ -1947,6 +2054,9 @@ def chat_summary_cached(
         "title": title or "ЯЧат",
         "subtitle": subtitle or "",
         "description": str(row_value(chat, "description")),
+        "e2eePolicy": str(row_value(chat, "e2ee_policy")) or "legacy",
+        "e2eeEpochId": str(row_value(chat, "e2ee_epoch_id")),
+        "e2eeEnabledAt": row_value(chat, "e2ee_enabled_at") or None,
         "participantIds": [str(row["id"]) for row in members],
         "participantProfiles": profiles,
         "ownerId": str(row_value(chat, "owner_id")),
@@ -1969,7 +2079,13 @@ def chat_summary_cached(
         "inviteCode": str(row_value(chat, "invite_code")),
         "createdAt": row_value(chat, "created_at"),
         "lastAt": row_value(last, "created_at") or row_value(chat, "created_at"),
-        "lastMessage": str(row_value(last, "text")) or attachment_text,
+        "lastMessage": (
+            attachment_text
+            if attachment_text
+            else "Защищённое сообщение"
+            if str(row_value(last, "e2ee_mode")) == "encrypted"
+            else str(row_value(last, "text"))
+        ),
         "unread": int(unread or 0),
     }
 
@@ -2020,7 +2136,7 @@ def list_user_chats(user_id: str) -> list[dict[str, Any]]:
             latest_by_chat: dict[str, dict[str, Any]] = {}
             cursor.execute(
                 """
-                select distinct on (m.chat_id) m.chat_id, m.text, m.attachments, m.created_at
+                select distinct on (m.chat_id) m.chat_id, m.text, m.attachments, m.e2ee_mode, m.created_at
                 from yachat_messages m
                 where m.chat_id = any(%s) and m.deleted_at is null
                   and not exists (
@@ -2409,6 +2525,8 @@ async def telegram_webhook(request: Request):
 
     ensure_schema()
     update = await request.json()
+    if handle_moderation_callback(update):
+        return {"ok": True}
     message = update.get("message") or update.get("edited_message") or {}
     if not isinstance(message, dict):
         return {"ok": True}
@@ -2697,6 +2815,7 @@ async def create_challenge(request: Request):
 
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
+            ensure_account_allowed(cursor, contact_key=key)
             existing_user = find_user_by_contact_cursor(cursor, contact)
             telegram_links = telegram_links_for_contact(cursor, contact)
 
@@ -2760,6 +2879,7 @@ async def verify_challenge(request: Request):
 
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
+            ensure_account_allowed(cursor, contact_key=key)
             cursor.execute(
                 """
                 select *
@@ -2837,6 +2957,10 @@ async def create_account(request: Request):
             if not challenge:
                 raise HTTPException(status_code=401, detail="Confirm the code first.")
 
+            ensure_account_allowed(
+                cursor,
+                contact_key=str(challenge["contact_key"]),
+            )
             existing = find_user_by_contact_cursor(cursor, str(challenge["contact"]))
             if existing:
                 token = insert_session(cursor, str(existing["id"]))
