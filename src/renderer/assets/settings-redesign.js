@@ -226,6 +226,10 @@
           panelAction: "open-policy",
           className: "is-document-row"
         }),
+        row("", "flag", "Правила модерации", {
+          panelAction: "open-moderation",
+          className: "is-document-row"
+        }),
         row("", "file-text", "Пользовательское соглашение", {
           panelAction: "open-terms",
           className: "is-document-row"

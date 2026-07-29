@@ -1,25 +1,20 @@
-/* Поиск по сообщениям: отдельная верхняя строка в стиле мобильного поиска. */
-
-.dialog-pane.message-search-open {
-  grid-template-rows: auto minmax(0, 1fr) auto !important;
-}
-
-.dialog-pane.message-search-open > .dialog-head {
-  display: none !important;
-}
+/* Поиск заменяет содержимое шапки, не добавляя ей новую строку и ширину. */
 
 .dialog-message-search {
-  z-index: 6;
+  position: absolute;
+  inset: 0;
+  z-index: 8;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
-  min-height: 74px;
-  padding: max(12px, env(safe-area-inset-top)) 18px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--card-edge), transparent 20%);
+  width: 100%;
+  height: 100%;
+  padding: 7px 18px;
   background: color-mix(in srgb, var(--page), #17181b 36%);
   color: var(--text);
+  animation: yachat-search-in 180ms cubic-bezier(.22, 1, .36, 1) both;
 }
 
 .dialog-message-search[hidden] {
@@ -32,26 +27,26 @@
   align-items: center;
   gap: 9px;
   min-width: 0;
-  height: 52px;
-  padding: 0 16px;
-  border-radius: 20px;
+  height: 44px;
+  padding: 0 13px;
+  border-radius: 15px;
   background: color-mix(in srgb, var(--surface), #37383c 24%);
   color: var(--muted);
 }
 
 .dialog-message-search-icon {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   color: color-mix(in srgb, var(--muted), transparent 6%);
 }
 
 .dialog-message-search-icon svg {
-  width: 27px !important;
-  height: 27px !important;
-  max-width: 27px !important;
-  max-height: 27px !important;
+  width: 22px !important;
+  height: 22px !important;
+  max-width: 22px !important;
+  max-height: 22px !important;
   stroke-width: 1.7;
 }
 
@@ -66,7 +61,7 @@
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 19px;
+  font-size: 16px;
   font-weight: 400;
   line-height: 1;
   appearance: none;
@@ -96,14 +91,14 @@
 
 .dialog-message-search-cancel {
   min-width: max-content;
-  height: 48px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: 10px;
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 19px;
+  font-size: 15px;
   font-weight: 500;
   cursor: pointer;
   appearance: none;
@@ -144,43 +139,53 @@
 
 @media (max-width: 640px) {
   .dialog-message-search {
-    gap: 14px;
-    min-height: 70px;
-    padding-inline: 12px 16px;
+    gap: 8px;
+    padding: 6px 10px;
   }
 
   .dialog-message-search-field {
-    height: 50px;
-    padding-inline: 14px;
-    border-radius: 18px;
+    height: 44px;
+    padding-inline: 12px;
+    border-radius: 15px;
   }
 
   .dialog-message-search input,
   .dialog-message-search-cancel {
-    font-size: 18px;
+    font-size: 15px;
   }
 }
 
 @media (max-width: 390px) {
   .dialog-message-search {
     gap: 10px;
-    padding-inline: 10px 12px;
+    padding-inline: 8px;
   }
 
   .dialog-message-search-field {
     grid-template-columns: 25px minmax(0, 1fr) auto;
     gap: 7px;
-    padding-inline: 12px;
+    padding-inline: 10px;
   }
 
   .dialog-message-search-icon,
   .dialog-message-search-icon svg {
-    width: 24px !important;
-    height: 24px !important;
+    width: 21px !important;
+    height: 21px !important;
   }
 
   .dialog-message-search input,
   .dialog-message-search-cancel {
-    font-size: 17px;
+    font-size: 14px;
+  }
+}
+
+@keyframes yachat-search-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

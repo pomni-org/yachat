@@ -12,10 +12,15 @@ from psycopg.rows import dict_row
 from server.e2ee import attach_e2ee_payload
 
 from api.index import (
+    DELETED_ACCOUNT_NOTICE,
+    DELETED_ACCOUNT_SUBTITLE,
+    DELETED_ACCOUNT_TITLE,
     clean_chat_id,
     configured_cors_origins,
     connect_db,
     current_user,
+    deleted_account_notice_payload,
+    deleted_private_peer,
     ensure_saved_chat,
     ensure_schema,
     fetch_user_by_username,
@@ -73,6 +78,7 @@ def _compact_profile(row: dict[str, Any], include_avatar: bool) -> dict[str, Any
         "displayName": str(row_value(row, "display_name", "preview_name", "username")),
         "previewName": str(row_value(row, "preview_name", "display_name", "username")),
         "avatarAccent": str(row_value(row, "avatar_accent")) or "#471AFF",
+        "accountDeleted": bool(row_value(row, "deleted_at")),
         **verification_fields(row),
     }
     if include_avatar:
@@ -141,7 +147,8 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                 select
                     cm.chat_id as member_chat_id,
                     u.id, u.username, u.preview_name, u.display_name,
-                    u.bio, u.avatar_url, u.avatar_accent, u.public_key_type
+                    u.bio, u.avatar_url, u.avatar_accent, u.public_key_type,
+                    u.deleted_at, u.deletion_reason
                 from yachat_chat_members cm
                 join public_users u on u.id = cm.user_id
                 where cm.chat_id = any(%s)
@@ -244,22 +251,32 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                 verified_meta: dict[str, Any] = {}
                 blocked_by_me = False
                 blocked_me = False
+                deleted_account = False
 
                 profiles: dict[str, dict[str, Any]] = {}
                 if kind == "private" and other:
                     peer_id = str(row_value(other, "id"))
                     blocked_by_me = peer_id in blocked_by_user_ids
                     blocked_me = peer_id in blocking_user_ids
-                    title = str(row_value(other, "display_name", "preview_name", "username"))
-                    username = str(row_value(other, "username"))
-                    subtitle = f"@{username}" if username else "Личный чат"
-                    avatar = str(row_value(other, "avatar_url")) or avatar
-                    profile_username = username
-                    profile_url = f"https://yachat.vercel.app/{username}" if username else ""
-                    profile_about = str(row_value(other, "bio"))
-                    profile_kind_label = ""
-                    verified_meta = verification_fields(other)
-                    verified = bool(verified_meta.get("verified"))
+                    deleted_account = bool(row_value(other, "deleted_at"))
+                    if deleted_account:
+                        title = DELETED_ACCOUNT_TITLE
+                        subtitle = DELETED_ACCOUNT_SUBTITLE
+                        avatar = ""
+                        profile_about = DELETED_ACCOUNT_NOTICE
+                        profile_kind_label = ""
+                        verified = False
+                    else:
+                        title = str(row_value(other, "display_name", "preview_name", "username"))
+                        username = str(row_value(other, "username"))
+                        subtitle = f"@{username}" if username else "Личный чат"
+                        avatar = str(row_value(other, "avatar_url")) or avatar
+                        profile_username = username
+                        profile_url = f"https://yachat.vercel.app/{username}" if username else ""
+                        profile_about = str(row_value(other, "bio"))
+                        profile_kind_label = ""
+                        verified_meta = verification_fields(other)
+                        verified = bool(verified_meta.get("verified"))
                     profiles[peer_id] = _compact_profile(other, include_avatar=True)
                 elif kind == "group":
                     subtitle = f"{max(len(members), 1)} участников"
@@ -289,9 +306,12 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                         "pinned": bool(row_value(chat, "pinned")),
                         "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True)
                         and not blocked_by_me
-                        and not blocked_me,
+                        and not blocked_me
+                        and not deleted_account,
                         "blockedByMe": blocked_by_me,
                         "blockedMe": blocked_me,
+                        "deletedAccount": deleted_account,
+                        "safetyNotice": DELETED_ACCOUNT_NOTICE if deleted_account else "",
                         "avatar": kind,
                         "avatarDataUrl": avatar,
                         "avatarAccent": str(row_value(chat, "avatar_accent")) or "#471AFF",
@@ -301,15 +321,22 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                         "profileKindLabel": profile_kind_label,
                         "inviteCode": str(row_value(chat, "invite_code")),
                         "createdAt": row_value(chat, "created_at"),
-                        "lastAt": row_value(last, "created_at") or row_value(chat, "updated_at") or row_value(chat, "created_at"),
+                        "lastAt": (
+                            row_value(other, "deleted_at")
+                            if deleted_account
+                            else row_value(last, "created_at") or row_value(chat, "updated_at") or row_value(chat, "created_at")
+                        ),
                         "lastMessage": (
+                            DELETED_ACCOUNT_NOTICE
+                            if deleted_account
+                            else
                             _attachment_label(str(row_value(last, "attachment_kind")))
                             or "Защищённое сообщение"
                             if str(row_value(last, "e2ee_mode")) == "encrypted"
                             else str(row_value(last, "text"))
                             or _attachment_label(str(row_value(last, "attachment_kind")))
                         ),
-                        "unread": unread_by_chat.get(chat_id, 0),
+                        "unread": 0 if deleted_account else unread_by_chat.get(chat_id, 0),
                     }
                 )
 
@@ -374,6 +401,14 @@ def get_messages_fast(
                 actual_chat_id = ensure_saved_chat(cursor, user_id)
             else:
                 require_chat_member(cursor, actual_chat_id, user_id)
+                deleted_peer = deleted_private_peer(cursor, actual_chat_id, user_id)
+                if deleted_peer:
+                    return [
+                        deleted_account_notice_payload(
+                            actual_chat_id,
+                            deleted_peer.get("deleted_at"),
+                        )
+                    ]
 
             parameters = [actual_chat_id, user_id]
             after_clause = ""

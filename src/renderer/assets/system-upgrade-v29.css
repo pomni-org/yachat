@@ -11,6 +11,8 @@
 .device-code-input-shell {
   display: block;
   width: 100%;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 
 .device-code-input-shell input {
@@ -28,6 +30,10 @@
   text-transform: uppercase;
   caret-color: var(--accent);
   box-sizing: border-box;
+  pointer-events: auto;
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
 }
 
 .device-code-input-shell input:focus {

@@ -9,6 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 
 from api.index import (
+    DELETED_ACCOUNT_NOTICE,
+    DELETED_ACCOUNT_SUBTITLE,
+    DELETED_ACCOUNT_TITLE,
     configured_cors_origins,
     connect_db,
     ensure_schema,
@@ -162,7 +165,8 @@ def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
                             'id', u.id,
                             'username', u.username,
                             'preview_name', u.preview_name,
-                            'display_name', u.display_name
+                            'display_name', u.display_name,
+                            'deleted_at', u.deleted_at
                         )
                         order by cm.joined_at asc
                     ) as members
@@ -229,6 +233,7 @@ def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
         title = str(row_value(chat, "title"))
         subtitle = ""
         profiles: dict[str, dict[str, Any]] = {}
+        deleted_account = False
 
         if kind == "private":
             peer = next(
@@ -237,14 +242,20 @@ def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
             )
             peer_id = str(row_value(peer, "id"))
             username = str(row_value(peer, "username"))
-            title = str(row_value(peer, "display_name", "preview_name", "username")) or title
-            subtitle = f"@{username}" if username else "Личный чат"
+            deleted_account = bool(row_value(peer, "deleted_at"))
+            title = (
+                DELETED_ACCOUNT_TITLE
+                if deleted_account
+                else str(row_value(peer, "display_name", "preview_name", "username")) or title
+            )
+            subtitle = DELETED_ACCOUNT_SUBTITLE if deleted_account else f"@{username}" if username else "Личный чат"
             if peer_id:
                 profiles[peer_id] = {
                     "id": peer_id,
-                    "username": username,
+                    "username": "" if deleted_account else username,
                     "displayName": title,
                     "previewName": title,
+                    "accountDeleted": deleted_account,
                 }
         elif kind == "group":
             subtitle = f"{max(len(members), 1)} участников"
@@ -262,14 +273,21 @@ def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
                 "pinned": bool(row_value(chat, "pinned")),
                 "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True)
                 and not bool(row_value(chat, "blocked_by_me"))
-                and not bool(row_value(chat, "blocked_me")),
+                and not bool(row_value(chat, "blocked_me"))
+                and not deleted_account,
                 "blockedByMe": bool(row_value(chat, "blocked_by_me")),
                 "blockedMe": bool(row_value(chat, "blocked_me")),
+                "deletedAccount": deleted_account,
+                "safetyNotice": DELETED_ACCOUNT_NOTICE if deleted_account else "",
                 "createdAt": row_value(chat, "created_at"),
                 "lastAt": row_value(chat, "latest_created_at", "updated_at", "created_at"),
-                "lastMessage": str(row_value(chat, "latest_text"))
-                or attachment_label(str(row_value(chat, "attachment_kind"))),
-                "unread": int(row_value(chat, "unread_count") or 0),
+                "lastMessage": (
+                    DELETED_ACCOUNT_NOTICE
+                    if deleted_account
+                    else str(row_value(chat, "latest_text"))
+                    or attachment_label(str(row_value(chat, "attachment_kind")))
+                ),
+                "unread": 0 if deleted_account else int(row_value(chat, "unread_count") or 0),
             }
         )
 

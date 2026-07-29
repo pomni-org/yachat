@@ -79,7 +79,7 @@
       </label>
       <button class="dialog-message-search-cancel" type="button" data-message-search-close></button>
     `;
-    dialogHead.before(searchBar);
+    dialogHead.append(searchBar);
     input = searchBar.querySelector("input");
     countLabel = searchBar.querySelector("output");
     refreshLabels();
@@ -239,9 +239,9 @@
     searchBar.hidden = false;
     dialogPane.classList.add("message-search-open");
     searchButton.setAttribute("aria-pressed", "true");
+    input.focus({ preventScroll: true });
+    input.select();
     requestAnimationFrame(() => {
-      input.focus({ preventScroll: true });
-      input.select();
       scheduleSearch();
     });
   }

@@ -1,0 +1,93 @@
+:root {
+  --yachat-motion-fast: 150ms;
+  --yachat-motion-medium: 220ms;
+  --yachat-motion-slow: 300ms;
+  --yachat-motion-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+.report-reason-layer:not([hidden]),
+.modal-layer:not([hidden]) {
+  animation: yachat-fade-in var(--yachat-motion-medium) ease both;
+}
+
+.report-reason-layer:not([hidden]) .report-reason-card,
+.modal-layer:not([hidden]) .modal-card {
+  animation: yachat-sheet-in var(--yachat-motion-slow) var(--yachat-motion-ease) both;
+}
+
+.side-panel:not([hidden]),
+.message-context-menu,
+.action-feedback,
+.forward-picker-layer:not([hidden]) {
+  animation: yachat-pop-in var(--yachat-motion-medium) var(--yachat-motion-ease) both;
+}
+
+.chat-row,
+.panel-primary,
+.main-button,
+.icon-button,
+.round-action,
+.dialog-search,
+.dialog-back,
+.composer-tool,
+.send-button {
+  transition:
+    transform var(--yachat-motion-fast) ease,
+    opacity var(--yachat-motion-fast) ease,
+    background-color var(--yachat-motion-medium) ease,
+    border-color var(--yachat-motion-medium) ease,
+    box-shadow var(--yachat-motion-medium) ease;
+}
+
+.panel-primary:active,
+.main-button:active,
+.icon-button:active,
+.round-action:active,
+.dialog-search:active,
+.dialog-back:active,
+.composer-tool:active,
+.send-button:active {
+  transform: scale(.96);
+}
+
+.chat-safety-notice {
+  animation: yachat-sheet-in var(--yachat-motion-slow) var(--yachat-motion-ease) both;
+}
+
+@keyframes yachat-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes yachat-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes yachat-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

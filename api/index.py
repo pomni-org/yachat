@@ -92,6 +92,8 @@ PUBLIC_USER_FIELDS = (
     "avatar_accent",
     "created_at",
     "public_key_type",
+    "deleted_at",
+    "deletion_reason",
 )
 
 REMOVED_TEST_MESSAGE_TEXTS = ("Приыет?", "Привет?")
@@ -102,6 +104,12 @@ DEFAULT_SETTINGS = {
     "country": "RU",
     "countryCode": "+7",
 }
+DELETED_ACCOUNT_TITLE = "Аккаунт удалён"
+DELETED_ACCOUNT_SUBTITLE = "Заблокирован за нарушение правил"
+DELETED_ACCOUNT_NOTICE = (
+    "Пользователь заблокирован из-за нарушения правил платформы. "
+    "В целях безопасности переписка была удалена."
+)
 SYSTEM_OWNER = {
     "id": "murochko",
     "username": "murochko",
@@ -274,7 +282,10 @@ def ensure_public_users_table(cursor) -> None:
             created_at timestamptz default now(),
             updated_at timestamptz default now(),
             public_key_type text default 'x25519',
-            is_public boolean default true
+            is_public boolean default true,
+            deleted_at timestamptz,
+            deletion_reason text default '',
+            deleted_by_report_id text
         )
         """
     )
@@ -351,6 +362,9 @@ def ensure_schema() -> None:
         "alter table public_users add column if not exists updated_at timestamptz default now()",
         "alter table public_users add column if not exists public_key_type text default 'x25519'",
         "alter table public_users add column if not exists is_public boolean default true",
+        "alter table public_users add column if not exists deleted_at timestamptz",
+        "alter table public_users add column if not exists deletion_reason text default ''",
+        "alter table public_users add column if not exists deleted_by_report_id text",
         "alter table public_users add column if not exists digital_id text",
         """
         create or replace function public.yachat_generate_digital_id()
@@ -657,9 +671,11 @@ def ensure_schema() -> None:
             telegram_message_id bigint,
             resolution text not null default '',
             moderator_telegram_id text not null default '',
-            resolved_at timestamptz
+            resolved_at timestamptz,
+            reason text not null default ''
         )
         """,
+        "alter table yachat_reports add column if not exists reason text not null default ''",
         """
         create table if not exists yachat_report_evidence (
             id bigserial primary key,
@@ -1594,7 +1610,42 @@ def user_profile(row: dict[str, Any]) -> dict[str, Any]:
         "previewName": str(row_value(row, "preview_name", "display_name", "username")),
         "avatarDataUrl": str(row_value(row, "avatar_url")),
         "avatarAccent": str(row_value(row, "avatar_accent")) or "#471AFF",
+        "accountDeleted": bool(row_value(row, "deleted_at")),
         **verification_fields(row),
+    }
+
+
+def deleted_private_peer(cursor, chat_id: str, user_id: str) -> dict[str, Any] | None:
+    cursor.execute(
+        """
+        select u.id, u.deleted_at, u.deletion_reason
+        from yachat_chats c
+        join yachat_chat_members cm on cm.chat_id = c.id and cm.user_id <> %s
+        join public_users u on u.id = cm.user_id
+        where c.id = %s and c.kind = 'private' and u.deleted_at is not null
+        order by cm.joined_at
+        limit 1
+        """,
+        (user_id, chat_id),
+    )
+    row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def deleted_account_notice_payload(chat_id: str, deleted_at: Any = None) -> dict[str, Any]:
+    return {
+        "id": f"deleted-account-notice-{chat_id}",
+        "chatId": chat_id,
+        "author": "bot",
+        "authorId": "yachat-safety",
+        "text": DELETED_ACCOUNT_NOTICE,
+        "formattedHtml": "",
+        "attachments": [],
+        "replyToMessageId": None,
+        "forwardedFrom": "",
+        "createdAt": deleted_at or datetime.now(timezone.utc),
+        "editedAt": None,
+        "systemNotice": True,
     }
 
 
@@ -1873,7 +1924,10 @@ def require_private_chat_peer(cursor, chat_id: str, user_id: str) -> tuple[dict[
 def require_chat_messaging_allowed(cursor, chat: dict[str, Any], user_id: str) -> None:
     if str(row_value(chat, "kind")) != "private":
         return
-    peer_id = private_chat_peer_id(cursor, str(row_value(chat, "id")), user_id)
+    chat_id = str(row_value(chat, "id"))
+    if deleted_private_peer(cursor, chat_id, user_id):
+        raise HTTPException(status_code=403, detail=DELETED_ACCOUNT_NOTICE)
+    peer_id = private_chat_peer_id(cursor, chat_id, user_id)
     blocked_by_me, blocked_me = chat_block_flags(cursor, user_id, peer_id)
     if blocked_by_me or blocked_me:
         raise HTTPException(status_code=403, detail="Messages cannot be sent while this user is blocked.")
@@ -1935,19 +1989,29 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
     verified_meta: dict[str, Any] = {}
     blocked_by_me = False
     blocked_me = False
+    deleted_account = False
     if chat["kind"] == "private" and other:
         peer_id = str(row_value(other, "id"))
         blocked_by_me, blocked_me = chat_block_flags(cursor, user_id, peer_id)
-        title = str(row_value(other, "display_name", "preview_name", "username"))
-        username = str(row_value(other, "username"))
-        subtitle = f"@{username}" if username else "Личный чат"
-        avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
-        profile_username = username
-        profile_url = f"https://yachat.vercel.app/{username}" if username else ""
-        profile_about = str(row_value(other, "bio"))
-        profile_kind_label = ""
-        verified_meta = verification_fields(other)
-        verified = bool(verified_meta.get("verified"))
+        deleted_account = bool(row_value(other, "deleted_at"))
+        if deleted_account:
+            title = DELETED_ACCOUNT_TITLE
+            subtitle = DELETED_ACCOUNT_SUBTITLE
+            avatar_data_url = ""
+            profile_about = DELETED_ACCOUNT_NOTICE
+            profile_kind_label = ""
+            verified = False
+        else:
+            title = str(row_value(other, "display_name", "preview_name", "username"))
+            username = str(row_value(other, "username"))
+            subtitle = f"@{username}" if username else "Личный чат"
+            avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
+            profile_username = username
+            profile_url = f"https://yachat.vercel.app/{username}" if username else ""
+            profile_about = str(row_value(other, "bio"))
+            profile_kind_label = ""
+            verified_meta = verification_fields(other)
+            verified = bool(verified_meta.get("verified"))
     elif chat["kind"] == "group":
         subtitle = subtitle or f"{max(len(members), 1)} участников"
 
@@ -1969,9 +2033,14 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         "verifiedDescription": str(verified_meta.get("verifiedDescription") or ""),
         "roleLabel": str(verified_meta.get("roleLabel") or ""),
         "pinned": bool(row_value(chat, "pinned")),
-        "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True) and not blocked_by_me and not blocked_me,
+        "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True)
+        and not blocked_by_me
+        and not blocked_me
+        and not deleted_account,
         "blockedByMe": blocked_by_me,
         "blockedMe": blocked_me,
+        "deletedAccount": deleted_account,
+        "safetyNotice": DELETED_ACCOUNT_NOTICE if deleted_account else "",
         "avatar": str(chat["kind"]),
         "avatarDataUrl": avatar_data_url,
         "avatarAccent": str(row_value(chat, "avatar_accent")) or "#471AFF",
@@ -1981,15 +2050,18 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         "profileKindLabel": profile_kind_label,
         "inviteCode": str(row_value(chat, "invite_code")),
         "createdAt": row_value(chat, "created_at"),
-        "lastAt": row_value(last, "created_at") or row_value(chat, "created_at"),
+        "lastAt": row_value(other, "deleted_at") if deleted_account else row_value(last, "created_at") or row_value(chat, "created_at"),
         "lastMessage": (
+            DELETED_ACCOUNT_NOTICE
+            if deleted_account
+            else
             attachment_text
             if attachment_text
             else "Защищённое сообщение"
             if str(row_value(last, "e2ee_mode")) == "encrypted"
             else str(row_value(last, "text"))
         ),
-        "unread": unread,
+        "unread": 0 if deleted_account else unread,
     }
 
 
@@ -2030,21 +2102,31 @@ def chat_summary_cached(
     verified_meta: dict[str, Any] = {}
     blocked_by_me = False
     blocked_me = False
+    deleted_account = False
 
     if chat["kind"] == "private" and other:
         peer_id = str(row_value(other, "id"))
         blocked_by_me = peer_id in (blocked_by_user_ids or set())
         blocked_me = peer_id in (blocking_user_ids or set())
-        title = str(row_value(other, "display_name", "preview_name", "username"))
-        username = str(row_value(other, "username"))
-        subtitle = f"@{username}" if username else "Личный чат"
-        avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
-        profile_username = username
-        profile_url = f"https://yachat.vercel.app/{username}" if username else ""
-        profile_about = str(row_value(other, "bio"))
-        profile_kind_label = ""
-        verified_meta = verification_fields(other)
-        verified = bool(verified_meta.get("verified"))
+        deleted_account = bool(row_value(other, "deleted_at"))
+        if deleted_account:
+            title = DELETED_ACCOUNT_TITLE
+            subtitle = DELETED_ACCOUNT_SUBTITLE
+            avatar_data_url = ""
+            profile_about = DELETED_ACCOUNT_NOTICE
+            profile_kind_label = ""
+            verified = False
+        else:
+            title = str(row_value(other, "display_name", "preview_name", "username"))
+            username = str(row_value(other, "username"))
+            subtitle = f"@{username}" if username else "Личный чат"
+            avatar_data_url = str(row_value(other, "avatar_url")) or avatar_data_url
+            profile_username = username
+            profile_url = f"https://yachat.vercel.app/{username}" if username else ""
+            profile_about = str(row_value(other, "bio"))
+            profile_kind_label = ""
+            verified_meta = verification_fields(other)
+            verified = bool(verified_meta.get("verified"))
     elif chat["kind"] == "group":
         subtitle = subtitle or f"{max(len(members), 1)} участников"
 
@@ -2066,9 +2148,14 @@ def chat_summary_cached(
         "verifiedDescription": str(verified_meta.get("verifiedDescription") or ""),
         "roleLabel": str(verified_meta.get("roleLabel") or ""),
         "pinned": bool(row_value(chat, "pinned")),
-        "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True) and not blocked_by_me and not blocked_me,
+        "canSend": bool(row_value(chat, "can_send") if "can_send" in chat else True)
+        and not blocked_by_me
+        and not blocked_me
+        and not deleted_account,
         "blockedByMe": blocked_by_me,
         "blockedMe": blocked_me,
+        "deletedAccount": deleted_account,
+        "safetyNotice": DELETED_ACCOUNT_NOTICE if deleted_account else "",
         "avatar": str(chat["kind"]),
         "avatarDataUrl": avatar_data_url,
         "avatarAccent": str(row_value(chat, "avatar_accent")) or "#471AFF",
@@ -2078,15 +2165,18 @@ def chat_summary_cached(
         "profileKindLabel": profile_kind_label,
         "inviteCode": str(row_value(chat, "invite_code")),
         "createdAt": row_value(chat, "created_at"),
-        "lastAt": row_value(last, "created_at") or row_value(chat, "created_at"),
+        "lastAt": row_value(other, "deleted_at") if deleted_account else row_value(last, "created_at") or row_value(chat, "created_at"),
         "lastMessage": (
+            DELETED_ACCOUNT_NOTICE
+            if deleted_account
+            else
             attachment_text
             if attachment_text
             else "Защищённое сообщение"
             if str(row_value(last, "e2ee_mode")) == "encrypted"
             else str(row_value(last, "text"))
         ),
-        "unread": int(unread or 0),
+        "unread": 0 if deleted_account else int(unread or 0),
     }
 
 
@@ -2279,6 +2369,9 @@ def get_chat_messages(chat_id: str, user_id: str) -> list[dict[str, Any]]:
             if is_saved_chat:
                 chat_id = ensure_saved_chat(cursor, user_id)
             require_chat_member(cursor, chat_id, user_id)
+            deleted_peer = deleted_private_peer(cursor, chat_id, user_id)
+            if deleted_peer:
+                return [deleted_account_notice_payload(chat_id, deleted_peer.get("deleted_at"))]
             cursor.execute(
                 """
                 select m.*

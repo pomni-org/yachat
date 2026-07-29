@@ -40,7 +40,7 @@ from server.e2ee import (
     verify_ed25519,
 )
 from server.push_delivery import send_push_to_user
-from server.moderation import send_moderation_report
+from server.moderation import EVIDENCE_SEPARATOR, NOVOSIBIRSK, send_moderation_report
 
 app = FastAPI(title="YaChat message API", version="2.0.0")
 app.add_middleware(
@@ -231,13 +231,26 @@ def report_text(value: Any) -> str:
     return str(value or "").replace("\x00", "").strip()[:4000]
 
 
+def report_reason(value: Any) -> str:
+    reason = " ".join(str(value or "").replace("\x00", "").split()).strip()
+    if len(reason) < 3:
+        raise HTTPException(status_code=400, detail="Укажите причину жалобы минимум из 3 символов.")
+    if len(reason) > 1000:
+        raise HTTPException(status_code=400, detail="Причина жалобы не должна быть длиннее 1000 символов.")
+    return reason
+
+
 def report_evidence_line(row: dict[str, Any]) -> str:
     sent_at = row_value(row, "sent_at")
-    sent_text = sent_at.isoformat() if hasattr(sent_at, "isoformat") else str(sent_at or "")
+    sent_text = (
+        sent_at.astimezone(NOVOSIBIRSK).strftime("%d.%m.%Y · %H:%M:%S")
+        if hasattr(sent_at, "astimezone")
+        else str(sent_at or "")
+    )
     author_name = str(row_value(row, "author_display_name", "author_username")) or "Без имени"
     username = str(row_value(row, "author_username"))
     author = f"{author_name} (@{username})" if username else author_name
-    deleted = " [удалено пользователем]" if row_value(row, "deleted_at") else ""
+    deleted = " · 🗑 удалено пользователем" if row_value(row, "deleted_at") else ""
     text = str(row_value(row, "text")) or "Без текста"
     attachments = row_value(row, "attachment_summary")
     attachment_lines = []
@@ -245,10 +258,10 @@ def report_evidence_line(row: dict[str, Any]) -> str:
         for item in attachments:
             if isinstance(item, dict):
                 attachment_lines.append(
-                    f"[вложение: {item.get('name') or 'file'}; {item.get('mime') or 'application/octet-stream'}]"
+                    f"📎 {item.get('name') or 'file'} · {item.get('mime') or 'application/octet-stream'}"
                 )
     suffix = f"\n{chr(10).join(attachment_lines)}" if attachment_lines else ""
-    return f"[{sent_text}] {author}{deleted}\n{text}{suffix}"
+    return f"🕓 {sent_text}\n👤 {author}{deleted}\n\n{text}{suffix}"
 
 
 def set_report_delivery(report_id: str, delivery: tuple[str, int] | None) -> None:
@@ -1474,6 +1487,7 @@ async def report_message(request: Request):
     payload = await read_json_payload(request)
     chat_id = clean_chat_id(payload.get("chatId"))
     message_id = str(payload.get("messageId") or "").strip()
+    reason = report_reason(payload.get("reason"))
     if not message_id:
         raise HTTPException(status_code=400, detail="Выберите сообщение.")
     user_id = str(user["id"])
@@ -1526,11 +1540,11 @@ async def report_message(request: Request):
                         id, kind, status, reporter_user_id, reported_user_id,
                         chat_id, message_id, reporter_display_name, reporter_username,
                         reported_display_name, reported_username, evidence_cutoff,
-                        expected_message_count
+                        expected_message_count, reason
                     )
                     values (
                         %s, 'message', 'collecting', %s, %s, %s, %s, %s, %s,
-                        %s, %s, now(), 1
+                        %s, %s, now(), 1, %s
                     )
                     returning *
                     """,
@@ -1544,6 +1558,7 @@ async def report_message(request: Request):
                         reporter_username,
                         target_name,
                         target_username,
+                        reason,
                     ),
                 )
                 report = dict(cursor.fetchone())
@@ -1586,6 +1601,7 @@ async def start_chat_report(request: Request):
     user = require_user(request)
     payload = await read_json_payload(request)
     chat_id = clean_chat_id(payload.get("chatId"))
+    reason = report_reason(payload.get("reason"))
     user_id = str(user["id"])
     report_id = str(uuid.uuid4())
 
@@ -1602,7 +1618,7 @@ async def start_chat_report(request: Request):
                         id, kind, status, reporter_user_id, reported_user_id,
                         chat_id, reporter_display_name, reporter_username,
                         reported_display_name, reported_username, evidence_cutoff,
-                        expected_message_count
+                        expected_message_count, reason
                     )
                     select
                         %s, 'chat', 'collecting', %s, %s, %s, %s, %s, %s, %s,
@@ -1611,7 +1627,8 @@ async def start_chat_report(request: Request):
                             select count(*)
                             from yachat_messages m
                             where m.chat_id = %s and m.created_at <= cutoff.value
-                        )
+                        ),
+                        %s
                     from cutoff
                     returning id, expected_message_count
                     """,
@@ -1625,6 +1642,7 @@ async def start_chat_report(request: Request):
                         target_name,
                         target_username,
                         chat_id,
+                        reason,
                     ),
                 )
                 report = cursor.fetchone()
@@ -1824,7 +1842,7 @@ async def complete_chat_report(request: Request):
                         detail=f"Передана не вся переписка: {len(evidence)} из {expected}.",
                     )
 
-    transcript = "\n\n".join(report_evidence_line(row) for row in evidence) or "Переписка пуста."
+    transcript = EVIDENCE_SEPARATOR.join(report_evidence_line(row) for row in evidence) or "💬 Переписка пуста."
     if len(transcript.encode("utf-8")) > 45_000_000:
         raise HTTPException(status_code=413, detail="Переписка слишком большая для отправки в Telegram.")
     delivery = await asyncio.to_thread(send_moderation_report, report, transcript)

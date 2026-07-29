@@ -202,10 +202,11 @@ const errorText = document.querySelector("[data-error-text]");
 const secondaryScreens = new Set(["language", "country"]);
 const standalonePagePaths = new Map([
   ["policy", "/privacy"],
+  ["moderation", "/moderation"],
   ["terms", "/terms"],
   ["help", "/help"]
 ]);
-const standaloneRoutePaths = new Set(["privacy", "policy", "terms", "agreement", "help"]);
+const standaloneRoutePaths = new Set(["privacy", "policy", "moderation", "terms", "agreement", "help"]);
 const systemRouteChatIds = new Map([
   ["verificationcodes_bot", "yachat-codes"],
   ["yachat_channel", "yachat-channel"]
@@ -708,9 +709,21 @@ const translations = {
     reportUserHint: "Модератор получит всю переписку, включая удалённые сообщения.",
     reportMessageConfirm: "Отправить жалобу на это сообщение?",
     reportChatConfirm: "Отправить модератору всю переписку с {name}, включая удалённые сообщения?",
+    reportReasonTitle: "Причина жалобы",
+    reportReasonMessageHint: "Коротко объясните, что нарушено в этом сообщении.",
+    reportReasonChatHint: "Коротко объясните, что нарушено в переписке с {name}.",
+    reportReasonLabel: "Что произошло",
+    reportReasonPlaceholder: "Например: угрозы, мошенничество или нежелательная рассылка",
+    reportReasonMinimum: "Минимум 3 символа",
+    reportReasonRequired: "Укажите причину минимум из 3 символов.",
+    reportReasonSubmit: "Отправить жалобу",
+    moderationPolicyLink: "Правила модерации",
     reportSending: "Отправляем жалобу…",
     reportSent: "Жалоба отправлена",
     reportFailed: "Не удалось отправить жалобу",
+    deletedAccountTitle: "Аккаунт удалён",
+    deletedAccountSubtitle: "Заблокирован за нарушение правил",
+    deletedAccountNotice: "Пользователь заблокирован из-за нарушения правил платформы. В целях безопасности переписка была удалена.",
     feedbackActionFailed: "Не удалось выполнить действие",
     feedbackSendFailed: "Сообщение не отправлено",
     messageSending: "Отправляется",
@@ -1062,9 +1075,21 @@ const translations = {
     reportUserHint: "A moderator will receive the full conversation, including deleted messages.",
     reportMessageConfirm: "Report this message?",
     reportChatConfirm: "Send the full conversation with {name}, including deleted messages, to a moderator?",
+    reportReasonTitle: "Reason for report",
+    reportReasonMessageHint: "Briefly explain what this message violates.",
+    reportReasonChatHint: "Briefly explain what the conversation with {name} violates.",
+    reportReasonLabel: "What happened",
+    reportReasonPlaceholder: "For example: threats, fraud, or unwanted spam",
+    reportReasonMinimum: "At least 3 characters",
+    reportReasonRequired: "Enter a reason with at least 3 characters.",
+    reportReasonSubmit: "Send report",
+    moderationPolicyLink: "Moderation rules",
     reportSending: "Sending report…",
     reportSent: "Report sent",
     reportFailed: "Could not send the report",
+    deletedAccountTitle: "Deleted account",
+    deletedAccountSubtitle: "Blocked for violating platform rules",
+    deletedAccountNotice: "This user was blocked for violating platform rules. For safety, the conversation history was removed.",
     feedbackActionFailed: "Could not complete the action",
     feedbackSendFailed: "Message was not sent",
     messageSending: "Sending",
@@ -1636,6 +1661,10 @@ function getChatAvatarText(chat) {
 }
 
 function getChatTitle(chat) {
+  if (chat?.deletedAccount) {
+    return t("deletedAccountTitle");
+  }
+
   if (chat?.id === "yachat-favorites") {
     return t("savedMessages");
   }
@@ -1653,6 +1682,10 @@ function getChatTitle(chat) {
 }
 
 function getChatSubtitle(chat) {
+  if (chat?.deletedAccount) {
+    return t("deletedAccountSubtitle");
+  }
+
   if (chat?.id === "yachat-favorites") {
     return t("savedMessagesSubtitle");
   }
@@ -2093,7 +2126,7 @@ function canSendToChat(chat) {
     return true;
   }
 
-  return chat.canSend !== false;
+  return chat.deletedAccount !== true && chat.canSend !== false;
 }
 
 function canEditActiveChat(chat) {
@@ -2172,15 +2205,21 @@ function renderActiveChat() {
   dialogAvatar.innerHTML = avatarContent;
   dialogIntroAvatar.innerHTML = avatarContent;
   dialogIntroAvatar.className = `dialog-intro-avatar${avatarModifier}`;
-  dialogIntroTitle.textContent = chat.id === "yachat-favorites"
+  dialogIntroTitle.textContent = chat.deletedAccount
+    ? t("deletedAccountTitle")
+    : chat.id === "yachat-favorites"
     ? getChatTitle(chat)
     : t("continueChat", { name: getChatTitle(chat) });
   const blockedText = chat.blockedByMe
     ? t("blockedByMeComposer")
     : chat.blockedMe
       ? t("blockedMeComposer")
+      : chat.deletedAccount
+        ? t("deletedAccountNotice")
       : "";
-  dialogIntroText.textContent = chat.id === "yachat-favorites"
+  dialogIntroText.textContent = chat.deletedAccount
+    ? t("deletedAccountNotice")
+    : chat.id === "yachat-favorites"
     ? getChatSubtitle(chat)
     : blockedText || (chat.locked ? t("lockedChat") : t("writeMessage"));
   if (dialogIntro) {
@@ -2376,6 +2415,17 @@ function renderMessages() {
   const items = [];
 
   displayedMessages().forEach((message) => {
+    if (message.systemNotice) {
+      items.push(`
+        <aside class="chat-safety-notice" role="status">
+          <span class="chat-safety-notice-icon">${iconSvg("shield-check")}</span>
+          <strong>${escapeHtml(t("deletedAccountTitle"))}</strong>
+          <p>${escapeHtml(cleanDisplayText(message.text, t("deletedAccountNotice")))}</p>
+        </aside>
+      `);
+      return;
+    }
+
     const mine = message.author === "user";
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     const text = cleanDisplayText(message.text, message.text ? t("damagedText") : "");
@@ -2752,12 +2802,136 @@ async function markMessageUnread(messageId) {
   renderChatList();
 }
 
+let reportReasonResolver = null;
+
+function closeReportReasonDialog(value = null) {
+  const layer = document.querySelector("[data-report-reason-layer]");
+  if (layer) {
+    layer.hidden = true;
+    layer.classList.remove("is-visible");
+  }
+  const resolve = reportReasonResolver;
+  reportReasonResolver = null;
+  resolve?.(value);
+}
+
+function ensureReportReasonDialog() {
+  let layer = document.querySelector("[data-report-reason-layer]");
+  if (layer) {
+    return layer;
+  }
+
+  layer = document.createElement("div");
+  layer.className = "report-reason-layer";
+  layer.dataset.reportReasonLayer = "";
+  layer.hidden = true;
+  layer.innerHTML = `
+    <form class="report-reason-card" data-report-reason-form role="dialog" aria-modal="true" aria-labelledby="report-reason-title">
+      <header>
+        <span class="report-reason-mark">${iconSvg("flag")}</span>
+        <div>
+          <h2 id="report-reason-title">${escapeHtml(t("reportReasonTitle"))}</h2>
+          <p data-report-reason-hint></p>
+        </div>
+        <button class="icon-button" type="button" data-report-reason-cancel aria-label="${escapeHtml(t("cancel"))}">
+          ${iconSvg("x")}
+        </button>
+      </header>
+      <label class="report-reason-field">
+        <span>${escapeHtml(t("reportReasonLabel"))}</span>
+        <textarea rows="4" maxlength="1000" autocomplete="off" enterkeyhint="done" placeholder="${escapeHtml(t("reportReasonPlaceholder"))}" data-report-reason-input></textarea>
+      </label>
+      <div class="report-reason-meta">
+        <span class="report-reason-error" data-report-reason-error>${escapeHtml(t("reportReasonMinimum"))}</span>
+        <output data-report-reason-count>0/1000</output>
+      </div>
+      <a class="report-policy-link" href="/moderation" target="_blank" rel="noopener noreferrer">${escapeHtml(t("moderationPolicyLink"))}</a>
+      <div class="report-reason-actions">
+        <button class="panel-primary is-secondary" type="button" data-report-reason-cancel>${escapeHtml(t("cancel"))}</button>
+        <button class="panel-primary is-danger" type="submit" data-report-reason-submit disabled>${iconSvg("flag", "button-icon")}<span>${escapeHtml(t("reportReasonSubmit"))}</span></button>
+      </div>
+    </form>
+  `;
+  document.body.append(layer);
+
+  const form = layer.querySelector("[data-report-reason-form]");
+  const input = layer.querySelector("[data-report-reason-input]");
+  const submit = layer.querySelector("[data-report-reason-submit]");
+  const count = layer.querySelector("[data-report-reason-count]");
+  const error = layer.querySelector("[data-report-reason-error]");
+
+  input?.addEventListener("input", () => {
+    const length = input.value.trim().length;
+    if (count) count.textContent = `${input.value.length}/1000`;
+    if (submit) submit.disabled = length < 3;
+    if (error) {
+      error.textContent = length > 0 && length < 3 ? t("reportReasonRequired") : t("reportReasonMinimum");
+      error.classList.toggle("is-error", length > 0 && length < 3);
+    }
+  });
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const reason = String(input?.value || "").trim();
+    if (reason.length < 3) {
+      input?.focus({ preventScroll: true });
+      error?.classList.add("is-error");
+      if (error) error.textContent = t("reportReasonRequired");
+      return;
+    }
+    closeReportReasonDialog(reason);
+  });
+  layer.querySelectorAll("[data-report-reason-cancel]").forEach((button) => {
+    button.addEventListener("click", () => closeReportReasonDialog(null));
+  });
+  layer.addEventListener("click", (event) => {
+    if (event.target === layer) closeReportReasonDialog(null);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !layer.hidden) {
+      event.preventDefault();
+      closeReportReasonDialog(null);
+    }
+  });
+  return layer;
+}
+
+function requestReportReason({ kind, name = "" }) {
+  if (reportReasonResolver) {
+    closeReportReasonDialog(null);
+  }
+  const layer = ensureReportReasonDialog();
+  const input = layer.querySelector("[data-report-reason-input]");
+  const hint = layer.querySelector("[data-report-reason-hint]");
+  const submit = layer.querySelector("[data-report-reason-submit]");
+  const error = layer.querySelector("[data-report-reason-error]");
+  const count = layer.querySelector("[data-report-reason-count]");
+  if (input) input.value = "";
+  if (hint) {
+    hint.textContent = kind === "chat"
+      ? t("reportReasonChatHint", { name })
+      : t("reportReasonMessageHint");
+  }
+  if (submit) submit.disabled = true;
+  if (error) {
+    error.textContent = t("reportReasonMinimum");
+    error.classList.remove("is-error");
+  }
+  if (count) count.textContent = "0/1000";
+  layer.hidden = false;
+  layer.classList.add("is-visible");
+  input?.focus({ preventScroll: true });
+  return new Promise((resolve) => {
+    reportReasonResolver = resolve;
+  });
+}
+
 async function reportSingleMessage(message) {
   const chat = getActiveChat();
   if (!chat || !message || message.author === "user" || !yachatApi.messenger?.reportMessage) {
     return false;
   }
-  if (!window.confirm(t("reportMessageConfirm"))) {
+  const reason = await requestReportReason({ kind: "message" });
+  if (!reason) {
     return false;
   }
   await yachatApi.messenger.reportMessage({
@@ -2771,7 +2945,8 @@ async function reportSingleMessage(message) {
       mime: item.mime || "application/octet-stream",
       size: Number(item.size) || 0
     })) : [],
-    e2eeVerified: message.e2eeVerified === true
+    e2eeVerified: message.e2eeVerified === true,
+    reason
   });
   return true;
 }
@@ -2781,7 +2956,8 @@ async function reportActiveChat(button) {
   if (!chat || chat.kind !== "private" || chat.pendingSearchUserId) {
     return;
   }
-  if (!window.confirm(t("reportChatConfirm", { name: getChatTitle(chat) }))) {
+  const reason = await requestReportReason({ kind: "chat", name: getChatTitle(chat) });
+  if (!reason) {
     return;
   }
 
@@ -2791,7 +2967,7 @@ async function reportActiveChat(button) {
     button.textContent = t("reportSending");
   }
   try {
-    const started = await yachatApi.messenger.startChatReport({ chatId: chat.id });
+    const started = await yachatApi.messenger.startChatReport({ chatId: chat.id, reason });
     let offset = 0;
     while (offset !== null) {
       const page = await yachatApi.messenger.reportEvidence({
@@ -4913,7 +5089,7 @@ function renderPanel() {
       </section>
     `;
 
-    const blockSection = chat.kind === "private" && !chat.pendingSearchUserId ? `
+    const blockSection = chat.kind === "private" && !chat.pendingSearchUserId && !chat.deletedAccount ? `
       <section class="panel-section">
         <h3>${t(chat.blockedByMe ? "unblockUser" : "blockUser")}</h3>
         <p>${t(chat.blockedByMe ? "unblockUserHint" : "blockUserHint")}</p>
@@ -4923,7 +5099,7 @@ function renderPanel() {
       </section>
     ` : "";
 
-    const reportSection = chat.kind === "private" && !chat.pendingSearchUserId ? `
+    const reportSection = chat.kind === "private" && !chat.pendingSearchUserId && !chat.deletedAccount ? `
       <section class="panel-section">
         <h3>${t("reportUser")}</h3>
         <p>${t("reportUserHint")}</p>
@@ -5060,6 +5236,7 @@ function renderPanel() {
         </div>
         <div class="panel-actions">
           <button type="button" data-panel-action="open-policy">${iconSvg("shield-check")}<span>Политика</span></button>
+          <button type="button" data-panel-action="open-moderation">${iconSvg("flag")}<span>${t("moderationPolicyLink")}</span></button>
           <button type="button" data-panel-action="open-terms">${iconSvg("file-text")}<span>Условия</span></button>
         </div>
       </section>
@@ -9159,6 +9336,11 @@ panelBody?.addEventListener("click", async (event) => {
 
   if (action === "open-policy") {
     openStandalonePage("policy");
+    return;
+  }
+
+  if (action === "open-moderation") {
+    openStandalonePage("moderation");
     return;
   }
 

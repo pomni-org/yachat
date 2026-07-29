@@ -180,7 +180,15 @@
         event.stopImmediatePropagation();
         renderDeviceLoginScreen();
         setScreen?.("qr");
-        requestAnimationFrame(() => CODE_SCREEN?.querySelector("[data-device-code-input]")?.focus());
+        const input = CODE_SCREEN?.querySelector("[data-device-code-input]");
+        input?.focus({ preventScroll: true });
+        requestAnimationFrame(() => input?.select());
+        return;
+      }
+
+      const codeShell = event.target.closest(".device-code-input-shell");
+      if (codeShell && !event.target.closest("[data-device-code-input]")) {
+        codeShell.querySelector("[data-device-code-input]")?.focus({ preventScroll: true });
         return;
       }
 

@@ -6,7 +6,6 @@ import html
 import json
 import os
 import re
-import secrets
 import urllib.error
 import urllib.request
 import uuid
@@ -26,6 +25,9 @@ BAN_DURATIONS = {
     "7d": ("7 дней", timedelta(days=7)),
     "30d": ("30 дней", timedelta(days=30)),
 }
+TELEGRAM_MESSAGE_LIMIT = 4096
+TELEGRAM_TRANSCRIPT_CHUNK = 3300
+EVIDENCE_SEPARATOR = "\n\n────────\n\n"
 
 
 def moderation_chat_id() -> str:
@@ -81,76 +83,6 @@ def _telegram_api(method: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {}
 
 
-def _multipart_body(
-    fields: dict[str, str],
-    file_field: str,
-    filename: str,
-    content: bytes,
-    content_type: str,
-) -> tuple[bytes, str]:
-    boundary = f"----YaChat{secrets.token_hex(16)}"
-    chunks: list[bytes] = []
-    for name, value in fields.items():
-        chunks.extend(
-            [
-                f"--{boundary}\r\n".encode(),
-                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),
-                value.encode("utf-8"),
-                b"\r\n",
-            ]
-        )
-    safe_filename = re.sub(r"[^A-Za-z0-9._-]+", "_", filename) or "report.txt"
-    chunks.extend(
-        [
-            f"--{boundary}\r\n".encode(),
-            (
-                f'Content-Disposition: form-data; name="{file_field}"; '
-                f'filename="{safe_filename}"\r\n'
-            ).encode(),
-            f"Content-Type: {content_type}\r\n\r\n".encode(),
-            content,
-            b"\r\n",
-            f"--{boundary}--\r\n".encode(),
-        ]
-    )
-    return b"".join(chunks), boundary
-
-
-def _telegram_document(
-    chat_id: str,
-    *,
-    filename: str,
-    content: str,
-    reply_to_message_id: int,
-) -> bool:
-    token = _telegram_token()
-    if not token:
-        return False
-    body, boundary = _multipart_body(
-        {
-            "chat_id": chat_id,
-            "reply_to_message_id": str(reply_to_message_id),
-            "disable_content_type_detection": "true",
-        },
-        "document",
-        filename,
-        content.encode("utf-8"),
-        "text/plain; charset=utf-8",
-    )
-    request = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendDocument",
-        data=body,
-        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            result = json.loads(response.read().decode("utf-8"))
-            return bool(result.get("ok"))
-    except (OSError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
-        return False
-
-
 def _person(display_name: Any, username: Any) -> str:
     name = str(display_name or "").strip() or "Без имени"
     handle = str(username or "").strip().lstrip("@")
@@ -187,52 +119,122 @@ def _report_header(report: dict[str, Any], evidence_text: str = "") -> str:
     else:
         created_text = str(created or "")
     kind = "на сообщение" if report.get("kind") == "message" else "на переписку"
+    reason = str(report.get("reason") or "").strip() or "Причина не указана"
     lines = [
-        "<b>Жалоба в ЯЧате</b>",
+        "🚨 <b>Новая жалоба в ЯЧате</b>",
+        "<i>Проверьте контекст и выберите решение кнопками ниже.</i>",
         "",
-        f"<b>Тип:</b> {html.escape(kind)}",
-        f"<b>На кого:</b> {html.escape(_person(report.get('reported_display_name'), report.get('reported_username')))}",
-        f"<b>Кем подана:</b> {html.escape(_person(report.get('reporter_display_name'), report.get('reporter_username')))}",
-        f"<b>Время:</b> {html.escape(created_text)} (Новосибирск)",
-        f"<b>ID жалобы:</b> <code>{html.escape(str(report.get('id') or ''))}</code>",
+        f"📌 <b>Тип:</b> {html.escape(kind)}",
+        f"🎯 <b>На кого:</b> {html.escape(_person(report.get('reported_display_name'), report.get('reported_username')))}",
+        f"👤 <b>Кем подана:</b> {html.escape(_person(report.get('reporter_display_name'), report.get('reporter_username')))}",
+        f"🕓 <b>Время:</b> {html.escape(created_text)} (Новосибирск)",
+        "",
+        "📝 <b>Причина пользователя:</b>",
+        f"<blockquote>{html.escape(reason)}</blockquote>",
+        f"🔎 <b>ID:</b> <code>{html.escape(str(report.get('id') or ''))}</code>",
     ]
-    if report.get("kind") == "message":
-        if len(evidence_text) <= 2800:
-            lines.extend(["", "<b>Сообщение:</b>", f"<pre>{html.escape(evidence_text or 'Без текста')}</pre>"])
+    if report.get("kind") == "chat":
+        count = len([part for part in evidence_text.split(EVIDENCE_SEPARATOR) if part.strip()])
+        lines.extend([
+            "",
+            f"💬 <b>История:</b> {count} сообщ.",
+            "<i>Включая сообщения, удалённые пользователями. История идёт ответами на эту карточку.</i>",
+        ])
+    elif evidence_text:
+        evidence_block = f"💬 <b>Сообщение:</b>\n<blockquote>{html.escape(evidence_text)}</blockquote>"
+        if len("\n".join(lines)) + len(evidence_block) + 2 < TELEGRAM_MESSAGE_LIMIT:
+            lines.extend(["", evidence_block])
         else:
-            lines.extend(["", "Полное сообщение приложено TXT-файлом."])
-    else:
-        lines.extend(["", "Полная переписка, включая удалённые сообщения, приложена TXT-файлом."])
+            lines.extend(["", "<i>Сообщение идёт ответом на эту карточку.</i>"])
     return "\n".join(lines)
+
+
+def _split_evidence_entry(entry: str, limit: int = TELEGRAM_TRANSCRIPT_CHUNK) -> list[str]:
+    source = str(entry or "").strip() or "💬 Без текста"
+    if len(html.escape(source)) <= limit:
+        return [source]
+    parts: list[str] = []
+    remaining = source
+    while remaining:
+        high = min(len(remaining), limit)
+        low = max(1, high // 2)
+        while low < high:
+            middle = (low + high + 1) // 2
+            if len(html.escape(remaining[:middle])) <= limit:
+                low = middle
+            else:
+                high = middle - 1
+        cut = low
+        newline = remaining.rfind("\n", 0, cut)
+        if newline >= max(1, cut // 2):
+            cut = newline
+        parts.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    return [part for part in parts if part]
+
+
+def _transcript_chunks(transcript: str) -> list[str]:
+    entries = [part.strip() for part in str(transcript or "").split(EVIDENCE_SEPARATOR) if part.strip()]
+    if not entries:
+        entries = ["💬 Переписка пуста."]
+    blocks = [
+        f"<blockquote>{html.escape(part)}</blockquote>"
+        for entry in entries
+        for part in _split_evidence_entry(entry)
+    ]
+    chunks: list[str] = []
+    current: list[str] = []
+    current_length = 0
+    for block in blocks:
+        extra = len(block) + (2 if current else 0)
+        if current and current_length + extra > TELEGRAM_TRANSCRIPT_CHUNK:
+            chunks.append("\n\n".join(current))
+            current = []
+            current_length = 0
+        current.append(block)
+        current_length += len(block) + (2 if current_length else 0)
+    if current:
+        chunks.append("\n\n".join(current))
+    total = len(chunks)
+    return [
+        f"💬 <b>Материалы жалобы · {index}/{total}</b>\n{chunk}"
+        for index, chunk in enumerate(chunks, start=1)
+    ]
 
 
 def send_moderation_report(report: dict[str, Any], transcript: str = "") -> tuple[str, int] | None:
     chat_id = moderation_chat_id()
     if not chat_id:
         return None
+    header = _report_header(report, transcript)
     result = _telegram_api(
         "sendMessage",
         {
             "chat_id": chat_id,
-            "text": _report_header(report, transcript),
+            "text": header,
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
-            "reply_markup": _report_keyboard(str(report["id"])),
         },
     )
     message_id = int(result.get("result", {}).get("message_id") or 0)
     if not message_id:
         return None
-    if report.get("kind") == "chat" or len(transcript) > 2800:
-        filename = f"yachat-report-{report['id']}.txt"
-        if not _telegram_document(
-            chat_id,
-            filename=filename,
-            content=transcript,
-            reply_to_message_id=message_id,
-        ):
+    transcript_inline = report.get("kind") == "message" and "💬 <b>Сообщение:</b>" in header
+    for chunk in [] if transcript_inline else _transcript_chunks(transcript):
+        evidence_result = _telegram_api(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "reply_to_message_id": message_id,
+                "text": chunk,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            },
+        )
+        if not int(evidence_result.get("result", {}).get("message_id") or 0):
             _edit_keyboard(chat_id, message_id, None)
             return None
+    _edit_keyboard(chat_id, message_id, _report_keyboard(str(report["id"])))
     return chat_id, message_id
 
 
@@ -325,8 +327,78 @@ def _delete_permanently_banned_account(
         """,
         (contact_key, str(user.get("contact") or ""), report_id, moderator_id),
     )
-    cursor.execute("delete from yachat_messages where sender_id = %s", (user_id,))
-    cursor.execute("delete from public_users where id = %s", (user_id,))
+    cursor.execute(
+        """
+        delete from yachat_messages
+        where sender_id = %s
+           or chat_id in (
+                select cm.chat_id
+                from yachat_chat_members cm
+                join yachat_chats c on c.id = cm.chat_id
+                where cm.user_id = %s and c.kind = 'private'
+           )
+        """,
+        (user_id, user_id),
+    )
+    for table, column in (
+        ("yachat_sessions", "user_id"),
+        ("yachat_push_subscriptions", "user_id"),
+        ("yachat_push_delivery_dedup", "user_id"),
+        ("yachat_device_codes", "user_id"),
+        ("yachat_user_settings", "user_id"),
+        ("yachat_system_messages", "user_id"),
+        ("yachat_qr_sessions", "account_id"),
+        ("yachat_identity_challenges", "user_id"),
+        ("yachat_identity_transactions", "user_id"),
+        ("yachat_digital_id_vaults", "user_id"),
+        ("yachat_e2ee_devices", "user_id"),
+        ("yachat_message_hidden", "user_id"),
+    ):
+        cursor.execute(f"delete from {table} where {column} = %s", (user_id,))
+    cursor.execute(
+        """
+        update yachat_e2ee_one_time_prekeys
+        set claimed_by_user_id = null, claimed_by_device_id = null
+        where claimed_by_user_id = %s
+        """,
+        (user_id,),
+    )
+    cursor.execute("delete from yachat_telegram_links where contact_key = %s", (contact_key,))
+    cursor.execute(
+        "delete from yachat_user_blocks where blocker_id = %s or blocked_id = %s",
+        (user_id, user_id),
+    )
+    cursor.execute(
+        """
+        delete from yachat_chat_members cm
+        using yachat_chats c
+        where cm.chat_id = c.id and cm.user_id = %s and c.kind <> 'private'
+        """,
+        (user_id,),
+    )
+    cursor.execute(
+        "update yachat_chats set owner_id = null, updated_at = now() where owner_id = %s",
+        (user_id,),
+    )
+    cursor.execute(
+        """
+        update public_users
+        set contact = '',
+            contact_key = %s,
+            username = '',
+            preview_name = 'Аккаунт удалён',
+            display_name = 'Аккаунт удалён',
+            bio = '',
+            avatar_url = '',
+            is_public = false,
+            deleted_at = now(),
+            deletion_reason = 'permanent_moderation_ban',
+            deleted_by_report_id = %s,
+            updated_at = now()
+        where id = %s
+        """,
+        (f"deleted:{user_id}", report_id, user_id),
+    )
     cursor.execute(
         """
         delete from yachat_chats c
@@ -461,6 +533,6 @@ def handle_moderation_callback(update: dict[str, Any]) -> bool:
                 )
 
     _edit_keyboard(chat_id, message_id, None)
-    label = "вечный бан; аккаунт и сообщения удалены" if permanent else f"бан на {BAN_DURATIONS[duration][0]}"
+    label = "вечный бан; аккаунт обезличен, а переписки удалены" if permanent else f"бан на {BAN_DURATIONS[duration][0]}"
     _answer_callback(callback_id, f"Выдан {label}.")
     return True
