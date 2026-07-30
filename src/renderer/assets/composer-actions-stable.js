@@ -178,12 +178,7 @@
     try {
       if (typeof messagePreviewText === "function") return messagePreviewText(message);
     } catch {}
-    const text = String(message?.text || "").trim();
-    if (text) return text;
-    const item = Array.isArray(message?.attachments) ? message.attachments[0] : null;
-    if (item?.kind === "image") return "Фото";
-    if (item?.kind === "video") return "Видео";
-    return item ? "Файл" : "";
+    return window.yachatMessagePreview?.text(message) || "";
   }
 
   function timeOf(value) {

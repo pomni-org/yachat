@@ -2269,23 +2269,8 @@ function renderAttachment(attachment) {
 }
 
 function messagePreviewText(message) {
-  const text = cleanDisplayText(message?.text, "");
-  if (text) {
-    return text;
-  }
-
-  const attachment = Array.isArray(message?.attachments) ? message.attachments[0] : null;
-  if (attachment?.kind === "image") {
-    return state.language === "en" ? "Photo" : "Фото";
-  }
-  if (attachment?.kind === "video") {
-    return state.language === "en" ? "Video" : "Видео";
-  }
-  if (attachment) {
-    return state.language === "en" ? "File" : "Файл";
-  }
-
-  return "";
+  return window.yachatMessagePreview?.text(message)
+    || cleanDisplayText(message?.text, "");
 }
 
 function renderMessageReference(message, className = "message-reference") {
@@ -3529,6 +3514,10 @@ async function refreshMessengerFromServer() {
 
 function startMessengerPolling() {
   stopMessengerPolling();
+  if (window.yachatRealtime?.isEnabled?.() && !window.yachatRealtime.shouldPoll()) {
+    window.yachatRealtime.ensureConnected?.();
+    return;
+  }
 
   const tick = async () => {
     try {
@@ -3536,7 +3525,13 @@ function startMessengerPolling() {
     } catch {
       // Keep the UI alive during transient serverless cold starts or network loss.
     } finally {
-      if (state.account) {
+      if (
+        state.account
+        && (
+          !window.yachatRealtime?.isEnabled?.()
+          || window.yachatRealtime.shouldPoll()
+        )
+      ) {
         state.messengerPollTimer = window.setTimeout(tick, messengerPollDelay());
       }
     }
@@ -6895,14 +6890,6 @@ function createLocalYachatApi() {
     }).map((chat) => {
       const messages = localVisibleMessagesForAccount(data.messages[chat.id] || [], account);
       const last = messages[messages.length - 1];
-      const attachment = last?.attachments?.[0];
-      const attachmentText = attachment?.kind === "image"
-        ? "Фото"
-        : attachment?.kind === "video"
-          ? "Видео"
-          : attachment
-          ? "Файл"
-          : "";
       const ids = localParticipantIds(chat);
       const participantProfiles = chat.participantProfiles || {};
       const otherId = ids.find((id) => id !== account?.id) || ids[0];
@@ -6922,7 +6909,7 @@ function createLocalYachatApi() {
         profileUsername: chat.kind === "private" && other?.username ? other.username : chat.profileUsername || "",
         profileAbout: chat.kind === "private" && other ? cleanDisplayText(other.bio, "") : cleanDisplayText(chat.profileAbout || chat.description, ""),
         profileKindLabel: chat.kind === "private" || chat.kind === "saved" ? "" : chat.profileKindLabel || (chat.kind === "group" ? t("groupChat") : ""),
-        lastMessage: last?.text || attachmentText,
+        lastMessage: messagePreviewText(last),
         lastAt: last?.createdAt || chat.createdAt,
         unread: countUnreadMessages(chat, messages)
       };

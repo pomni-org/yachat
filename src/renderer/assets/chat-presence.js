@@ -1,8 +1,7 @@
 (() => {
   "use strict";
 
-  const PRESENCE_POLL_MS = 600;
-  const PRESENCE_BACKGROUND_POLL_MS = 4000;
+  const PRESENCE_FALLBACK_POLL_MS = 30000;
   const TYPING_RENEW_MS = 3000;
   const TYPING_STOP_DELAY_MS = 850;
   const TYPING_MIN_PULSE_MS = 1500;
@@ -16,7 +15,8 @@
     typingSent: false,
     typingStartedAt: 0,
     requestId: 0,
-    rendering: false
+    rendering: false,
+    typingExpiryTimers: new Map()
   };
 
   const subtitleTarget = document.querySelector("[data-dialog-subtitle]");
@@ -50,6 +50,21 @@
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {})
     };
+  }
+
+  function realtimeEnabled() {
+    return Boolean(window.yachatRealtime?.isEnabled?.());
+  }
+
+  function realtimeReady() {
+    return Boolean(
+      window.yachatRealtime?.isReady?.()
+      && window.yachatRealtime?.status?.() !== "degraded"
+    );
+  }
+
+  function realtimeShouldPoll() {
+    return Boolean(window.yachatRealtime?.shouldPoll?.());
   }
 
   function pluralSubscribers(count) {
@@ -221,6 +236,9 @@
       renderPresenceUi();
       return;
     }
+    if (realtimeEnabled() && !realtimeShouldPoll()) {
+      return;
+    }
 
     const requestId = ++presenceState.requestId;
     const chatId = chat.id;
@@ -251,13 +269,15 @@
   }
 
   function presencePollDelay() {
-    return document.visibilityState === "visible"
-      ? PRESENCE_POLL_MS
-      : PRESENCE_BACKGROUND_POLL_MS;
+    return PRESENCE_FALLBACK_POLL_MS;
   }
 
   function schedulePresencePoll(delay = presencePollDelay()) {
     window.clearTimeout(presenceState.pollTimer);
+    presenceState.pollTimer = null;
+    if (realtimeEnabled() && !realtimeShouldPoll()) {
+      return;
+    }
     presenceState.pollTimer = window.setTimeout(async () => {
       await fetchPresence();
       schedulePresencePoll(presencePollDelay());
@@ -266,6 +286,17 @@
 
   async function postTyping(chatId, typing, keepalive = false) {
     if (!chatId || !authToken()) {
+      return;
+    }
+    if (realtimeReady()) {
+      try {
+        await window.yachatRealtime.typing(chatId, typing);
+      } catch {
+        // Typing is transient. Reconnect will restore the live channel.
+      }
+      return;
+    }
+    if (realtimeEnabled() && !realtimeShouldPoll()) {
       return;
     }
     try {
@@ -347,7 +378,11 @@
     if (event.target.closest("[data-chat-id]")) {
       stopTyping({ force: true });
       window.setTimeout(() => {
-        void fetchPresence();
+        if (realtimeReady()) {
+          void window.yachatRealtime.setActive(activeChat()?.id || "").catch(() => {});
+        } else {
+          void fetchPresence();
+        }
       }, 80);
     }
   }, true);
@@ -355,10 +390,14 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stopTyping({ keepalive: true, force: true });
-      schedulePresencePoll(PRESENCE_BACKGROUND_POLL_MS);
+      schedulePresencePoll(PRESENCE_FALLBACK_POLL_MS);
     } else {
-      void fetchPresence();
-      schedulePresencePoll(PRESENCE_POLL_MS);
+      if (realtimeReady()) {
+        void window.yachatRealtime.setActive(activeChat()?.id || "").catch(() => {});
+      } else {
+        void fetchPresence();
+      }
+      schedulePresencePoll(PRESENCE_FALLBACK_POLL_MS);
     }
   });
   window.addEventListener("pagehide", () => stopTyping({ keepalive: true, force: true }));
@@ -373,6 +412,106 @@
     : null;
   messagesObserver?.observe(messagesTarget, { childList: true });
 
-  void fetchPresence();
-  schedulePresencePoll();
+  document.addEventListener("yachat:realtime-presence", (event) => {
+    const detail = event.detail && typeof event.detail === "object" ? event.detail : {};
+    const chatId = String(detail.chatId || "");
+    if (!chatId || activeChat()?.id !== chatId) {
+      return;
+    }
+    presenceState.chatId = chatId;
+    presenceState.snapshot = {
+      ...(presenceState.snapshot || {}),
+      chatId,
+      status: String(detail.status || "long_ago"),
+      subscriberCount: Number(detail.subscriberCount || 0),
+      typingUsers: Array.isArray(presenceState.snapshot?.typingUsers)
+        ? presenceState.snapshot.typingUsers
+        : []
+    };
+    renderPresenceUi();
+  });
+
+  document.addEventListener("yachat:realtime-typing", (event) => {
+    const detail = event.detail && typeof event.detail === "object" ? event.detail : {};
+    const chatId = String(detail.chatId || "");
+    const userId = String(detail.userId || "");
+    if (
+      !chatId
+      || !userId
+      || activeChat()?.id !== chatId
+      || userId === String(state?.account?.id || "")
+    ) {
+      return;
+    }
+
+    const timerKey = `${chatId}:${userId}`;
+    window.clearTimeout(presenceState.typingExpiryTimers.get(timerKey));
+    presenceState.typingExpiryTimers.delete(timerKey);
+    const currentUsers = Array.isArray(presenceState.snapshot?.typingUsers)
+      ? presenceState.snapshot.typingUsers
+      : [];
+    const withoutUser = currentUsers.filter((item) => String(item?.id || "") !== userId);
+    const typingUsers = detail.typing
+      ? [
+          ...withoutUser,
+          {
+            id: userId,
+            displayName: String(detail.displayName || "")
+          }
+        ]
+      : withoutUser;
+
+    presenceState.chatId = chatId;
+    presenceState.snapshot = {
+      ...(presenceState.snapshot || {}),
+      chatId,
+      typingUsers
+    };
+    renderPresenceUi();
+
+    if (detail.typing) {
+      const timer = window.setTimeout(() => {
+        presenceState.typingExpiryTimers.delete(timerKey);
+        if (presenceState.chatId !== chatId) {
+          return;
+        }
+        presenceState.snapshot = {
+          ...(presenceState.snapshot || {}),
+          typingUsers: (
+            Array.isArray(presenceState.snapshot?.typingUsers)
+              ? presenceState.snapshot.typingUsers
+              : []
+          ).filter((item) => String(item?.id || "") !== userId)
+        };
+        renderPresenceUi();
+      }, TYPING_RENEW_MS + 1800);
+      presenceState.typingExpiryTimers.set(timerKey, timer);
+    }
+  });
+
+  document.addEventListener("yachat:realtime-status", (event) => {
+    const status = String(event.detail?.status || "");
+    if (["connected", "ready"].includes(status)) {
+      window.clearTimeout(presenceState.pollTimer);
+      presenceState.pollTimer = null;
+      if (realtimeReady() && activeChat()?.id) {
+        void window.yachatRealtime.setActive(activeChat().id).catch(() => {});
+      }
+      return;
+    }
+    if (event.detail?.shouldPoll) {
+      void fetchPresence();
+      schedulePresencePoll(PRESENCE_FALLBACK_POLL_MS);
+    }
+  });
+
+  window.setTimeout(() => {
+    if (realtimeEnabled()) {
+      window.yachatRealtime.ensureConnected?.();
+      schedulePresencePoll();
+      return;
+    }
+    void fetchPresence();
+    schedulePresencePoll();
+  }, 0);
 })();

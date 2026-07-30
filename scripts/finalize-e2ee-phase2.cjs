@@ -128,7 +128,10 @@ async function patchBrowserRuntime() {
     'bucketPaddedContent(',
     'messageSignatureInput(',
     'ensureDigitalIdVault(',
-    'digitalIdSignatureInput('
+    'digitalIdSignatureInput(',
+    'ensureDecryptionRecord(',
+    'window.yachatMessagePreview?.text(',
+    'window.__yachatE2EETransport = Object.freeze({'
   ];
   required.forEach((marker) => {
     if (!runtime.includes(marker)) throw new Error(`Missing E2EE phase 4 runtime marker: ${marker}`);

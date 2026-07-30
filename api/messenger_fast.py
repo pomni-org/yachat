@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 
 from server.e2ee import attach_e2ee_payload
+from server.message_preview import message_preview_text
 
 from api.index import (
     DELETED_ACCOUNT_NOTICE,
@@ -61,14 +62,13 @@ async def harden_response(request: Request, call_next):
     return response
 
 
-def _attachment_label(kind: str) -> str:
-    if kind == "image":
-        return "Фото"
-    if kind == "video":
-        return "Видео"
-    if kind:
-        return "Файл"
-    return ""
+def _latest_message_data(
+    row: dict[str, Any],
+    current_user_id: str,
+) -> dict[str, Any] | None:
+    if str(row_value(row, "e2ee_mode")) != "encrypted":
+        return None
+    return attach_e2ee_payload(message_payload(row, current_user_id), row)
 
 
 def _compact_profile(row: dict[str, Any], include_avatar: bool) -> dict[str, Any]:
@@ -89,7 +89,7 @@ def _compact_profile(row: dict[str, Any], include_avatar: bool) -> dict[str, Any
 def _latest_system_messages(cursor, user_id: str) -> dict[str, dict[str, Any]]:
     cursor.execute(
         """
-        select distinct on (chat_id) chat_id, text, created_at
+        select distinct on (chat_id) chat_id, text, attachments, created_at
         from yachat_system_messages
         where user_id = %s
           and (chat_id <> 'yachat-channel' or system_kind = 'channel-post')
@@ -164,11 +164,43 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
             cursor.execute(
                 """
                 select distinct on (m.chat_id)
+                    m.id,
                     m.chat_id,
+                    m.sender_id,
                     m.text,
+                    m.formatted_html,
+                    coalesce((
+                        select jsonb_agg(
+                            jsonb_build_object(
+                                'id', attachment.item ->> 'id',
+                                'kind', attachment.item ->> 'kind',
+                                'name', attachment.item ->> 'name',
+                                'mime', attachment.item ->> 'mime',
+                                'size', coalesce(attachment.item ->> 'size', '0')
+                            )
+                            order by attachment.ordinality
+                        )
+                        from jsonb_array_elements(
+                            coalesce(m.attachments, '[]'::jsonb)
+                        ) with ordinality as attachment(item, ordinality)
+                    ), '[]'::jsonb) as attachments,
+                    m.reply_to_message_id,
+                    m.forwarded_from,
                     m.e2ee_mode,
+                    m.e2ee_version,
+                    m.e2ee_ciphertext,
+                    m.e2ee_iv,
+                    m.e2ee_aad,
+                    m.e2ee_envelopes,
+                    m.e2ee_sender_device_id,
+                    m.e2ee_plaintext_digest,
+                    m.e2ee_epoch_id,
+                    m.e2ee_padding_scheme,
+                    m.e2ee_envelope_digest,
+                    m.e2ee_sender_sign_public,
+                    m.e2ee_signature,
                     m.created_at,
-                    coalesce(m.attachments -> 0 ->> 'kind', '') as attachment_kind
+                    m.edited_at
                 from yachat_messages m
                 where m.chat_id = any(%s)
                   and m.deleted_at is null
@@ -329,12 +361,17 @@ def list_user_chats_fast(user_id: str, connection=None) -> list[dict[str, Any]]:
                         "lastMessage": (
                             DELETED_ACCOUNT_NOTICE
                             if deleted_account
-                            else
-                            _attachment_label(str(row_value(last, "attachment_kind")))
-                            or "Защищённое сообщение"
+                            else ""
                             if str(row_value(last, "e2ee_mode")) == "encrypted"
-                            else str(row_value(last, "text"))
-                            or _attachment_label(str(row_value(last, "attachment_kind")))
+                            else message_preview_text(
+                                row_value(last, "text"),
+                                row_value(last, "attachments"),
+                            )
+                        ),
+                        "lastMessageData": (
+                            None
+                            if deleted_account
+                            else _latest_message_data(last, user_id)
                         ),
                         "unread": 0 if deleted_account else unread_by_chat.get(chat_id, 0),
                     }

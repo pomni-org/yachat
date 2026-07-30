@@ -11,6 +11,7 @@ const APP_SCRIPT_TAG = '<script src="/app.js?v=88"></script>';
 const BOOTSTRAP_QUICK_BRIDGE_TAG = '    <script src="/assets/bootstrap-quick-bridge.js?v=88"></script>';
 const ACTIVE_CHAT_GUARD_TAG = '    <script src="/assets/active-chat-identity-guard.js?v=88"></script>';
 const INSTANT_CHAT_LOADING_TAG = '    <script src="/assets/instant-chat-loading.js?v=88"></script>';
+const WEBSOCKET_REALTIME_TAG = '    <script src="/assets/websocket-realtime.js?v=88"></script>';
 const LEGACY_CI_MARKERS = [
   "/assets/composer-delivery-stable.js?v=86",
   "/assets/composer-actions-stable.js?v=86",
@@ -55,7 +56,8 @@ async function validateSpeedRuntimeSyntax() {
   await Promise.all([
     "bootstrap-quick-bridge.js",
     "instant-chat-loading.js",
-    "active-chat-identity-guard.js"
+    "active-chat-identity-guard.js",
+    "websocket-realtime.js"
   ].map((name) => execFileAsync(process.execPath, [
     "--check",
     path.join(publicDir, "assets", name)
@@ -79,7 +81,11 @@ async function patchWebApp() {
     web = web.replace(APP_SCRIPT_TAG, `${BOOTSTRAP_QUICK_BRIDGE_TAG}\n${APP_SCRIPT_TAG}`);
   }
 
-  const missingTailTags = [ACTIVE_CHAT_GUARD_TAG, INSTANT_CHAT_LOADING_TAG]
+  const missingTailTags = [
+    ACTIVE_CHAT_GUARD_TAG,
+    INSTANT_CHAT_LOADING_TAG,
+    WEBSOCKET_REALTIME_TAG
+  ]
     .filter((tag) => !web.includes(tag.trim()));
   if (missingTailTags.length) {
     requireText(web, "</body>", "web body closing tag");
@@ -120,6 +126,7 @@ async function validatePublicBundle() {
     activeChatGuard,
     bootstrapBridge,
     instantChatLoading,
+    websocketRealtime,
     presenceRuntime,
     vercelConfig
   ] = await Promise.all([
@@ -134,6 +141,7 @@ async function validatePublicBundle() {
     read("assets/active-chat-identity-guard.js"),
     read("assets/bootstrap-quick-bridge.js"),
     read("assets/instant-chat-loading.js"),
+    read("assets/websocket-realtime.js"),
     readProject("api/presence_runtime.py"),
     readProject("vercel.json")
   ]);
@@ -147,6 +155,7 @@ async function validatePublicBundle() {
   requireText(privacy, "Vercel Web Analytics", "analytics privacy disclosure");
   requireText(web, 'name="robots" content="noindex, nofollow, noarchive"', "web noindex meta");
   requireText(web, "/assets/private-chat-presence.js?v=88", "v88 private chat runtime");
+  requireText(web, "/assets/message-preview.js?v=88", "shared message preview runtime");
   requireText(web, "/assets/yachat-brand-256.png?v=88", "absolute web brand asset");
   requireText(web, "/assets/privacy-safe-analytics.js?v=88", "privacy-safe analytics sanitizer");
   requireText(web, "/_vercel/insights/script.js", "Vercel analytics script");
@@ -154,8 +163,10 @@ async function validatePublicBundle() {
   requireText(web, BOOTSTRAP_QUICK_BRIDGE_TAG.trim(), "quick bootstrap bridge");
   requireText(web, ACTIVE_CHAT_GUARD_TAG.trim(), "active chat identity guard");
   requireText(web, INSTANT_CHAT_LOADING_TAG.trim(), "instant chat loading runtime");
+  requireText(web, WEBSOCKET_REALTIME_TAG.trim(), "WebSocket realtime runtime");
   requireBefore(web, BOOTSTRAP_QUICK_BRIDGE_TAG.trim(), APP_SCRIPT_TAG, "quick bootstrap before app startup");
   requireBefore(web, ACTIVE_CHAT_GUARD_TAG.trim(), INSTANT_CHAT_LOADING_TAG.trim(), "identity guard before instant loading");
+  requireBefore(web, INSTANT_CHAT_LOADING_TAG.trim(), WEBSOCKET_REALTIME_TAG.trim(), "instant loading before WebSocket transport");
   requireText(activeChatGuard, "lastResolvedChat?.id === state.activeChatId", "active chat snapshot protection");
   requireText(activeChatGuard, 'chat.id === "yachat-favorites"', "favorites identity boundary");
   forbidText(activeChatGuard, "state.chats[0]", "first-chat fallback");
@@ -171,6 +182,10 @@ async function validatePublicBundle() {
   requireText(instantChatLoading, "messageCache", "per-chat message cache");
   requireText(instantChatLoading, "originalShowMessenger", "non-blocking initial shell patch");
   requireText(instantChatLoading, "MIN_ACTIVE_POLL_MS = 1200", "balanced active polling interval");
+  requireText(websocketRealtime, 'new WebSocket(websocketUrl())', "single authenticated WebSocket transport");
+  requireText(websocketRealtime, 'type: "auth"', "WebSocket frame authentication");
+  requireText(websocketRealtime, "FALLBACK_POLL_MS = 30000", "sparse degraded fallback");
+  requireText(websocketRealtime, 'command("messages"', "message loading through WebSocket");
   requireText(presenceRuntime, "yachat_user_presence", "database-backed online presence");
   requireText(presenceRuntime, "yachat_typing", "database-backed typing presence");
   forbidText(presenceRuntime, "from api import presence", "missing legacy presence module import");

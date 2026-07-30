@@ -88,14 +88,20 @@ async function injectPhase2Runtime() {
     html = html.replace(marker, `${styleTag}\n    ${marker}`);
   }
 
-  if (!html.includes("</body>")) throw new Error("Unable to place the E2EE phase 2 runtime.");
-  html = html.replace("</body>", `${e2eeTag}\n${pawlightTag}\n  </body>`);
+  const appTag = html.match(/^[ \t]*<script src="\/app\.js\?v=\d+"><\/script>/m)?.[0] || "";
+  if (!appTag) throw new Error("Unable to place the E2EE phase 2 runtime before the app.");
+  html = html.replace(appTag, `${e2eeTag}\n${appTag}`);
+  if (!html.includes("</body>")) throw new Error("Unable to place the final UI decorator.");
+  html = html.replace("</body>", `${pawlightTag}\n  </body>`);
 
   if (html.includes("/assets/e2ee-runtime.js")) {
     throw new Error("The legacy E2EE runtime is still enabled.");
   }
   if (html.indexOf(e2eeTag) > html.indexOf(pawlightTag)) {
     throw new Error("The E2EE runtime must load before the final UI decorator.");
+  }
+  if (html.indexOf(e2eeTag) > html.indexOf(appTag)) {
+    throw new Error("The E2EE runtime must load before the app bootstrap.");
   }
   if (html.includes("yachat-app.bundle.js") || html.includes("yachat-app.bundle.css")) {
     throw new Error("Unsafe consolidated frontend bundle is still enabled.");

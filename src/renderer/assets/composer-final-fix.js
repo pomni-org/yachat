@@ -445,7 +445,7 @@
   function updateChatPreview(chat, message) {
     if (!chat || !message) return;
     chat.lastAt = message.createdAt || new Date().toISOString();
-    chat.lastMessage = message.text || (message.attachments?.[0]?.kind === 'image' ? 'Фото' : 'Файл');
+    chat.lastMessage = window.yachatMessagePreview?.text(message) || "";
   }
 
   function installDeliveryRepair() {

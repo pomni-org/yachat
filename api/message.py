@@ -41,6 +41,7 @@ from server.e2ee import (
 )
 from server.push_delivery import send_push_to_user
 from server.moderation import EVIDENCE_SEPARATOR, NOVOSIBIRSK, send_moderation_report
+from server.message_preview import message_preview_text
 
 app = FastAPI(title="YaChat message API", version="2.0.0")
 app.add_middleware(
@@ -79,17 +80,6 @@ async def harden_response(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     return response
-
-
-def attachment_body(attachments: list[dict[str, Any]]) -> str:
-    if not attachments:
-        return ""
-    kind = str(attachments[0].get("kind") or "")
-    if kind == "image":
-        return "Фото"
-    if kind == "video":
-        return "Видео"
-    return "Файл"
 
 
 def validate_encrypted_attachment_transport(
@@ -1260,7 +1250,7 @@ async def send_message(request: Request, background_tasks: BackgroundTasks):
         formatted_html, text = prepare_rich_message(payload)
         if not text and not attachments:
             raise HTTPException(status_code=400, detail="Enter a message.")
-        body = text or attachment_body(attachments) or "Новое сообщение"
+        body = message_preview_text(text, attachments) or "Новое сообщение"
         if not is_murochko_profile(user):
             raise HTTPException(status_code=403, detail="Only Murochko can post to the YaChat channel.")
 
@@ -1360,7 +1350,7 @@ async def send_message(request: Request, background_tasks: BackgroundTasks):
                         raise HTTPException(status_code=400, detail="Enter a message.")
                     reply_to_message_id = payload.get("replyToMessageId") or None
                     forwarded_from = str(payload.get("forwardedFrom") or "")[:160]
-                    push_plaintext = text or attachment_body(attachments) or "Новое сообщение"
+                    push_plaintext = message_preview_text(text, attachments) or "Новое сообщение"
                     if encrypted["mode"] == "shadow":
                         if str(row_value(chat, "kind")) != "private":
                             raise HTTPException(status_code=400, detail="E2EE shadow messages are limited to private chats.")

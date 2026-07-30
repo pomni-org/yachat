@@ -9,12 +9,8 @@
   }
 
   function messagePreview(message) {
-    const text = String(message?.text || "").trim();
-    if (text) return text;
-    const kind = String(message?.attachments?.[0]?.kind || "");
-    if (kind === "image") return "Фото";
-    if (kind === "video") return "Видео";
-    return kind ? "Файл" : "";
+    if (typeof messagePreviewText === "function") return messagePreviewText(message);
+    return window.yachatMessagePreview?.text(message) || "";
   }
 
   function mergePersistedMessage(chat, message) {
