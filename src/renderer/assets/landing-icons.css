@@ -1,0 +1,26 @@
+.feature-card .feature-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 15px;
+  color: #d8cbff;
+  background: linear-gradient(145deg, rgba(139, 98, 255, 0.22), rgba(255, 255, 255, 0.04));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.feature-card .feature-icon svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.feature-card > span:not(.feature-icon) {
+  display: none;
+}
