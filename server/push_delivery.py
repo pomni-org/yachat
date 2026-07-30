@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import json
 import os
+import time
 import urllib.parse
 from typing import Any
 
@@ -179,6 +180,8 @@ def push_payload_for_subscription(
     url: str,
     notification_tag: str,
     subscription: dict[str, Any],
+    sent_at_ms: int,
+    expires_at_ms: int,
     encrypted_previews: dict[str, dict[str, Any]] | None = None,
 ) -> str:
     payload: dict[str, Any] = {
@@ -186,6 +189,8 @@ def push_payload_for_subscription(
         "body": str(body or "Новое сообщение")[:300],
         "url": str(url or "/"),
         "tag": notification_tag,
+        "sentAt": int(sent_at_ms),
+        "expiresAt": int(expires_at_ms),
     }
     device_id = str(subscription.get("device_id") or "")
     preview = (encrypted_previews or {}).get(device_id)
@@ -245,6 +250,9 @@ def send_push_to_user(
         return result
 
     claims = {"sub": vapid_subject()}
+    normalized_ttl = max(60, min(int(ttl_seconds), 2_592_000))
+    sent_at_ms = int(time.time() * 1000)
+    expires_at_ms = sent_at_ms + normalized_ttl * 1000
 
     for subscription in subscriptions:
         endpoint = str(subscription.get("endpoint") or "")
@@ -264,6 +272,8 @@ def send_push_to_user(
             url=url,
             notification_tag=notification_tag,
             subscription=subscription,
+            sent_at_ms=sent_at_ms,
+            expires_at_ms=expires_at_ms,
             encrypted_previews=encrypted_previews,
         )
         try:
@@ -272,7 +282,7 @@ def send_push_to_user(
                 data=payload,
                 vapid_private_key=private_key,
                 vapid_claims=dict(claims),
-                ttl=max(60, min(int(ttl_seconds), 2_592_000)),
+                ttl=normalized_ttl,
                 content_encoding=encoding,
                 headers={"Urgency": "high", "Topic": _topic(notification_tag)},
                 timeout=8,
@@ -286,6 +296,8 @@ def send_push_to_user(
                 status=status_code,
                 encoding=encoding,
                 tag=notification_tag,
+                sentAt=sent_at_ms,
+                expiresAt=expires_at_ms,
             )
         except WebPushException as error:
             response = getattr(error, "response", None)
