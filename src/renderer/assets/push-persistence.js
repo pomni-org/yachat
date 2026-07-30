@@ -10,6 +10,35 @@
   const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
   const MAX_NOTIFICATION_AGE_MS = 2 * 24 * 60 * 60 * 1000;
   const FUTURE_SKEW_MS = 10 * 60 * 1000;
+  const pushEnvelopeByTag = new Map();
+
+  function validEnvelope(value, now = Date.now()) {
+    const sentAt = Number(value?.sentAt || 0);
+    const expiresAt = Number(value?.expiresAt || 0);
+    return (
+      Number.isFinite(sentAt)
+      && Number.isFinite(expiresAt)
+      && sentAt > 0
+      && expiresAt >= sentAt
+      && sentAt <= now + FUTURE_SKEW_MS
+      && now <= expiresAt
+      && now - sentAt <= MAX_NOTIFICATION_AGE_MS
+    );
+  }
+
+  self.addEventListener("push", (event) => {
+    try {
+      const payload = event.data ? event.data.json() : null;
+      const tag = String(payload?.tag || "").trim().slice(0, 240);
+      if (!tag) return;
+      pushEnvelopeByTag.set(tag, {
+        sentAt: Number(payload?.sentAt || 0),
+        expiresAt: Number(payload?.expiresAt || 0)
+      });
+    } catch {
+      // Untimestamped or malformed legacy pushes are rejected by showNotification below.
+    }
+  });
 
   function openDatabase() {
     return new Promise((resolve, reject) => {
@@ -61,14 +90,15 @@
     }).catch(() => {});
   }
 
-  async function claim(tag, timestamp) {
+  async function claim(tag, sentAt) {
     const normalizedTag = String(tag || "").trim().slice(0, 240);
-    if (!normalizedTag) return true;
+    if (!normalizedTag) return false;
     const now = Date.now();
     if (
-      Number.isFinite(timestamp)
-      && timestamp > 0
-      && (timestamp > now + FUTURE_SKEW_MS || now - timestamp > MAX_NOTIFICATION_AGE_MS)
+      !Number.isFinite(sentAt)
+      || sentAt <= 0
+      || sentAt > now + FUTURE_SKEW_MS
+      || now - sentAt > MAX_NOTIFICATION_AGE_MS
     ) {
       return false;
     }
@@ -86,7 +116,7 @@
           store.put({
             tag: normalizedTag,
             shownAt: now,
-            messageTimestamp: Number(timestamp || now)
+            messageTimestamp: sentAt
           });
         };
         request.onerror = () => reject(request.error || new Error("Unable to read push state."));
@@ -110,13 +140,24 @@
   if (typeof originalShowNotification !== "function") return;
 
   prototype.showNotification = async function persistentShowNotification(title, options = {}) {
-    const tag = String(options?.tag || "").trim();
-    const timestamp = Number(options?.timestamp || Date.now());
-    const allowed = await claim(tag, timestamp).catch(() => true);
+    const tag = String(options?.tag || "").trim().slice(0, 240);
+    const envelope = pushEnvelopeByTag.get(tag);
+    pushEnvelopeByTag.delete(tag);
+    if (!validEnvelope(envelope)) return undefined;
+
+    const sentAt = Number(envelope.sentAt);
+    const allowed = await claim(tag, sentAt).catch(() => false);
     if (!allowed) return undefined;
 
     try {
-      const result = await originalShowNotification.call(this, title, options);
+      const result = await originalShowNotification.call(this, title, {
+        ...options,
+        data: {
+          ...(options?.data || {}),
+          sentAt,
+          expiresAt: Number(envelope.expiresAt)
+        }
+      });
       void prune(Date.now());
       return result;
     } catch (error) {
