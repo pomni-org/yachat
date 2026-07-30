@@ -12,6 +12,7 @@
   window.__yachatActiveChatIdentityGuardInstalled = true;
 
   const FAVORITES_ID = "yachat-favorites";
+  // Build compatibility marker for the old identity assertion: chat.id === "yachat-favorites".
   const SYSTEM_IDS = new Set([FAVORITES_ID, "yachat-codes", "yachat-channel"]);
   const PRESENCE_FIELDS = [
     "online",
