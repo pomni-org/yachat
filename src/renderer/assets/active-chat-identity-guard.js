@@ -59,9 +59,9 @@
     return "private";
   }
 
-  function normalizeChatIdentity(source) {
+  function normalizeChatIdentity(source, clone = false) {
     if (!source || typeof source !== "object") return source;
-    const chat = cloneChat(source);
+    const chat = clone ? cloneChat(source) : source;
     const id = String(chat.id || "");
 
     if (id === FAVORITES_ID) {
@@ -95,7 +95,7 @@
     const seen = new Set();
 
     (Array.isArray(chats) ? chats : []).forEach((chat) => {
-      const normalized = normalizeChatIdentity(chat);
+      const normalized = normalizeChatIdentity(chat, true);
       const id = String(normalized?.id || "");
       if (!id || seen.has(id)) return;
       seen.add(id);
@@ -170,7 +170,7 @@
       const chats = normalizeChatArray(snapshot?.chats);
 
       if (shouldTemporarilyRetain(requestedId, chats, previous)) {
-        chats.push(normalizeChatIdentity(previous));
+        chats.push(normalizeChatIdentity(previous, true));
       }
 
       const safeSnapshot = {
