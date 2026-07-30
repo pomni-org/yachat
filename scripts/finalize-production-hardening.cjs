@@ -13,6 +13,10 @@ async function read(relativePath) {
   return fs.readFile(path.join(publicDir, relativePath), "utf8");
 }
 
+async function readRoot(relativePath) {
+  return fs.readFile(path.join(root, relativePath), "utf8");
+}
+
 async function write(relativePath, content) {
   return fs.writeFile(path.join(publicDir, relativePath), content, "utf8");
 }
@@ -49,6 +53,7 @@ async function validateHardening() {
     serviceWorker,
     pushPersistence,
     pushRepair,
+    pushServer,
     instantLoading,
     privatePresence,
     identityGuard,
@@ -57,6 +62,7 @@ async function validateHardening() {
     read("sw.js"),
     read("assets/push-persistence.js"),
     read("assets/push-repair.js"),
+    readRoot("server/push_delivery.py"),
     read("assets/instant-chat-loading.js"),
     read("assets/private-chat-presence.js"),
     read("assets/active-chat-identity-guard.js"),
@@ -72,6 +78,12 @@ async function validateHardening() {
   requireText(pushPersistence, "sentAt", "push creation timestamp validation");
   requireText(pushPersistence, "expiresAt", "push expiry validation");
   requireText(pushPersistence, "Untimestamped or malformed legacy pushes", "legacy push rejection");
+
+  requireText(pushServer, '"sentAt": int(sent_at_ms)', "server push creation timestamp");
+  requireText(pushServer, '"expiresAt": int(expires_at_ms)', "server push expiry timestamp");
+  requireText(pushServer, "normalized_ttl = max(60", "normalized push TTL");
+  requireText(pushServer, "sent_at_ms = int(time.time() * 1000)", "server push clock");
+  requireText(pushServer, "expires_at_ms = sent_at_ms + normalized_ttl * 1000", "server push expiry calculation");
 
   requireText(instantLoading, "prefetchPriorityChats", "priority chat history prefetch");
   requireText(instantLoading, "prefetchRecentChats", "recent chat history prefetch");
