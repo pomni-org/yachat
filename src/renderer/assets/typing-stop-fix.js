@@ -87,6 +87,19 @@
     if (!chatId || !token) {
       return;
     }
+    if (
+      window.yachatRealtime?.isReady?.()
+      && window.yachatRealtime?.status?.() !== "degraded"
+    ) {
+      void window.yachatRealtime.typing(chatId, false).catch(() => {});
+      return;
+    }
+    if (
+      window.yachatRealtime?.isEnabled?.()
+      && !window.yachatRealtime.shouldPoll?.()
+    ) {
+      return;
+    }
     void window.fetch("/api/presence", {
       method: "POST",
       headers: {

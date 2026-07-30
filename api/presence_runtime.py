@@ -24,6 +24,7 @@ from api.index import (
     require_chat_member,
     row_value,
 )
+from server.realtime_gateway import realtime_socket
 
 
 TYPING_TTL_SECONDS = 3
@@ -37,6 +38,7 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+app.add_api_websocket_route("/api/realtime", realtime_socket)
 
 
 @app.middleware("http")

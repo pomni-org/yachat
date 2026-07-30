@@ -31,6 +31,7 @@ from server.database import (
     secure_server_tables,
 )
 from server.moderation import ensure_account_allowed, handle_moderation_callback
+from server.message_preview import attachment_preview, message_preview_text
 
 
 def configured_cors_origins() -> list[str]:
@@ -41,6 +42,7 @@ def configured_cors_origins() -> list[str]:
         return value.strip().lower() in {"1", "true", "yes", "on"}
 
     origins = {
+        "https://yachat.eu.org",
         "https://yachat.vercel.app",
         "https://digital-bar-murex.vercel.app",
         "https://digital-bar-roblox-kittens-projects-ae36c01e.vercel.app",
@@ -349,6 +351,21 @@ def ensure_schema() -> None:
         return
 
     statements = [
+        """
+        create or replace function public.yachat_realtime_topic_key()
+        returns text
+        language sql
+        volatile
+        set search_path = pg_catalog
+        as $$
+          select left(
+            replace(gen_random_uuid()::text, '-', '')
+            || replace(gen_random_uuid()::text, '-', ''),
+            48
+          )
+        $$
+        """,
+        "revoke all on function public.yachat_realtime_topic_key() from public, anon, authenticated",
         "alter table public_users add column if not exists contact text",
         "alter table public_users add column if not exists contact_key text",
         "alter table public_users add column if not exists method text default 'phone'",
@@ -366,6 +383,10 @@ def ensure_schema() -> None:
         "alter table public_users add column if not exists deletion_reason text default ''",
         "alter table public_users add column if not exists deleted_by_report_id text",
         "alter table public_users add column if not exists digital_id text",
+        "alter table public_users add column if not exists realtime_event_key text default public.yachat_realtime_topic_key()",
+        "update public_users set realtime_event_key = public.yachat_realtime_topic_key() where realtime_event_key is null or realtime_event_key = ''",
+        "alter table public_users alter column realtime_event_key set default public.yachat_realtime_topic_key()",
+        "alter table public_users alter column realtime_event_key set not null",
         """
         create or replace function public.yachat_generate_digital_id()
         returns text
@@ -409,6 +430,7 @@ def ensure_schema() -> None:
         "create unique index if not exists public_users_contact_key_idx on public_users(contact_key) where contact_key is not null and contact_key <> ''",
         "create unique index if not exists public_users_username_idx on public_users(lower(username)) where username is not null and username <> ''",
         "create unique index if not exists public_users_digital_id_idx on public_users(digital_id)",
+        "create unique index if not exists public_users_realtime_event_key_idx on public_users(realtime_event_key)",
         """
         create table if not exists yachat_auth_challenges (
             id text primary key,
@@ -485,11 +507,17 @@ def ensure_schema() -> None:
             avatar_url text default '',
             avatar_accent text default '#471AFF',
             invite_code text,
+            realtime_topic_key text not null default public.yachat_realtime_topic_key(),
             created_at timestamptz default now(),
             updated_at timestamptz default now()
         )
         """,
+        "alter table yachat_chats add column if not exists realtime_topic_key text default public.yachat_realtime_topic_key()",
+        "update yachat_chats set realtime_topic_key = public.yachat_realtime_topic_key() where realtime_topic_key is null or realtime_topic_key = ''",
+        "alter table yachat_chats alter column realtime_topic_key set default public.yachat_realtime_topic_key()",
+        "alter table yachat_chats alter column realtime_topic_key set not null",
         "create index if not exists yachat_chats_owner_idx on yachat_chats(owner_id)",
+        "create unique index if not exists yachat_chats_realtime_topic_key_idx on yachat_chats(realtime_topic_key)",
         """
         create table if not exists yachat_chat_members (
             chat_id text not null references yachat_chats(id) on delete cascade,
@@ -1783,7 +1811,10 @@ def system_chats(
             "avatarDataUrl": "./assets/yachat-avatar.svg",
             "createdAt": created_at,
             "lastAt": row_value(codes_latest, "created_at") or created_at,
-            "lastMessage": str(row_value(codes_latest, "text")),
+            "lastMessage": message_preview_text(
+                row_value(codes_latest, "text"),
+                row_value(codes_latest, "attachments"),
+            ),
             "unread": 0,
         },
         {
@@ -1811,7 +1842,10 @@ def system_chats(
             "avatarDataUrl": channel_avatar,
             "createdAt": created_at,
             "lastAt": row_value(channel_latest, "created_at") or created_at,
-            "lastMessage": str(row_value(channel_latest, "text")),
+            "lastMessage": message_preview_text(
+                row_value(channel_latest, "text"),
+                row_value(channel_latest, "attachments"),
+            ),
             "unread": 0,
         },
     ]
@@ -1972,12 +2006,6 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         (user_id, chat_id, user_id, user_id),
     )
     unread = int(cursor.fetchone()["count"])
-    attachment_text = ""
-    attachments = row_value(last, "attachments")
-    if isinstance(attachments, list) and attachments:
-        kind = str(attachments[0].get("kind") or "")
-        attachment_text = "Фото" if kind == "image" else "Видео" if kind == "video" else "Файл"
-
     title = str(row_value(chat, "title"))
     subtitle = ""
     avatar_data_url = str(row_value(chat, "avatar_url"))
@@ -2054,27 +2082,19 @@ def chat_summary(cursor, chat: dict[str, Any], user_id: str) -> dict[str, Any]:
         "lastMessage": (
             DELETED_ACCOUNT_NOTICE
             if deleted_account
-            else
-            attachment_text
-            if attachment_text
-            else "Защищённое сообщение"
+            else ""
             if str(row_value(last, "e2ee_mode")) == "encrypted"
-            else str(row_value(last, "text"))
+            else message_preview_text(
+                row_value(last, "text"),
+                row_value(last, "attachments"),
+            )
         ),
         "unread": 0 if deleted_account else unread,
     }
 
 
 def attachment_preview_text(attachments: Any) -> str:
-    if not isinstance(attachments, list) or not attachments:
-        return ""
-
-    kind = str(attachments[0].get("kind") or "")
-    if kind == "image":
-        return "Фото"
-    if kind == "video":
-        return "Видео"
-    return "Файл"
+    return attachment_preview(attachments)
 
 
 def chat_summary_cached(
@@ -2089,8 +2109,6 @@ def chat_summary_cached(
     chat_id = str(chat["id"])
     profiles = {str(row["id"]): user_profile(row) for row in members}
     other = next((row for row in members if str(row["id"]) != user_id), members[0] if members else {})
-    attachment_text = attachment_preview_text(row_value(last, "attachments"))
-
     title = str(row_value(chat, "title"))
     subtitle = ""
     avatar_data_url = str(row_value(chat, "avatar_url"))
@@ -2169,12 +2187,12 @@ def chat_summary_cached(
         "lastMessage": (
             DELETED_ACCOUNT_NOTICE
             if deleted_account
-            else
-            attachment_text
-            if attachment_text
-            else "Защищённое сообщение"
+            else ""
             if str(row_value(last, "e2ee_mode")) == "encrypted"
-            else str(row_value(last, "text"))
+            else message_preview_text(
+                row_value(last, "text"),
+                row_value(last, "attachments"),
+            )
         ),
         "unread": 0 if deleted_account else int(unread or 0),
     }
@@ -3669,7 +3687,7 @@ async def send_message(request: Request):
             recipients = [] if is_saved_chat or not inserted else [str(row["user_id"]) for row in cursor.fetchall()]
 
     sender_name = str(row_value(user, "display_name", "preview_name", "username")) or "YaChat"
-    body = text or "Новое вложение"
+    body = message_preview_text(text, attachments) or "Новое сообщение"
     sender_username = str(row_value(user, "username"))
     push_target = f"/{sender_username}" if str(row_value(chat, "kind")) == "private" and sender_username else f"/?chat={chat_id}"
     for recipient_id in recipients:
@@ -3695,7 +3713,11 @@ async def mark_chat_read(request: Request):
                     "update yachat_chat_members set last_read_at = now() where chat_id = %s and user_id = %s",
                     (chat_id, user["id"]),
                 )
-    return {"chats": list_user_chats(str(user["id"])), "messages": get_chat_messages(chat_id, str(user["id"]))}
+    return {
+        "ok": True,
+        "chatId": chat_id,
+        "readAt": datetime.now(timezone.utc),
+    }
 
 
 @app.post("/api/message/mark-unread")

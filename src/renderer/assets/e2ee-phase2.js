@@ -48,6 +48,8 @@
 
   let databasePromise = null;
   let initializationPromise = null;
+  let decryptionRecordPromise = null;
+  let decryptionRecordAccountId = "";
   let activeAccountId = "";
   let activeRecord = null;
   let activePushPreview = null;
@@ -967,8 +969,8 @@
     };
   }
 
-  async function ensureInitialized() {
-    const accountId = currentAccountId();
+  async function ensureInitialized(requestedAccountId = "") {
+    const accountId = String(requestedAccountId || currentAccountId());
     if (!accountId || !authToken()) return null;
     if (activeRecord && activeAccountId === accountId && status.ready) return activeRecord;
     if (initializationPromise && activeAccountId === accountId) return initializationPromise;
@@ -1014,6 +1016,29 @@
       initializationPromise = null;
     });
     return initializationPromise;
+  }
+
+  async function ensureDecryptionRecord(requestedAccountId = "") {
+    const accountId = String(requestedAccountId || currentAccountId());
+    if (!accountId || !authToken()) return null;
+    if (activeRecord && activeAccountId === accountId) return activeRecord;
+    if (decryptionRecordPromise && decryptionRecordAccountId === accountId) {
+      return decryptionRecordPromise;
+    }
+
+    decryptionRecordAccountId = accountId;
+    decryptionRecordPromise = (async () => {
+      const currentDeviceId = deviceId(accountId);
+      const record = await storeGet("devices", `${accountId}:${currentDeviceId}`);
+      if (!record?.identityDhPrivate || !record?.identitySignPrivate) return null;
+      activeAccountId = accountId;
+      activeRecord = record;
+      return record;
+    })().catch(() => null).finally(() => {
+      decryptionRecordPromise = null;
+      decryptionRecordAccountId = "";
+    });
+    return decryptionRecordPromise;
   }
 
   function activePrivateChat(chatId) {
@@ -1312,23 +1337,20 @@
   }
 
   function notificationPreviewText(payload, attachments) {
-    const plain = String(payload.text || payload.message || "").replace(/\u0000/g, "").trim();
-    if (plain) return Array.from(plain).slice(0, 200).join("");
+    let plain = String(payload.text || payload.message || "").replace(/\u0000/g, "").trim();
     const rich = String(payload.formattedHtml || payload.formatted_html || "");
-    if (rich) {
+    if (!plain && rich) {
       const parsed = new DOMParser().parseFromString(
         `<body>${sanitizeRichHtml(rich)}</body>`,
         "text/html"
       );
-      const text = String(parsed.body?.textContent || "").replace(/\s+/g, " ").trim();
-      if (text) return Array.from(text).slice(0, 200).join("");
+      plain = String(parsed.body?.textContent || "").replace(/\s+/g, " ").trim();
     }
-    const first = Array.isArray(attachments) ? attachments[0] : null;
-    const kind = String(first?.kind || "");
-    if (kind === "image") return "Фото";
-    if (kind === "video") return "Видео";
-    if (first) return "Файл";
-    return "Новое сообщение";
+    const preview = window.yachatMessagePreview?.text({
+      text: plain,
+      attachments
+    }) || plain;
+    return Array.from(preview || "Новое сообщение").slice(0, 200).join("");
   }
 
   function encryptedNotificationDescriptor(payload, messageId, body) {
@@ -2102,23 +2124,24 @@
       ) {
         throw e2eeError("The decrypted message context is invalid.");
       }
-      const attachments = Number(e2ee.version) >= 3 && e2ee.attachmentMode === "encrypted"
-        ? options.metadataOnlyAttachments
-          ? (Array.isArray(plaintext.attachments) ? plaintext.attachments : []).slice(0, 8).map((item, index) => ({
-              id: String(message.attachments?.[index]?.id || ""),
-              kind: String(item?.kind || "file"),
-              name: String(item?.name || "file"),
-              mime: String(item?.mime || "application/octet-stream"),
-              size: Math.max(0, Number(item?.size) || 0),
-              dataUrl: ""
-            }))
-          : await decryptAttachmentPayloads(message.attachments, plaintext.attachments, contentKey, {
+      const attachments = options.metadataOnlyAttachments
+        ? (Array.isArray(plaintext.attachments) ? plaintext.attachments : []).slice(0, 8).map((item, index) => ({
+            id: String(message.attachments?.[index]?.id || item?.id || ""),
+            kind: String(item?.kind || "file"),
+            name: String(item?.name || "file"),
+            mime: String(item?.mime || "application/octet-stream"),
+            size: Math.max(0, Number(item?.size) || 0),
+            dataUrl: ""
+          }))
+        : Number(e2ee.version) >= 3 && e2ee.attachmentMode === "encrypted"
+          ? await decryptAttachmentPayloads(message.attachments, plaintext.attachments, contentKey, {
               chatId: String(message.chatId || ""),
               messageId: String(message.id || "")
             })
-        : message.attachments;
+          : message.attachments;
       if (
         Number(e2ee.version) < 3
+        && !options.metadataOnlyAttachments
         && !await verifyAttachmentManifest(message.attachments, plaintext.attachments, e2ee.version)
       ) {
         throw e2eeError("The message attachment metadata was modified.");
@@ -2162,15 +2185,83 @@
   }
 
   async function decryptResponsePayload(payload, options = {}) {
-    const record = await ensureInitialized();
-    if (!record || !payload) return payload;
-    if (Array.isArray(payload)) return Promise.all(payload.map((item) => decryptMessage(item, record, options)));
+    if (!payload) return payload;
+    const payloadAccountId = (
+      !Array.isArray(payload)
+      && typeof payload === "object"
+      && payload.account
+      && typeof payload.account === "object"
+    )
+      ? String(payload.account.id || "")
+      : "";
+    const record = await ensureDecryptionRecord(payloadAccountId);
+    void ensureInitialized(payloadAccountId);
+    if (!record) return payload;
+    const decryptChat = async (chat) => {
+      if (
+        !chat
+        || typeof chat !== "object"
+        || !Object.prototype.hasOwnProperty.call(chat, "lastMessageData")
+      ) {
+        return chat;
+      }
+      const { lastMessageData, ...cleanChat } = chat;
+      if (!lastMessageData) return cleanChat;
+      const message = await decryptMessage(
+        lastMessageData,
+        record,
+        { ...options, metadataOnlyAttachments: true }
+      );
+      return {
+        ...cleanChat,
+        lastMessage: window.yachatMessagePreview?.text(message)
+          || String(message?.text || "")
+          || String(chat.lastMessage || "")
+      };
+    };
+    const decryptChats = (chats) => Promise.all(chats.map(decryptChat));
+    if (Array.isArray(payload)) {
+      const chatRows = payload.some((item) => (
+        item
+        && typeof item === "object"
+        && Object.prototype.hasOwnProperty.call(item, "lastMessageData")
+      ));
+      return chatRows
+        ? decryptChats(payload)
+        : Promise.all(payload.map((item) => decryptMessage(item, record, options)));
+    }
     if (typeof payload !== "object") return payload;
     const output = { ...payload };
-    if (output.message && typeof output.message === "object") output.message = await decryptMessage(output.message, record, options);
-    if (Array.isArray(output.messages)) output.messages = await Promise.all(output.messages.map((item) => decryptMessage(item, record, options)));
+    const operations = [];
+    if (output.message && typeof output.message === "object") {
+      operations.push(
+        decryptMessage(output.message, record, options).then((message) => {
+          output.message = message;
+        })
+      );
+    }
+    if (Array.isArray(output.messages)) {
+      operations.push(
+        Promise.all(output.messages.map((item) => decryptMessage(item, record, options)))
+          .then((messages) => {
+            output.messages = messages;
+          })
+      );
+    }
+    if (Array.isArray(output.chats)) {
+      operations.push(
+        decryptChats(output.chats).then((chats) => {
+          output.chats = chats;
+        })
+      );
+    }
+    await Promise.all(operations);
     return output;
   }
+
+  window.__yachatE2EETransport = Object.freeze({
+    decodeResponse: (payload) => decryptResponsePayload(payload)
+  });
 
   function requestMeta(input, init = {}) {
     try {
@@ -2189,7 +2280,15 @@
   function shouldInspectResponse(meta, response) {
     return meta.sameOrigin
       && response?.ok
-      && ["/api/message", "/api/messages", "/api/bootstrap", "/api/messenger", "/api/report/evidence"].includes(meta.pathname)
+      && [
+        "/api/message",
+        "/api/messages",
+        "/api/bootstrap",
+        "/api/messenger",
+        "/api/chats",
+        "/api/chats/poll",
+        "/api/report/evidence"
+      ].includes(meta.pathname)
       && String(response.headers.get("content-type") || "").includes("application/json");
   }
 

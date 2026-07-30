@@ -8,6 +8,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg.rows import dict_row
 
+from server.e2ee import attach_e2ee_payload
+from server.message_preview import message_preview_text
+
 from api.index import (
     DELETED_ACCOUNT_NOTICE,
     DELETED_ACCOUNT_SUBTITLE,
@@ -16,6 +19,7 @@ from api.index import (
     connect_db,
     ensure_schema,
     hash_secret,
+    message_payload,
     request_token,
     row_value,
     system_chat_settings,
@@ -38,18 +42,44 @@ async def harden_response(request: Request, call_next):
     return response
 
 
-def attachment_label(kind: str) -> str:
-    if kind == "image":
-        return "Фото"
-    if kind == "video":
-        return "Видео"
-    return "Файл" if kind else ""
+_LATEST_FIELDS = (
+    "id",
+    "chat_id",
+    "sender_id",
+    "text",
+    "formatted_html",
+    "attachments",
+    "reply_to_message_id",
+    "forwarded_from",
+    "e2ee_mode",
+    "e2ee_version",
+    "e2ee_ciphertext",
+    "e2ee_iv",
+    "e2ee_aad",
+    "e2ee_envelopes",
+    "e2ee_sender_device_id",
+    "e2ee_plaintext_digest",
+    "e2ee_epoch_id",
+    "e2ee_padding_scheme",
+    "e2ee_envelope_digest",
+    "e2ee_sender_sign_public",
+    "e2ee_signature",
+    "created_at",
+    "edited_at",
+)
+
+
+def _latest_message_row(chat: dict[str, Any]) -> dict[str, Any]:
+    return {
+        field: row_value(chat, f"latest_{field}")
+        for field in _LATEST_FIELDS
+    }
 
 
 def system_rows(cursor, user_id: str) -> list[dict[str, Any]]:
     cursor.execute(
         """
-        select distinct on (chat_id) chat_id, text, created_at
+        select distinct on (chat_id) chat_id, text, attachments, created_at
         from yachat_system_messages
         where user_id = %s
           and (chat_id <> 'yachat-channel' or system_kind = 'channel-post')
@@ -80,7 +110,10 @@ def system_rows(cursor, user_id: str) -> list[dict[str, Any]]:
             "pinned": True,
             "canSend": False,
             "lastAt": row_value(latest.get("yachat-codes"), "created_at"),
-            "lastMessage": str(row_value(latest.get("yachat-codes"), "text")),
+            "lastMessage": message_preview_text(
+                row_value(latest.get("yachat-codes"), "text"),
+                row_value(latest.get("yachat-codes"), "attachments"),
+            ),
             "unread": 0,
         },
         {
@@ -91,7 +124,10 @@ def system_rows(cursor, user_id: str) -> list[dict[str, Any]]:
             "pinned": True,
             "canSend": False,
             "lastAt": row_value(latest.get("yachat-channel"), "created_at"),
-            "lastMessage": str(row_value(latest.get("yachat-channel"), "text")),
+            "lastMessage": message_preview_text(
+                row_value(latest.get("yachat-channel"), "text"),
+                row_value(latest.get("yachat-channel"), "attachments"),
+            ),
             "unread": 0,
         },
     ]
@@ -133,9 +169,29 @@ def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
                     c.created_at,
                     c.updated_at,
                     coalesce(member_rollup.members, '[]'::jsonb) as members,
+                    latest.id as latest_id,
+                    latest.chat_id as latest_chat_id,
+                    latest.sender_id as latest_sender_id,
                     latest.text as latest_text,
+                    latest.formatted_html as latest_formatted_html,
+                    latest.attachments as latest_attachments,
+                    latest.reply_to_message_id as latest_reply_to_message_id,
+                    latest.forwarded_from as latest_forwarded_from,
+                    latest.e2ee_mode as latest_e2ee_mode,
+                    latest.e2ee_version as latest_e2ee_version,
+                    latest.e2ee_ciphertext as latest_e2ee_ciphertext,
+                    latest.e2ee_iv as latest_e2ee_iv,
+                    latest.e2ee_aad as latest_e2ee_aad,
+                    latest.e2ee_envelopes as latest_e2ee_envelopes,
+                    latest.e2ee_sender_device_id as latest_e2ee_sender_device_id,
+                    latest.e2ee_plaintext_digest as latest_e2ee_plaintext_digest,
+                    latest.e2ee_epoch_id as latest_e2ee_epoch_id,
+                    latest.e2ee_padding_scheme as latest_e2ee_padding_scheme,
+                    latest.e2ee_envelope_digest as latest_e2ee_envelope_digest,
+                    latest.e2ee_sender_sign_public as latest_e2ee_sender_sign_public,
+                    latest.e2ee_signature as latest_e2ee_signature,
                     latest.created_at as latest_created_at,
-                    latest.attachment_kind,
+                    latest.edited_at as latest_edited_at,
                     coalesce(unread.unread_count, 0) as unread_count,
                     exists (
                         select 1
@@ -176,9 +232,43 @@ def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
                 ) member_rollup on true
                 left join lateral (
                     select
+                        m.id,
+                        m.chat_id,
+                        m.sender_id,
                         m.text,
+                        m.formatted_html,
+                        coalesce((
+                            select jsonb_agg(
+                                jsonb_build_object(
+                                    'id', attachment.item ->> 'id',
+                                    'kind', attachment.item ->> 'kind',
+                                    'name', attachment.item ->> 'name',
+                                    'mime', attachment.item ->> 'mime',
+                                    'size', coalesce(attachment.item ->> 'size', '0')
+                                )
+                                order by attachment.ordinality
+                            )
+                            from jsonb_array_elements(
+                                coalesce(m.attachments, '[]'::jsonb)
+                            ) with ordinality as attachment(item, ordinality)
+                        ), '[]'::jsonb) as attachments,
+                        m.reply_to_message_id,
+                        m.forwarded_from,
+                        m.e2ee_mode,
+                        m.e2ee_version,
+                        m.e2ee_ciphertext,
+                        m.e2ee_iv,
+                        m.e2ee_aad,
+                        m.e2ee_envelopes,
+                        m.e2ee_sender_device_id,
+                        m.e2ee_plaintext_digest,
+                        m.e2ee_epoch_id,
+                        m.e2ee_padding_scheme,
+                        m.e2ee_envelope_digest,
+                        m.e2ee_sender_sign_public,
+                        m.e2ee_signature,
                         m.created_at,
-                        coalesce(m.attachments -> 0 ->> 'kind', '') as attachment_kind
+                        m.edited_at
                     from yachat_messages m
                     where m.chat_id = c.id
                       and m.deleted_at is null
@@ -228,6 +318,7 @@ def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
     for chat in chat_rows:
         chat_id = str(chat["id"])
         kind = str(chat["kind"])
+        latest = _latest_message_row(chat)
         members = _json_list(chat.get("members"))
         participant_ids = [str(row_value(member, "id")) for member in members]
         title = str(row_value(chat, "title"))
@@ -284,8 +375,21 @@ def poll_chats(user_id: str, connection=None) -> list[dict[str, Any]]:
                 "lastMessage": (
                     DELETED_ACCOUNT_NOTICE
                     if deleted_account
-                    else str(row_value(chat, "latest_text"))
-                    or attachment_label(str(row_value(chat, "attachment_kind")))
+                    else ""
+                    if str(row_value(latest, "e2ee_mode")) == "encrypted"
+                    else message_preview_text(
+                        row_value(latest, "text"),
+                        row_value(latest, "attachments"),
+                    )
+                ),
+                "lastMessageData": (
+                    None
+                    if deleted_account
+                    or str(row_value(latest, "e2ee_mode")) != "encrypted"
+                    else attach_e2ee_payload(
+                        message_payload(latest, user_id),
+                        latest,
+                    )
                 ),
                 "unread": 0 if deleted_account else int(row_value(chat, "unread_count") or 0),
             }

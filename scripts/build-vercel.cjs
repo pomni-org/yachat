@@ -146,6 +146,7 @@ async function copyRendererFile(sourceName, outputName = sourceName) {
 async function validateRuntimeScripts() {
   const requiredScripts = [
     "language-runtime.js",
+    "message-preview.js",
     "privacy-safe-analytics.js",
     "db-resilience.js",
     "chat-load-optimization.js",
@@ -174,7 +175,8 @@ async function validateRuntimeScripts() {
     "mobile-chat-stable.js",
     "frontend-first-runtime.js",
     "private-chat-presence.js",
-    "avatar-preserve.js"
+    "avatar-preserve.js",
+    "websocket-realtime.js"
   ];
   await Promise.all(requiredScripts.map((name) => execFileAsync(process.execPath, [
     "--check",
@@ -239,7 +241,13 @@ async function prepareWebDocument() {
 async function injectEnhancementAssets() {
   const webPath = path.join(outputDir, "web.html");
   const html = await fs.readFile(webPath, "utf8");
-  const withStyles = html.replace(
+  const withPreview = replaceRequired(
+    html,
+    '<script src="./assets/message-preview.js"></script>',
+    `<script src="/assets/message-preview.js?v=${BRAND_VERSION}"></script>`,
+    "shared message preview runtime"
+  );
+  const withStyles = withPreview.replace(
     '<link rel="stylesheet" href="./styles.css" />',
     [
       `<link rel="stylesheet" href="/styles.css?v=${BRAND_VERSION}" />`,

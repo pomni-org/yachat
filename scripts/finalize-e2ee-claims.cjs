@@ -56,21 +56,11 @@ async function patchCoreApi() {
     );
   }
 
-  const previewMarker = `        "lastMessage": str(row_value(last, "text")) or attachment_text,`;
-  const previewOccurrences = source.split(previewMarker).length - 1;
-  if (previewOccurrences === 2) {
-    source = source.replaceAll(
-      previewMarker,
-      `        "lastMessage": (
-            attachment_text
-            if attachment_text
-            else "Защищённое сообщение"
-            if str(row_value(last, "e2ee_mode")) == "encrypted"
-            else str(row_value(last, "text"))
-        ),`
-    );
-  } else if (previewOccurrences !== 0 || source.split('"Защищённое сообщение"').length - 1 < 2) {
-    throw new Error(`Expected 2 chat preview projections, found ${previewOccurrences}.`);
+  if (
+    source.includes('"Защищённое сообщение"')
+    || !source.includes("message_preview_text(")
+  ) {
+    throw new Error("Core chat previews must use the shared plaintext classifier.");
   }
 
   if (source.split('"e2eePhase": "phase5"').length - 1 !== 2) {
@@ -96,16 +86,8 @@ async function patchFastMessenger() {
     );
   }
 
-  if (!source.includes("                    m.e2ee_mode,\n                    m.created_at,")) {
-    source = replaceRequired(
-      source,
-      `                    m.text,
-                    m.created_at,`,
-      `                    m.text,
-                    m.e2ee_mode,
-                    m.created_at,`,
-      "fast encrypted chat preview mode"
-    );
+  if (!source.includes("                    m.e2ee_mode,")) {
+    throw new Error("Fast encrypted chat preview mode is missing.");
   }
 
   if (!source.includes('"e2eePolicy"')) {
@@ -120,23 +102,13 @@ async function patchFastMessenger() {
     );
   }
 
-  if (!source.includes('"Защищённое сообщение"')) {
-    source = replaceRequired(
-      source,
-      `                        "lastMessage": str(row_value(last, "text"))
-                        or _attachment_label(str(row_value(last, "attachment_kind"))),`,
-      `                        "lastMessage": (
-                            _attachment_label(str(row_value(last, "attachment_kind")))
-                            or "Защищённое сообщение"
-                            if str(row_value(last, "e2ee_mode")) == "encrypted"
-                            else str(row_value(last, "text"))
-                            or _attachment_label(str(row_value(last, "attachment_kind")))
-                        ),`,
-      "fast protected chat preview"
-    );
-  }
-
-  if (!source.includes('"e2eePolicy"') || !source.includes("m.e2ee_mode")) {
+  if (
+    !source.includes('"e2eePolicy"')
+    || !source.includes("m.e2ee_mode")
+    || !source.includes('"lastMessageData"')
+    || !source.includes("message_preview_text(")
+    || source.includes('"Защищённое сообщение"')
+  ) {
     throw new Error("Fast messenger E2EE policy projection is incomplete.");
   }
   await fs.writeFile(fastPath, source, "utf8");
