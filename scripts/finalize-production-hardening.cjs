@@ -68,13 +68,25 @@ async function validateHardening() {
   requireText(pushRepair, `REPAIR_VERSION = "${RELEASE_VERSION}"`, "push repair release version");
   requireText(pushPersistence, "shown-notifications", "persistent notification store");
   requireText(pushPersistence, "MAX_NOTIFICATION_AGE_MS", "stale notification rejection");
+
+  requireText(instantLoading, "prefetchPriorityChats", "priority chat history prefetch");
   requireText(instantLoading, "prefetchRecentChats", "recent chat history prefetch");
-  requireText(instantLoading, "messageCache", "session message cache");
+  requireText(instantLoading, "messageCache.has", "loaded-empty chat cache state");
   requireText(instantLoading, "Promise.allSettled", "parallel history and read update");
+  forbidText(instantLoading, "state.chats = readResult.value.chats", "stale mark-read chat snapshot replacement");
+
   requireText(identityGuard, "if (id === FAVORITES_ID)", "favorites identity boundary");
+  requireText(identityGuard, "shouldTemporarilyRetain", "transient active-chat retention");
   requireText(identityGuard, "stripPresence", "favorites presence stripping");
+  requireText(identityGuard, 'yachatFavoritesIdentity = "strict-v3"', "favorites identity release marker");
+  forbidText(identityGuard, "state.chats[0]", "first-chat identity fallback");
+
   requireText(privatePresence, "websocket-with-30s-degraded-fallback", "realtime read transport");
+  requireText(privatePresence, "readRequestsInFlight", "per-chat read request deduplication");
   forbidText(privatePresence, "ACTIVE_POLL_MS = 450", "450ms read polling");
+  forbidText(privatePresence, "state.chats = result.chats", "read receipt chat-list replacement");
+  forbidText(privatePresence, "state.messages = result.messages", "read receipt message-list replacement");
+
   requireText(landing, "/assets/landing-icons.css", "landing icon styles");
   requireText(landing, 'class="feature-icon"', "inline landing icons");
 

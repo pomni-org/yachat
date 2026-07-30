@@ -11,14 +11,14 @@
 
   window.__yachatPrivateChatPresenceGuardInstalled = true;
 
-  const PATCH_ID = "private-route-read-realtime-v2";
+  const PATCH_ID = "private-route-read-realtime-v3";
   const SYSTEM_CHAT_IDS_LOCAL = new Set(["yachat-favorites", "yachat-codes", "yachat-channel"]);
   const originalGetActiveChat = getActiveChat;
   const originalApplyMessengerSnapshot = typeof applyMessengerSnapshot === "function"
     ? applyMessengerSnapshot
     : null;
   const markedIncomingByChat = new Map();
-  let readRequestInFlight = null;
+  const readRequestsInFlight = new Set();
 
   function isSystemChatId(chatId) {
     return SYSTEM_CHAT_IDS_LOCAL.has(String(chatId || ""));
@@ -39,12 +39,29 @@
     return normalizeUsername?.(routeUser.username) === routeUsername ? routeUser : null;
   }
 
+  function mergeReadReceipt(chatId, result) {
+    const id = String(chatId || "");
+    const current = (Array.isArray(state.chats) ? state.chats : [])
+      .find((chat) => String(chat?.id || "") === id);
+    if (!current) return;
+
+    current.unread = 0;
+    const updated = Array.isArray(result?.chats)
+      ? result.chats.find((chat) => String(chat?.id || "") === id)
+      : null;
+    ["lastReadAt", "readAt"].forEach((field) => {
+      if (updated?.[field] !== undefined) current[field] = updated[field];
+    });
+    if (result?.readAt !== undefined) current.lastReadAt = result.readAt;
+  }
+
   getActiveChat = function guardedGetActiveChat() {
     if (state.pendingSearchChat?.id === state.activeChatId) {
       return state.pendingSearchChat;
     }
 
-    const exact = state.chats.find((chat) => chat.id === state.activeChatId);
+    const exact = (Array.isArray(state.chats) ? state.chats : [])
+      .find((chat) => chat.id === state.activeChatId);
     return exact || originalGetActiveChat();
   };
 
@@ -103,22 +120,18 @@
     const alreadyMarked = incomingId && markedIncomingByChat.get(chat.id) === incomingId;
 
     if (!unread && (!incomingId || alreadyMarked)) return;
-    if (readRequestInFlight === chat.id) return;
+    if (readRequestsInFlight.has(chat.id)) return;
 
-    readRequestInFlight = chat.id;
+    readRequestsInFlight.add(chat.id);
     try {
       const result = await yachatApi.messenger.markRead({ chatId: chat.id });
       if (incomingId) markedIncomingByChat.set(chat.id, incomingId);
-      if (Array.isArray(result?.chats)) state.chats = result.chats;
-      if (Array.isArray(result?.messages) && state.activeChatId === chat.id) {
-        state.messages = result.messages;
-      }
-      const current = state.chats.find((item) => item.id === chat.id);
-      if (current) current.unread = 0;
+      mergeReadReceipt(chat.id, result);
       renderChatList?.();
-      if (state.activeChatId === chat.id) renderMessages?.();
+    } catch {
+      // A read receipt is best-effort. Realtime or the degraded fallback will retry later.
     } finally {
-      if (readRequestInFlight === chat.id) readRequestInFlight = null;
+      readRequestsInFlight.delete(chat.id);
     }
   };
 

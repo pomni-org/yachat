@@ -16,12 +16,13 @@
   const messageCache = new Map();
   const inFlightMessages = new Map();
   const MIN_ACTIVE_POLL_MS = 1200; // retained as a build compatibility marker; realtime disables active polling.
-  const PREFETCH_BATCH = 3;
+  const PREFETCH_BATCH = 4;
   const PREFETCH_INITIAL_LIMIT = 12;
-  const SYSTEM_CHAT_IDS_LOCAL = new Set(["yachat-codes", "yachat-channel"]);
+  const SYSTEM_CHAT_IDS_LOCAL = new Set(["yachat-favorites", "yachat-codes", "yachat-channel"]);
   let selectionVersion = 0;
   let cacheOwnerId = "";
-  let prefetchGeneration = 0;
+  let cacheGeneration = 0;
+  let prefetchScheduled = false;
 
   function accountId() {
     return String(state?.account?.id || "");
@@ -33,7 +34,8 @@
     cacheOwnerId = nextOwner;
     messageCache.clear();
     inFlightMessages.clear();
-    prefetchGeneration += 1;
+    cacheGeneration += 1;
+    prefetchScheduled = false;
   }
 
   function cacheMessages(chatId, messages) {
@@ -44,6 +46,11 @@
     return list;
   }
 
+  function hasCachedMessages(chatId) {
+    resetCacheForAccount();
+    return messageCache.has(String(chatId || ""));
+  }
+
   function currentMessagesFor(chatId) {
     resetCacheForAccount();
     return messageCache.get(String(chatId || "")) || [];
@@ -51,7 +58,10 @@
 
   function rememberCurrentMessages() {
     const id = String(state.activeChatId || "");
-    if (id && Array.isArray(state.messages)) cacheMessages(id, state.messages);
+    if (!id || !Array.isArray(state.messages)) return;
+    if (state.messages.length || messageCache.has(id)) {
+      cacheMessages(id, state.messages);
+    }
   }
 
   function ensureLoadingStyle() {
@@ -85,7 +95,9 @@
   function showMessageLoading(chatId) {
     if (String(state.activeChatId || "") !== String(chatId || "") || !messageList) return;
     messageList.setAttribute("aria-busy", "true");
-    if (state.messages.length || messageList.querySelector("[data-chat-message-loading]")) return;
+    if ((Array.isArray(state.messages) && state.messages.length) || messageList.querySelector("[data-chat-message-loading]")) {
+      return;
+    }
     ensureLoadingStyle();
     const indicator = document.createElement("div");
     indicator.className = "chat-message-loading";
@@ -113,13 +125,48 @@
     return request;
   };
 
+  function mergeReadReceipt(chatId, result) {
+    const id = String(chatId || "");
+    const current = (Array.isArray(state.chats) ? state.chats : [])
+      .find((chat) => String(chat?.id || "") === id);
+    if (!current) return;
+
+    current.unread = 0;
+    const updated = Array.isArray(result?.chats)
+      ? result.chats.find((chat) => String(chat?.id || "") === id)
+      : null;
+    ["lastReadAt", "readAt", "lastSeenAt"].forEach((field) => {
+      if (updated?.[field] !== undefined) current[field] = updated[field];
+    });
+    if (result?.readAt !== undefined) current.lastReadAt = result.readAt;
+  }
+
+  function recentChatIds() {
+    const activeId = String(state.activeChatId || "");
+    return (Array.isArray(state.chats) ? state.chats : [])
+      .filter((chat) => chat?.id && String(chat.id) !== activeId)
+      .sort((left, right) => (
+        new Date(right?.lastAt || 0).getTime() - new Date(left?.lastAt || 0).getTime()
+      ))
+      .slice(0, PREFETCH_INITIAL_LIMIT)
+      .map((chat) => String(chat.id));
+  }
+
   if (typeof applyMessengerSnapshot === "function") {
     const originalApplyMessengerSnapshot = applyMessengerSnapshot;
     applyMessengerSnapshot = async function cacheAwareSnapshot(snapshot = {}, selectedChatId, options = {}) {
       rememberCurrentMessages();
       const result = await originalApplyMessengerSnapshot(snapshot, selectedChatId, options);
       const activeId = String(state.activeChatId || "");
-      if (activeId && Array.isArray(state.messages)) cacheMessages(activeId, state.messages);
+      const deferred = snapshot?.deferredMessages === true;
+      if (
+        activeId
+        && Array.isArray(state.messages)
+        && (!deferred || state.messages.length || messageCache.has(activeId))
+      ) {
+        cacheMessages(activeId, state.messages);
+      }
+      void prefetchPriorityChats();
       queuePrefetch();
       return result;
     };
@@ -129,7 +176,7 @@
     const id = String(chatId || "");
     if (!id) return [];
 
-    if (!currentMessagesFor(id).length) showMessageLoading(id);
+    if (!hasCachedMessages(id)) showMessageLoading(id);
     const jobs = [Promise.resolve(yachatApi.messenger.messages(id))];
     if (
       options.markRead !== false
@@ -144,8 +191,8 @@
       ? cacheMessages(id, messagesResult.value)
       : currentMessagesFor(id);
 
-    if (readResult?.status === "fulfilled" && Array.isArray(readResult.value?.chats)) {
-      state.chats = readResult.value.chats;
+    if (readResult?.status === "fulfilled") {
+      mergeReadReceipt(id, readResult.value);
     }
 
     if (selectionVersion === version && String(state.activeChatId || "") === id) {
@@ -163,30 +210,32 @@
 
   async function prefetchChat(chatId, generation) {
     const id = String(chatId || "");
-    if (!id || messageCache.has(id) || generation !== prefetchGeneration) return;
+    if (!id || messageCache.has(id) || generation !== cacheGeneration) return;
     try {
       const messages = await yachatApi.messenger.messages(id);
-      if (generation === prefetchGeneration) cacheMessages(id, messages);
+      if (generation === cacheGeneration) cacheMessages(id, messages);
     } catch {
       // Prefetch is opportunistic. Opening the chat still performs a foreground load.
     }
   }
 
+  async function prefetchPriorityChats() {
+    resetCacheForAccount();
+    if (!state.account || !Array.isArray(state.chats)) return;
+    const generation = cacheGeneration;
+    await Promise.allSettled(
+      recentChatIds().slice(0, PREFETCH_BATCH).map((id) => prefetchChat(id, generation))
+    );
+  }
+
   async function prefetchRecentChats() {
     resetCacheForAccount();
     if (!state.account || !Array.isArray(state.chats)) return;
-    const generation = ++prefetchGeneration;
-    const activeId = String(state.activeChatId || "");
-    const ids = state.chats
-      .filter((chat) => chat?.id && chat.id !== activeId && chat.canSend !== false)
-      .sort((left, right) => (
-        new Date(right?.lastAt || 0).getTime() - new Date(left?.lastAt || 0).getTime()
-      ))
-      .slice(0, PREFETCH_INITIAL_LIMIT)
-      .map((chat) => String(chat.id));
+    const generation = cacheGeneration;
+    const ids = recentChatIds();
 
     for (let index = 0; index < ids.length; index += PREFETCH_BATCH) {
-      if (generation !== prefetchGeneration) return;
+      if (generation !== cacheGeneration) return;
       await Promise.allSettled(
         ids.slice(index, index + PREFETCH_BATCH).map((id) => prefetchChat(id, generation))
       );
@@ -194,10 +243,15 @@
   }
 
   function queuePrefetch() {
+    if (prefetchScheduled) return;
+    prefetchScheduled = true;
     const schedule = window.requestIdleCallback
-      ? (callback) => window.requestIdleCallback(callback, { timeout: 1200 })
-      : (callback) => window.setTimeout(callback, 120);
-    schedule(() => void prefetchRecentChats());
+      ? (callback) => window.requestIdleCallback(callback, { timeout: 700 })
+      : (callback) => window.setTimeout(callback, 80);
+    schedule(() => {
+      prefetchScheduled = false;
+      void prefetchRecentChats();
+    });
   }
 
   const originalShowMessenger = showMessenger;
@@ -205,15 +259,19 @@
     const result = await originalShowMessenger(account, options);
     resetCacheForAccount();
     const activeId = String(state.activeChatId || "");
-    if (activeId && Array.isArray(state.messages)) {
+    const deferred = options.snapshot?.deferredMessages === true || window.__yachatQuickBootstrapUsed;
+    if (
+      activeId
+      && Array.isArray(state.messages)
+      && (!deferred || state.messages.length || messageCache.has(activeId))
+    ) {
       cacheMessages(activeId, state.messages);
     }
 
-    if (activeId && (options.snapshot?.deferredMessages || window.__yachatQuickBootstrapUsed)) {
+    if (activeId && deferred) {
       const version = ++selectionVersion;
-      const cached = currentMessagesFor(activeId);
-      if (cached.length) {
-        state.messages = cached;
+      if (hasCachedMessages(activeId)) {
+        state.messages = currentMessagesFor(activeId);
         renderMessages();
       } else {
         showMessageLoading(activeId);
@@ -221,6 +279,7 @@
       void hydrateChat(activeId, version, { markRead: true });
     }
 
+    void prefetchPriorityChats();
     queuePrefetch();
     return result;
   };
@@ -252,21 +311,26 @@
     renderMessages();
     updateChatRoute(getActiveChat(), options);
 
-    if (!state.messages.length) showMessageLoading(id);
+    if (!hasCachedMessages(id)) showMessageLoading(id);
     void hydrateChat(id, version, { markRead: true });
     return state.messages;
   };
 
   document.addEventListener("yachat:realtime-status", (event) => {
     if (["connected", "ready"].includes(String(event.detail?.status || ""))) {
+      void prefetchPriorityChats();
       queuePrefetch();
     }
   });
 
   window.yachatMessageCache = Object.freeze({
     get: (chatId) => currentMessagesFor(chatId),
+    has: (chatId) => hasCachedMessages(chatId),
     remember: rememberCurrentMessages,
-    prefetch: queuePrefetch,
+    prefetch: () => {
+      void prefetchPriorityChats();
+      queuePrefetch();
+    },
     size: () => messageCache.size
   });
 })();
