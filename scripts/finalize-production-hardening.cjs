@@ -71,7 +71,7 @@ async function validateHardening() {
   requireText(instantLoading, "prefetchRecentChats", "recent chat history prefetch");
   requireText(instantLoading, "messageCache", "session message cache");
   requireText(instantLoading, "Promise.allSettled", "parallel history and read update");
-  requireText(identityGuard, 'chat.id === FAVORITES_ID', "favorites identity boundary");
+  requireText(identityGuard, "if (id === FAVORITES_ID)", "favorites identity boundary");
   requireText(identityGuard, "stripPresence", "favorites presence stripping");
   requireText(privatePresence, "websocket-with-30s-degraded-fallback", "realtime read transport");
   forbidText(privatePresence, "ACTIVE_POLL_MS = 450", "450ms read polling");
