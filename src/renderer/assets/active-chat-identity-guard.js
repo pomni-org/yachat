@@ -26,6 +26,21 @@
     "typingUsers"
   ];
   let lastResolvedChat = null;
+  let missingActiveId = "";
+  let missingActiveSnapshots = 0;
+
+  function cloneChat(chat) {
+    if (!chat || typeof chat !== "object") return chat;
+    return {
+      ...chat,
+      ...(Array.isArray(chat.participantIds)
+        ? { participantIds: [...chat.participantIds] }
+        : {}),
+      ...(chat.participantProfiles && typeof chat.participantProfiles === "object"
+        ? { participantProfiles: { ...chat.participantProfiles } }
+        : {})
+    };
+  }
 
   function stripPresence(chat) {
     PRESENCE_FIELDS.forEach((field) => {
@@ -36,10 +51,19 @@
     return chat;
   }
 
-  function normalizeChatIdentity(chat) {
-    if (!chat || typeof chat !== "object") return chat;
+  function ordinaryKind(chat) {
+    const participantCount = Array.isArray(chat.participantIds)
+      ? chat.participantIds.filter(Boolean).length
+      : 0;
+    if (participantCount > 2 || chat.group === true || chat.isGroup === true) return "group";
+    return "private";
+  }
 
+  function normalizeChatIdentity(source) {
+    if (!source || typeof source !== "object") return source;
+    const chat = cloneChat(source);
     const id = String(chat.id || "");
+
     if (id === FAVORITES_ID) {
       chat.id = FAVORITES_ID;
       chat.kind = "saved";
@@ -52,15 +76,15 @@
       return stripPresence(chat);
     }
 
-    if (chat.kind === "saved") {
-      chat.kind = Array.isArray(chat.participantIds) && chat.participantIds.length > 2
-        ? "group"
-        : "private";
-      chat.savedMessages = false;
-    }
-
     if (SYSTEM_IDS.has(id)) {
       return stripPresence(chat);
+    }
+
+    if (chat.kind === "saved" || chat.savedMessages === true) {
+      chat.kind = ordinaryKind(chat);
+      chat.savedMessages = false;
+      chat.system = false;
+      chat.isSystem = false;
     }
 
     return chat;
@@ -84,6 +108,32 @@
   function normalizeChatList() {
     if (!Array.isArray(state.chats)) return;
     state.chats = normalizeChatArray(state.chats);
+  }
+
+  function previousChatById(chatId) {
+    const id = String(chatId || "");
+    if (!id) return null;
+    if (state.pendingSearchChat?.id === id) return state.pendingSearchChat;
+    return (Array.isArray(state.chats) ? state.chats : [])
+      .find((chat) => String(chat?.id || "") === id) || null;
+  }
+
+  function shouldTemporarilyRetain(chatId, incomingChats, previousChat) {
+    const id = String(chatId || "");
+    if (!id || !previousChat || incomingChats.some((chat) => String(chat?.id || "") === id)) {
+      missingActiveId = "";
+      missingActiveSnapshots = 0;
+      return false;
+    }
+
+    if (missingActiveId === id) {
+      missingActiveSnapshots += 1;
+    } else {
+      missingActiveId = id;
+      missingActiveSnapshots = 1;
+    }
+
+    return missingActiveSnapshots === 1;
   }
 
   getActiveChat = function guardedGetActiveChat() {
@@ -110,12 +160,25 @@
 
   if (typeof applyMessengerSnapshot === "function") {
     const originalApplyMessengerSnapshot = applyMessengerSnapshot;
-    applyMessengerSnapshot = async function identitySafeSnapshot(snapshot = {}, ...args) {
+    applyMessengerSnapshot = async function identitySafeSnapshot(
+      snapshot = {},
+      selectedChatId = state.activeChatId,
+      options = {}
+    ) {
+      const requestedId = String(snapshot?.activeChatId || selectedChatId || state.activeChatId || "");
+      const previous = previousChatById(requestedId);
+      const chats = normalizeChatArray(snapshot?.chats);
+
+      if (shouldTemporarilyRetain(requestedId, chats, previous)) {
+        chats.push(normalizeChatIdentity(previous));
+      }
+
       const safeSnapshot = {
         ...snapshot,
-        chats: normalizeChatArray(snapshot?.chats)
+        chats,
+        ...(requestedId ? { activeChatId: requestedId } : {})
       };
-      const result = await originalApplyMessengerSnapshot(safeSnapshot, ...args);
+      const result = await originalApplyMessengerSnapshot(safeSnapshot, requestedId, options);
       normalizeChatList();
       return result;
     };
@@ -135,5 +198,6 @@
   });
 
   window.__yachatNormalizeChatIdentity = normalizeChatIdentity;
-  document.documentElement.dataset.yachatFavoritesIdentity = "strict-v2";
+  window.__yachatNormalizeChatArray = normalizeChatArray;
+  document.documentElement.dataset.yachatFavoritesIdentity = "strict-v3";
 })();
