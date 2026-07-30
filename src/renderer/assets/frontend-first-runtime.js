@@ -10,7 +10,10 @@
 
   function messagePreview(message) {
     if (typeof messagePreviewText === "function") return messagePreviewText(message);
-    return window.yachatMessagePreview?.text(message) || "";
+    if (typeof window.yachatMessagePreview?.text === "function") {
+      return window.yachatMessagePreview.text(message);
+    }
+    return String(message?.text || "").trim();
   }
 
   function mergePersistedMessage(chat, message) {
