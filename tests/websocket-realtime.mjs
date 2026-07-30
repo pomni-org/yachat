@@ -27,7 +27,7 @@ const [
   readFile(new URL("../vercel.json", import.meta.url), "utf8"),
   readFile(new URL("../requirements.txt", import.meta.url), "utf8"),
   readFile(new URL("../src/renderer/assets/e2ee-phase2.js", import.meta.url), "utf8"),
-  readFile(new URL("../api/realtime.py", import.meta.url), "utf8")
+  readFile(new URL("../server/realtime_gateway.py", import.meta.url), "utf8")
 ]);
 
 assert.match(runtime, /new WebSocket\(websocketUrl\(\)\)/);
@@ -81,9 +81,14 @@ const vercelConfig = JSON.parse(vercel);
 assert.equal(vercelConfig.fluid, true);
 assert.deepEqual(
   vercelConfig.rewrites.find((entry) => entry.source === "/api/realtime"),
-  { source: "/api/realtime", destination: "/api/realtime.py" }
+  { source: "/api/realtime", destination: "/api/presence_runtime.py" }
 );
-assert.equal(vercelConfig.functions["api/realtime.py"].maxDuration, 300);
+assert.equal(vercelConfig.functions["api/presence_runtime.py"].maxDuration, 300);
+assert.equal(vercelConfig.functions["api/realtime.py"], undefined);
+assert.ok(
+  Object.keys(vercelConfig.functions).length <= 12,
+  "the Hobby deployment must stay within the 12-function limit"
+);
 assert.match(requirements, /^fastapi==0\.137\.0$/m);
 assert.match(requirements, /^realtime==2\.31\.0$/m);
 assert.match(requirements, /^uvicorn\[standard\]==0\.49\.0$/m);

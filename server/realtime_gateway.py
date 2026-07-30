@@ -1,8 +1,9 @@
 """Authenticated WebSocket transport for YaChat messenger state.
 
-The browser opens one WebSocket to this endpoint. Database mutations are fanned
-out between Vercel instances through Supabase Broadcast, while all durable reads
-still pass through the existing YaChat authorization and serializers.
+The browser opens one WebSocket handled by the existing presence function.
+Database mutations are fanned out between Vercel instances through Supabase
+Broadcast, while all durable reads still pass through the existing YaChat
+authorization and serializers.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.encoders import jsonable_encoder
 from psycopg.rows import dict_row
 from realtime import (
@@ -61,9 +62,6 @@ UPSTREAM_EVENTS = (
     "system_changed",
     "typing",
 )
-
-
-app = FastAPI(title="YaChat WebSocket API", version="1.0.0")
 
 
 def _supabase_realtime_url() -> str:
@@ -873,7 +871,6 @@ async def _authenticate_socket(websocket: WebSocket) -> tuple[str, dict[str, Any
     return token, user
 
 
-@app.websocket("/api/realtime")
 async def realtime_socket(websocket: WebSocket) -> None:
     if not _origin_allowed(websocket):
         await websocket.close(code=4403)

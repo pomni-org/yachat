@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
-from api import realtime
+from server import realtime_gateway as realtime
 
 
 class FakeWebSocket:
