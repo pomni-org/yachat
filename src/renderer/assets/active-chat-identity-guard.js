@@ -90,12 +90,12 @@
     return chat;
   }
 
-  function normalizeChatArray(chats) {
+  function normalizedUniqueChats(chats, clone = false) {
     const output = [];
     const seen = new Set();
 
     (Array.isArray(chats) ? chats : []).forEach((chat) => {
-      const normalized = normalizeChatIdentity(chat, true);
+      const normalized = normalizeChatIdentity(chat, clone);
       const id = String(normalized?.id || "");
       if (!id || seen.has(id)) return;
       seen.add(id);
@@ -105,9 +105,14 @@
     return output;
   }
 
+  function normalizeChatArray(chats) {
+    return normalizedUniqueChats(chats, true);
+  }
+
   function normalizeChatList() {
     if (!Array.isArray(state.chats)) return;
-    state.chats = normalizeChatArray(state.chats);
+    const normalized = normalizedUniqueChats(state.chats, false);
+    state.chats.splice(0, state.chats.length, ...normalized);
   }
 
   function previousChatById(chatId) {
