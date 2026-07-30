@@ -6,7 +6,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const root = path.resolve(__dirname, "..");
 const publicDir = path.join(root, "public");
-const RELEASE_VERSION = "93";
+const RELEASE_VERSION = "94";
 const PUSH_IMPORT = `importScripts("/assets/push-persistence.js?v=${RELEASE_VERSION}");`;
 
 async function read(relativePath) {
@@ -68,6 +68,10 @@ async function validateHardening() {
   requireText(pushRepair, `REPAIR_VERSION = "${RELEASE_VERSION}"`, "push repair release version");
   requireText(pushPersistence, "shown-notifications", "persistent notification store");
   requireText(pushPersistence, "MAX_NOTIFICATION_AGE_MS", "stale notification rejection");
+  requireText(pushPersistence, "validEnvelope", "strict push envelope validation");
+  requireText(pushPersistence, "sentAt", "push creation timestamp validation");
+  requireText(pushPersistence, "expiresAt", "push expiry validation");
+  requireText(pushPersistence, "Untimestamped or malformed legacy pushes", "legacy push rejection");
 
   requireText(instantLoading, "prefetchPriorityChats", "priority chat history prefetch");
   requireText(instantLoading, "prefetchRecentChats", "recent chat history prefetch");
