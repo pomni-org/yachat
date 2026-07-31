@@ -11,6 +11,17 @@
   const resolvedPendingChats = new Map();
   const resolvingPendingChats = new Map();
   const outboxChats = new Map();
+  const LEADING_BOUNDARY_BREAKS = /^(?:[^\S\r\n]*(?:\r\n|\r|\n))+/;
+  const TRAILING_BOUNDARY_BREAKS = /(?:(?:\r\n|\r|\n)[^\S\r\n]*)+$/;
+
+  function normalizeMessageBoundaryBreaks(value) {
+    const sharedNormalizer = window.yachatMessageBoundaryBreaks?.normalize;
+    if (typeof sharedNormalizer === "function") return sharedNormalizer(value);
+    const normalized = String(value ?? "")
+      .replace(LEADING_BOUNDARY_BREAKS, "")
+      .replace(TRAILING_BOUNDARY_BREAKS, "");
+    return normalized.trim() ? normalized : "";
+  }
 
   function safeUrl(value) {
     const source = String(value || "").trim();
@@ -205,10 +216,12 @@
     }, true);
 
     form.addEventListener("submit", (event) => {
-      if (state.editingMessageId) return;
       try { form.__yachatSyncRichEditor?.({ dispatch: false }); } catch {}
+      const text = normalizeMessageBoundaryBreaks(transport.value);
+      if (transport.value !== text) transport.value = text;
+      if (state.editingMessageId) return;
+
       const chat = getActiveChat();
-      const text = String(transport.value || "").trim();
       const attachments = Array.isArray(state.pendingAttachments) ? [...state.pendingAttachments] : [];
       if (!chat || !canSendToChat(chat) || (!text && attachments.length === 0)) return;
 
