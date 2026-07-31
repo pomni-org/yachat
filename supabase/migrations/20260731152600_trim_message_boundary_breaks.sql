@@ -5,6 +5,7 @@ create or replace function public.yachat_trim_message_boundary_breaks(value text
 returns text
 language plpgsql
 immutable
+set search_path = ''
 as $$
 declare
     normalized text := coalesce(value, '');
@@ -31,6 +32,7 @@ $$;
 create or replace function public.yachat_normalize_message_boundary_breaks()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
     new.text := public.yachat_trim_message_boundary_breaks(new.text);
