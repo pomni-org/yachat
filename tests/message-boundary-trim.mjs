@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
-const [runtime, delivery, migration] = await Promise.all([
+const [runtime, delivery, migration, hardeningMigration] = await Promise.all([
   readFile(
     new URL("../src/renderer/assets/mobile-input-focus.js", import.meta.url),
     "utf8"
@@ -14,6 +14,13 @@ const [runtime, delivery, migration] = await Promise.all([
   readFile(
     new URL(
       "../supabase/migrations/20260731152600_trim_message_boundary_breaks.sql",
+      import.meta.url
+    ),
+    "utf8"
+  ),
+  readFile(
+    new URL(
+      "../supabase/migrations/20260731155200_fix_message_boundary_function_search_path.sql",
       import.meta.url
     ),
     "utf8"
@@ -59,6 +66,10 @@ assert.doesNotMatch(delivery, /const text = String\(transport\.value \|\| ""\)\.
 assert.match(migration, /before insert or update of text on public\.yachat_messages/i);
 assert.match(migration, /before insert or update of text on public\.yachat_system_messages/i);
 assert.match(migration, /Existing history is intentionally not rewritten/);
+assert.match(migration, /set search_path = ''/g);
 assert.doesNotMatch(migration, /update\s+public\.yachat_(?:system_)?messages\s+set/i);
+assert.match(hardeningMigration, /alter function public\.yachat_trim_message_boundary_breaks\(text\)/i);
+assert.match(hardeningMigration, /alter function public\.yachat_normalize_message_boundary_breaks\(\)/i);
+assert.equal((hardeningMigration.match(/set search_path = ''/g) || []).length, 2);
 
 console.log("message boundary trim regression passed");
