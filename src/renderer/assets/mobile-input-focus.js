@@ -20,6 +20,15 @@
     "select:not(:disabled)",
     "[contenteditable='true']"
   ].join(",");
+  const LEADING_BOUNDARY_BREAKS = /^(?:[^\S\r\n]*(?:\r\n|\r|\n))+/;
+  const TRAILING_BOUNDARY_BREAKS = /(?:(?:\r\n|\r|\n)[^\S\r\n]*)+$/;
+
+  function normalizeMessageBoundaryBreaks(value) {
+    const normalized = String(value ?? "")
+      .replace(LEADING_BOUNDARY_BREAKS, "")
+      .replace(TRAILING_BOUNDARY_BREAKS, "");
+    return normalized.trim() ? normalized : "";
+  }
 
   function focusControl(target) {
     if (!(target instanceof Element)) return;
@@ -39,4 +48,16 @@
   document.addEventListener("touchend", (event) => {
     focusControl(event.target);
   }, { capture: true, passive: true });
+
+  document.addEventListener("submit", (event) => {
+    const form = event.target.closest?.('[data-form="message"]');
+    const input = form?.querySelector?.("[data-message-input]");
+    if (!input || typeof input.value !== "string") return;
+    const normalized = normalizeMessageBoundaryBreaks(input.value);
+    if (input.value !== normalized) input.value = normalized;
+  }, true);
+
+  window.yachatMessageBoundaryBreaks = Object.freeze({
+    normalize: normalizeMessageBoundaryBreaks
+  });
 })();
