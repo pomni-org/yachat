@@ -68,6 +68,10 @@
       "destination": "/api/challenge.py"
     },
     {
+      "source": "/api/telegram/webhook",
+      "destination": "/api/telegram_webhook.py"
+    },
+    {
       "source": "/api/digital-id",
       "destination": "/api/digital_id_blocked.py"
     },
@@ -282,6 +286,9 @@
       "maxDuration": 10
     },
     "api/challenge.py": {
+      "maxDuration": 20
+    },
+    "api/telegram_webhook.py": {
       "maxDuration": 20
     },
     "api/digital_id_blocked.py": {

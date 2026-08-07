@@ -20,13 +20,13 @@ from api.index import (
     hash_secret,
     normalize_contact,
     read_json_payload,
-    send_telegram_verification_code,
     telegram_bot_token,
     telegram_links_for_contact,
     utc_now,
     verification_code_html,
     verification_code_text,
 )
+from api.telegram_brand import send_telegram_verification_code
 from server.push_delivery import send_push_to_user
 
 app = FastAPI(title="YaChat challenge API", version="0.3.0")
