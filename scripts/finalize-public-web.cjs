@@ -146,8 +146,12 @@ async function validatePublicBundle() {
     readProject("vercel.json")
   ]);
 
-  requireText(landing, "<title>ячат — веб-мессенджер</title>", "landing title");
-  requireText(landing, 'rel="canonical" href="https://yachat.eu.org/"', "landing canonical");
+  requireText(landing, "<title>ЯЧат</title>", "landing title");
+  requireText(landing, 'rel="canonical" href="https://yachat.vercel.app/"', "landing canonical");
+  requireText(landing, 'name="description"', "landing description");
+  requireText(landing, 'property="og:site_name" content="ЯЧат"', "landing site name");
+  requireText(landing, 'property="og:title" content="ЯЧат"', "landing Open Graph title");
+  requireText(landing, 'name="twitter:title" content="ЯЧат"', "landing Twitter title");
   requireText(landing, 'href="/web"', "landing app link");
   LEGACY_CI_MARKERS.forEach((marker) => requireText(landing, marker, "legacy CI marker"));
   requireText(about, 'rel="canonical" href="https://yachat.eu.org/about"', "about canonical");
