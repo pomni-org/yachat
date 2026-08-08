@@ -51,13 +51,15 @@ from api.index import (
     normalize_digital_id,
     read_json_payload,
     require_user,
+    telegram_links_for_contact,
+    send_telegram_verification_code,
     utc_now,
 )
 from server.push_delivery import send_push_to_user
 from server.digital_id_vault import digital_id_lookup_hash
 
 
-app = FastAPI(title="YaChat Digital ID API", version="1.1.0")
+app = FastAPI(title="YaChat Digital ID API", version="1.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
@@ -78,7 +80,6 @@ async def harden_response(request: Request, call_next):
 
 
 def verified_identity(user: dict[str, Any], client_id: str) -> dict[str, Any]:
-    """Return a client-scoped identity proof without exposing the lookup key."""
     return {
         "subject": stable_subject(client_id, str(user.get("user_id") or user.get("id") or "")),
         "displayName": clean_text(
@@ -262,9 +263,10 @@ def developer_health():
     return {
         "ok": True,
         "service": "yachat-digital-id",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "proof": "otp-pkce-one-time-token",
         "digitalIdExposure": "self-only",
+        "deliveryChannels": ["yachat", "telegram"],
     }
 
 
@@ -279,6 +281,9 @@ async def initiate_identity(request: Request):
     external_reference = clean_text(payload.get("externalReference"), 120)
     purpose = clean_text(payload.get("purpose"), 120) or "Подтверждение личности"
     metadata = clean_metadata(payload.get("metadata"))
+    delivery = clean_text(payload.get("delivery"), 20).lower() or "yachat"
+    if delivery not in {"yachat", "telegram"}:
+        raise HTTPException(status_code=400, detail="delivery must be yachat or telegram.")
     if not client_id or not digital_id:
         raise HTTPException(status_code=400, detail="Enter a valid clientId and YaChat Digital ID.")
     if not PKCE_CHALLENGE_PATTERN.fullmatch(code_challenge):
@@ -292,6 +297,8 @@ async def initiate_identity(request: Request):
     origin = request_origin(request)
     client_name = ""
     user_id = ""
+    user_contact = ""
+    telegram_links: list[dict[str, Any]] = []
 
     with connect_db() as connection:
         with connection.cursor(row_factory=dict_row) as cursor:
@@ -299,7 +306,7 @@ async def initiate_identity(request: Request):
             client_name = clean_text(client.get("name"), 80) or client_id
             cursor.execute(
                 """
-                select id
+                select id, contact
                 from public_users
                 where digital_id_lookup_hash = %s
                    or digital_id = %s
@@ -311,6 +318,15 @@ async def initiate_identity(request: Request):
             if not user:
                 raise HTTPException(status_code=404, detail="YaChat Digital ID was not found.")
             user_id = str(user["id"])
+            user_contact = clean_text(user.get("contact"), 180)
+
+            if delivery == "telegram":
+                telegram_links = telegram_links_for_contact(cursor, user_contact)
+                if not telegram_links:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Telegram is not linked to this YaChat account for verification codes.",
+                    )
 
             cursor.execute(
                 """
@@ -342,35 +358,53 @@ async def initiate_identity(request: Request):
                 code_challenge=code_challenge,
                 purpose=purpose,
                 external_reference=external_reference,
-                metadata=metadata,
+                metadata={**metadata, "delivery": delivery},
                 origin=origin,
                 expires_at=expires_at,
             )
-            message_text, message_html = verification_message(client_name, purpose, code)
-            add_system_delivery_message(
-                cursor,
-                user_id,
-                "yachat-codes",
-                message_text,
-                expires_at,
-                message_html,
-            )
 
-    push = send_push_to_user(
-        user_id,
-        "Коды подтверждения",
-        f"{client_name} запрашивает подтверждение цифрового ID",
-        "/verificationcodes_bot",
-        tag=f"digital-id:{challenge_id}",
-        ttl_seconds=CHALLENGE_TTL_MINUTES * 60,
-    )
+            if delivery == "yachat":
+                message_text, message_html = verification_message(client_name, purpose, code)
+                add_system_delivery_message(
+                    cursor,
+                    user_id,
+                    "yachat-codes",
+                    message_text,
+                    expires_at,
+                    message_html,
+                )
+
+    push_sent = 0
+    telegram_sent = 0
+    if delivery == "yachat":
+        push = send_push_to_user(
+            user_id,
+            "Коды подтверждения",
+            f"{client_name} запрашивает подтверждение цифрового ID",
+            "/verificationcodes_bot",
+            tag=f"digital-id:{challenge_id}",
+            ttl_seconds=CHALLENGE_TTL_MINUTES * 60,
+        )
+        push_sent = int(push.get("sent") or 0)
+    else:
+        telegram_sent = send_telegram_verification_code(telegram_links, user_contact, code)
+        if telegram_sent <= 0:
+            with connect_db() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "update yachat_identity_challenges set status = 'replaced' where id = %s and status = 'pending'",
+                        (challenge_id,),
+                    )
+            raise HTTPException(status_code=503, detail="The Telegram verification code could not be delivered.")
+
     result: dict[str, Any] = {
         "challengeId": challenge_id,
         "status": "code_sent",
-        "delivery": "yachat-codes",
+        "delivery": delivery,
         "expiresAt": expires_at,
         "client": {"id": client_id, "name": client_name},
-        "push": {"sent": int(push.get("sent") or 0)},
+        "push": {"sent": push_sent},
+        "telegram": {"sent": telegram_sent},
     }
     if env_flag("YACHAT_RETURN_DEV_CODE", False) and os.getenv("VERCEL_ENV") != "production":
         result["devCode"] = code
