@@ -65,4 +65,12 @@
     attachmentPreview,
     isSingleEmoji
   });
+
+  document.addEventListener("DOMContentLoaded", () => {
+    if (document.querySelector('script[data-personal-identity-loader]')) return;
+    const script = document.createElement("script");
+    script.src = "./assets/personal-identity.js";
+    script.dataset.personalIdentityLoader = "true";
+    document.head.appendChild(script);
+  }, { once: true });
 })();
