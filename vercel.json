@@ -68,6 +68,14 @@
       "destination": "/api/challenge.py"
     },
     {
+      "source": "/api/personal-profile",
+      "destination": "/api/challenge.py"
+    },
+    {
+      "source": "/api/developer/v1/identity/profile",
+      "destination": "/api/challenge.py"
+    },
+    {
       "source": "/api/digital-id",
       "destination": "/api/digital_id_blocked.py"
     },
