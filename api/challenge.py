@@ -29,12 +29,12 @@ from api.index import (
 )
 from server.push_delivery import send_push_to_user
 
-app = FastAPI(title="YaChat challenge API", version="0.3.0")
+app = FastAPI(title="YaChat challenge API", version="0.4.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=configured_cors_origins(),
-    allow_methods=["POST", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-YaChat-API-Key"],
 )
 
 
@@ -135,3 +135,10 @@ async def create_challenge(request: Request):
         result["devCode"] = code
         delivery["dev"] = True
     return result
+
+
+# Personal identity routes share this existing Vercel function so the Hobby
+# deployment stays within the serverless-function limit.
+from server.personal_identity import app as personal_identity_app  # noqa: E402
+
+app.mount("/", personal_identity_app)
